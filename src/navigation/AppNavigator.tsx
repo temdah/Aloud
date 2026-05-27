@@ -1,19 +1,19 @@
 import { DefaultTheme, NavigationContainer, type Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useMemo } from 'react';
-import DownloadScreen from '../screens/DownloadScreen';
 import LibraryScreen from '../screens/LibraryScreen';
 import LicensesScreen from '../screens/LicensesScreen';
 import ReaderScreen from '../screens/ReaderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import TextToSpeechDemoScreen from '../screens/TextToSpeechDemoScreen';
+import VoiceModelScreen from '../screens/VoiceModelScreen';
 import { useTheme } from '../theme';
 import type { RootStackParamList } from './navigationTypes';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// Screens with their own AppBar manage their own header/back; Download and the
-// diagnostics screen rely on the native stack header instead.
+// Screens with their own AppBar manage their own header/back; the diagnostics
+// screen relies on the native stack header instead.
 export function AppNavigator() {
   const { palette: p, mode } = useTheme();
 
@@ -48,7 +48,7 @@ export function AppNavigator() {
         <Stack.Screen name="Reader" component={ReaderScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="Licenses" component={LicensesScreen} />
-        <Stack.Screen name="Download" component={DownloadScreen} options={{ headerShown: true, title: 'Voice model' }} />
+        <Stack.Screen name="VoiceModel" component={VoiceModelScreen} />
         <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Voice engine' }} />
       </Stack.Navigator>
     </NavigationContainer>

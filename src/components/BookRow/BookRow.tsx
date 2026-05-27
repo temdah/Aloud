@@ -8,14 +8,15 @@ import { PlayingPulse } from '../PlayingPulse';
 import { ProgressBar } from '../ProgressBar';
 import { makeStyles } from './BookRow.styles';
 
-export type BookRowProps = { book: Book; last?: boolean; onPress?: () => void };
+export type BookRowProps = { book: Book; last?: boolean; onPress?: () => void; onLongPress?: () => void };
 
-export function BookRow({ book, last = false, onPress }: BookRowProps) {
+export function BookRow({ book, last = false, onPress, onLongPress }: BookRowProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole="button"
       accessibilityLabel={book.author ? `${book.title} by ${book.author}` : book.title}
       android_ripple={{ color: p.surfaceAlt }}

@@ -1,11 +1,15 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBar, BookRow, Button, Chip, EmptyArt, FAB, IconButton } from '../../components';
+import { File } from 'expo-file-system';
+import { ActionDialog, AppBar, BookRow, Button, Chip, EmptyArt, FAB, IconButton } from '../../components';
 import { useImportDocument } from '../../hooks';
+import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore } from '../../stores';
+import { clearDocumentCache } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
+import type { ImportedDocument } from '../../types';
 import type { AppNavigation } from '../../navigation/navigationTypes';
 import { makeStyles } from './LibraryScreen.styles';
 
@@ -16,8 +20,11 @@ export default function LibraryScreen() {
   const styles = useMemo(() => makeStyles(p), [p]);
   const navigation = useNavigation<AppNavigation>();
   const documents = useDocumentsStore((s) => s.documents);
+  const cursor = useDocumentsStore((s) => s.cursor);
+  const removeDocument = useDocumentsStore((s) => s.removeDocument);
   const { importDocument } = useImportDocument();
   const [filter, setFilter] = useState<Filter>('all');
+  const [menuDoc, setMenuDoc] = useState<ImportedDocument | null>(null);
 
   const books = useMemo(() => documents.map(documentToBook), [documents]);
   const visible = books.filter((b) =>
@@ -57,10 +64,53 @@ export default function LibraryScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.listContent}>
         {visible.map((b, i) => (
-          <BookRow key={b.id} book={b} last={i === visible.length - 1} onPress={() => openBook(b.id)} />
+          <BookRow
+            key={b.id}
+            book={b}
+            last={i === visible.length - 1}
+            onPress={() => openBook(b.id)}
+            onLongPress={() => {
+              const doc = documents.find((d) => d.docHash === b.id);
+              if (doc) setMenuDoc(doc);
+            }}
+          />
         ))}
       </ScrollView>
       <FAB icon="plus" label="Import PDF" onPress={importDocument} />
+      <ActionDialog
+        open={!!menuDoc}
+        onClose={() => setMenuDoc(null)}
+        title={menuDoc?.title}
+        actions={
+          menuDoc
+            ? [
+                {
+                  label: cursor[menuDoc.docHash] != null ? 'Continue' : 'Play',
+                  variant: 'filled',
+                  onPress: () => navigation.navigate('Reader', { docId: menuDoc.docHash }),
+                },
+                {
+                  label: 'Clear cached audio',
+                  variant: 'tonal',
+                  onPress: () => clearDocumentCache(menuDoc.docHash),
+                },
+                {
+                  label: 'Delete',
+                  variant: 'danger',
+                  onPress: () => {
+                    clearDocumentCache(menuDoc.docHash);
+                    deleteExtractedText(menuDoc.docHash);
+                    try {
+                      new File(menuDoc.fileUri).delete();
+                    } catch {}
+                    removeDocument(menuDoc.docHash);
+                  },
+                },
+                { label: 'Cancel', variant: 'ghost' },
+              ]
+            : []
+        }
+      />
     </View>
   );
 }

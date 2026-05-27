@@ -11,10 +11,16 @@ export const makeStyles = (p: Palette) =>
       backgroundColor: p.text,
       borderRadius: 999,
       paddingVertical: 8,
-      paddingHorizontal: 14,
+      paddingLeft: 14,
+      paddingRight: 10,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
       gap: 8,
+    },
+    label: {
+      flex: 1,
+    },
+    close: {
+      padding: 2,
     },
   });

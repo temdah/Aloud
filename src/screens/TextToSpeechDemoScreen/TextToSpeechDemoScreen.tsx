@@ -4,13 +4,13 @@ import { useMemo, useRef, useState } from 'react';
 import { Button, ScrollView, Text, View } from 'react-native';
 import {
   DEFAULT_VOICE,
-  ensureModelsDownloaded,
   encodeWav,
   loadTextToSpeech,
   loadVoiceStyle,
   TextToSpeech,
   VoiceStyle,
 } from '../../supertonic';
+import { useSettingsStore } from '../../stores';
 import { useTheme } from '../../theme';
 import { makeStyles } from './TextToSpeechDemoScreen.styles';
 
@@ -19,11 +19,13 @@ const SAMPLE_SENTENCE =
 const SAMPLE_LANGUAGE = 'en';
 const OUTPUT_FILE = 'tts_output.wav';
 
-// Milestone-0 demo: downloads the model, synthesizes one sentence on-device,
-// plays it, and reports the real-time factor.
+// Milestone-0 diagnostics: synthesizes one sentence on-device, plays it, and
+// reports the real-time factor. The model download lives in Settings → voice
+// model; this screen assumes it's already installed.
 export default function TextToSpeechDemoScreen() {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
+  const modelId = useSettingsStore((s) => s.modelId);
   const [log, setLog] = useState('On-device Supertonic TTS demo.\n');
   const [busy, setBusy] = useState(false);
   const [steps, setSteps] = useState(8);
@@ -36,32 +38,13 @@ export default function TextToSpeechDemoScreen() {
     setLog((prev) => prev + line + '\n');
   };
 
-  const downloadModels = async () => {
-    setBusy(true);
-    try {
-      append('Downloading models (first run only, ~263 MB)...');
-      let lastReported = -1;
-      await ensureModelsDownloaded(DEFAULT_VOICE, ({ file, index, total, bytesWritten, totalBytes }) => {
-        const pct = totalBytes > 0 ? Math.floor((bytesWritten / totalBytes) * 100) : 0;
-        if (pct !== lastReported && (pct % 25 === 0 || bytesWritten >= totalBytes)) {
-          lastReported = pct;
-          append(`  [${index}/${total}] ${file}: ${pct}% (${(bytesWritten / 1e6).toFixed(1)} MB)`);
-        }
-      });
-      append('All model files present.');
-    } catch (error) {
-      append('DOWNLOAD ERROR: ' + describe(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const ensureLoaded = async () => {
     if (ttsRef.current && voiceRef.current) return;
-    append('Loading ONNX sessions...');
+    if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
+    append(`Loading ONNX sessions (${modelId})...`);
     const start = Date.now();
-    ttsRef.current = await loadTextToSpeech();
-    voiceRef.current = await loadVoiceStyle(DEFAULT_VOICE);
+    ttsRef.current = await loadTextToSpeech(modelId);
+    voiceRef.current = await loadVoiceStyle(modelId, DEFAULT_VOICE);
     append(`Sessions loaded in ${seconds(Date.now() - start)} s (sampleRate=${ttsRef.current.sampleRate}).`);
   };
 
@@ -112,16 +95,14 @@ export default function TextToSpeechDemoScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>PDF Read-Aloud — TTS demo</Text>
-      <View style={styles.row}>
-        <Button title="1. Download models" onPress={downloadModels} disabled={busy} />
-      </View>
+      <Text style={styles.hint}>Install the voice in Settings → voice model first.</Text>
       <View style={styles.row}>
         <Button title="- steps" onPress={() => setSteps((s) => Math.max(1, s - 1))} disabled={busy} />
         <Text style={styles.steps}>steps: {steps}</Text>
         <Button title="+ steps" onPress={() => setSteps((s) => s + 1)} disabled={busy} />
       </View>
       <View style={styles.row}>
-        <Button title="2. Synthesize + play" onPress={synthesizeAndPlay} disabled={busy} />
+        <Button title="Synthesize + play" onPress={synthesizeAndPlay} disabled={busy} />
       </View>
       <ScrollView style={styles.logBox}>
         <Text style={styles.logText}>{log}</Text>

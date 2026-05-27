@@ -10,8 +10,12 @@ import type { NarrationSettings } from './narrationTypes';
 const ROOT = 'tts';
 const WAV_HEADER_BYTES = 44;
 
+// Bump when text preprocessing / synthesis changes the produced audio for the
+// same settings, so stale cached WAVs are regenerated instead of replayed.
+const SYNTH_VERSION = 2;
+
 export function settingsHash(s: NarrationSettings): string {
-  return stableHash(`${s.voiceId}|${s.speed}|${s.steps}|${s.lang}`);
+  return stableHash(`v${SYNTH_VERSION}|${s.modelId}|${s.voiceId}|${s.speed}|${s.steps}|${s.lang}`);
 }
 
 export function documentCacheDir(docHash: string): Directory {

@@ -1,8 +1,8 @@
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useCallback, useMemo, useState } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { AppBar, Icon, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
-import { areModelsDownloaded } from '../../supertonic';
+import { findModel } from '../../supertonic';
 import { useSettingsStore } from '../../stores';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation } from '../../navigation/navigationTypes';
@@ -13,6 +13,7 @@ export default function SettingsScreen() {
   const styles = useMemo(() => makeStyles(p), [p]);
   const navigation = useNavigation<AppNavigation>();
 
+  const modelId = useSettingsStore((s) => s.modelId);
   const voice = useSettingsStore((s) => s.voiceId);
   const setVoice = useSettingsStore((s) => s.setVoice);
   const speed = useSettingsStore((s) => s.speed);
@@ -21,11 +22,8 @@ export default function SettingsScreen() {
   const setSteps = useSettingsStore((s) => s.setSteps);
 
   const [voiceSheet, setVoiceSheet] = useState(false);
-  const [modelReady, setModelReady] = useState(false);
 
-  // Re-check model presence whenever the screen regains focus (e.g. returning
-  // from the download flow).
-  useFocusEffect(useCallback(() => setModelReady(areModelsDownloaded(voice)), [voice]));
+  const activeModel = findModel(modelId);
 
   return (
     <View style={styles.screen}>
@@ -76,10 +74,10 @@ export default function SettingsScreen() {
           <View style={styles.storageCard}>
             <ListItem
               leading={<View style={styles.leadingPrimary}><Icon name="download" size={18} color={p.primary} /></View>}
-              title="Supertonic voice model"
-              subtitle={modelReady ? 'Ready' : 'Not downloaded'}
-              trailing={modelReady ? <Icon name="check" size={18} color={p.success} /> : <Icon name="chevR" size={18} color={p.textDim} />}
-              onPress={() => navigation.navigate('Download')}
+              title="Voice model"
+              subtitle={activeModel ? `${activeModel.label} · in use` : 'Not set — choose a model'}
+              trailing={activeModel ? <Icon name="check" size={18} color={p.success} /> : <Icon name="chevR" size={18} color={p.textDim} />}
+              onPress={() => navigation.navigate('VoiceModel')}
             />
             <ListItem
               divider={false}

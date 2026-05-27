@@ -1,4 +1,5 @@
 // Shared component library. Every screen composes these.
+export * from './ActionDialog';
 export * from './Icon';
 export * from './Spinner';
 export * from './Button';
@@ -19,9 +20,11 @@ export * from './EmptyArt';
 export * from './FAB';
 export * from './NowPlayingPill';
 export * from './PlayingPulse';
+export * from './ProcessingRing';
 export * from './TapHint';
 export * from './SettingRow';
 export * from './SettingsSection';
 export * from './DownloadHero';
+export * from './ModelCard';
 export * from './VoicePicker';
 export * from './VoiceSwatch';

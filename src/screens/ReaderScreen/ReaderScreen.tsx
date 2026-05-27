@@ -1,18 +1,26 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View, type ViewToken } from 'react-native';
-import { AppBar, Chip, Icon, IconButton, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, voiceLabel } from '../../components';
-import { usePageGeometry, usePdfText } from '../../hooks';
+import { ActionDialog, AppBar, Chip, Icon, IconButton, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, voiceLabel, type DialogAction } from '../../components';
+import { usePageGeometry, usePdfText, usePlayback } from '../../hooks';
 import type { ExtractedBlock } from '../../pdf';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
+import { loadChunks } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
-import { flatSentenceIndex } from './flatSentenceIndex';
 import { makeStyles } from './ReaderScreen.styles';
 
 const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.15, 1.25, 1.5];
 const INDENT_STEP = 18;
 const TOC_DOTS = Array(80).fill('·').join(' ');
+
+// mm:ss for a duration in seconds (audio positions/durations).
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
 
 // Color a TOC entry's leading section number (e.g. "2.1") with the accent.
 function renderTocTitle(title: string, accent: string) {
@@ -32,14 +40,19 @@ export default function ReaderScreen() {
   const navigation = useNavigation<AppNavigation>();
   const route = useRoute<ReaderRoute>();
   const doc = useDocumentsStore((s) => s.documents.find((d) => d.docHash === route.params.docId));
+  const markHintSeen = useDocumentsStore((s) => s.markHintSeen);
+  const setCursor = useDocumentsStore((s) => s.setCursor);
+  const modelId = useSettingsStore((s) => s.modelId);
   const voiceId = useSettingsStore((s) => s.voiceId);
-  const settingsSpeed = useSettingsStore((s) => s.speed);
+  const speed = useSettingsStore((s) => s.speed);
+  const setSpeed = useSettingsStore((s) => s.setSpeed);
+  const steps = useSettingsStore((s) => s.steps);
 
   const { status, document, pageCount, loadedPages, stage, error, extractor } = usePdfText(doc);
 
   const blocks = document?.blocks ?? [];
-  // Map each PDF page to its blocks (with their global index, for the flat
-  // sentence lookup that drives highlighting).
+  // Map each PDF page to its blocks (with their global index, used as the
+  // render key for each block).
   const blocksByPage = useMemo(() => {
     const m = new Map<number, { block: ExtractedBlock; gbi: number }[]>();
     blocks.forEach((b, gbi) => {
@@ -50,26 +63,91 @@ export default function ReaderScreen() {
     return m;
   }, [blocks]);
   const { getItemLayout, onPageLayout, version: geomVersion } = usePageGeometry(doc?.docHash, blocks, pageCount, status === 'ready');
-  const flat = useMemo(() => flatSentenceIndex(blocks), [blocks]);
-  // O(1) lookup of a sentence's flat index (block:sentence -> index) so block
-  // rendering isn't O(sentences × all-sentences) — that quadratic cost is what
-  // made page renders (and thus far jumps) crawl.
-  const flatIndexByKey = useMemo(() => {
-    const m = new Map<string, number>();
-    flat.forEach((x, i) => m.set(`${x.bi}:${x.si}`, i));
-    return m;
-  }, [flat]);
-  const total = flat.length;
+
+  // Canonical chunk list (playback order + char ranges into document.text),
+  // built/persisted once the text layer is ready. The same string drives both
+  // the chunk boundaries and the rendered sentences, so char offsets join them.
+  const chunks = useMemo(
+    () => (status === 'ready' && doc && document?.text ? loadChunks(doc.docHash, document.text) : []),
+    [status, doc?.docHash, document?.text],
+  );
+
+  const playback = usePlayback({ docHash: doc?.docHash ?? '', chunks, text: document?.text ?? '', modelId, voiceId, speed, steps });
+
+  // Highlight the selected/playing chunk once the user has engaged (tapped a
+  // sentence or pressed play); nothing is highlighted before that.
+  const activeChunk = playback.engaged ? playback.currentChunk : null;
   const hasPages = pageCount > 0;
+
+  // Tapping a sentence only selects + highlights it (free, no model needed).
+  // Pressing play needs a model — route to the picker when none is chosen yet.
+  const onTogglePlay = useCallback(() => {
+    if (!modelId) return navigation.navigate('VoiceModel');
+    playback.toggle();
+  }, [modelId, navigation, playback]);
 
   const listRef = useRef<FlatList<number>>(null);
   const [currentPage, setCurrentPage] = useState(1);
-
-  const [playing, setPlaying] = useState(false);
-  const [current, setCurrent] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [speed, setSpeed] = useState(settingsSpeed);
+  const currentPageRef = useRef(1);
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
   const [speedSheet, setSpeedSheet] = useState(false);
+  const [tocPrompt, setTocPrompt] = useState<{ title: string; target: number; charStart: number } | null>(null);
+  const [showHint, setShowHint] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Follow mode: when on, the view tracks the spoken sentence; when off, the user
+  // scrolls freely. A tapped-while-playing sentence is held as a pending offset
+  // (gray highlight) until the user confirms via the play-from-here prompt.
+  const [followMode, setFollowMode] = useState(true);
+  const [pendingOffset, setPendingOffset] = useState<number | null>(null);
+  const [playPrompt, setPlayPrompt] = useState(false);
+
+  const dismissHint = useCallback(() => {
+    setShowHint(false);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+  }, []);
+
+  // Tapping a sentence: no model → go pick one; already playing → ask before
+  // hijacking the audio (hold the tap as a pending selection); otherwise just
+  // select + highlight it (press play to start there).
+  const handleSentenceTap = useCallback(
+    (charStart: number) => {
+      if (!modelId) {
+        navigation.navigate('VoiceModel');
+        return;
+      }
+      if (playback.playing) {
+        setPendingOffset(charStart);
+        setPlayPrompt(true);
+      } else {
+        playback.select(charStart);
+      }
+    },
+    [modelId, navigation, playback],
+  );
+
+  const pendingChunk = useMemo(
+    () => (pendingOffset == null ? null : chunks.find((c) => pendingOffset >= c.charStart && pendingOffset < c.charEnd) ?? null),
+    [pendingOffset, chunks],
+  );
+
+  const clearPending = useCallback(() => {
+    setPlayPrompt(false);
+    setPendingOffset(null);
+  }, []);
+
+  // First-open hint: show once per document (persisted), auto-dismiss after 10s.
+  useEffect(() => {
+    if (status !== 'ready' || !doc) return;
+    if (useDocumentsStore.getState().hintsSeen.includes(doc.docHash)) return;
+    setShowHint(true);
+    markHintSeen(doc.docHash);
+    hintTimer.current = setTimeout(() => setShowHint(false), 10000);
+    return () => {
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    };
+  }, [status, doc?.docHash, markHintSeen]);
 
   const data = useMemo(() => Array.from({ length: pageCount }, (_, i) => i + 1), [pageCount]);
 
@@ -97,6 +175,85 @@ export default function ReaderScreen() {
     }, 60);
   }, []);
 
+  const pageForOffset = useCallback(
+    (offset: number) => blocks.find((b) => offset >= b.charStart && offset < b.charEnd)?.page,
+    [blocks],
+  );
+
+  // Scroll to a char offset's approximate vertical spot within its page (not the
+  // page top), using the geometry offset table + the offset's fractional
+  // position among that page's blocks, with a little headroom above.
+  const scrollToReadingOffset = useCallback(
+    (charOffset: number, animated = true) => {
+      const page = pageForOffset(charOffset);
+      if (!page || pageCount <= 0) return;
+      const layout = getItemLayout(data, page - 1);
+      if (!layout) return;
+      const items = blocksByPage.get(page);
+      let frac = 0;
+      if (items && items.length) {
+        const cs = items[0].block.charStart;
+        const ce = items[items.length - 1].block.charEnd;
+        if (ce > cs) frac = Math.max(0, Math.min(1, (charOffset - cs) / (ce - cs)));
+      }
+      const target = Math.max(0, layout.offset + frac * layout.length - 100);
+      listRef.current?.scrollToOffset({ offset: target, animated });
+    },
+    [pageForOffset, pageCount, getItemLayout, data, blocksByPage],
+  );
+
+  const toggleFollow = useCallback(() => {
+    setFollowMode((on) => {
+      const next = !on;
+      // Re-enabling jumps back to wherever the reading currently is.
+      if (next && activeChunk) scrollToReadingOffset(activeChunk.charStart, true);
+      return next;
+    });
+  }, [activeChunk, scrollToReadingOffset]);
+
+  // Tapping a contents entry is ambiguous (navigate vs. read), so open a themed
+  // dialog: jump to the section, or select its text like any sentence.
+  const promptTocAction = useCallback((title: string, target: number, charStart: number) => {
+    setTocPrompt({ title, target, charStart });
+  }, []);
+
+  const tocActions = useMemo<DialogAction[]>(() => {
+    if (!tocPrompt) return [];
+    const a: DialogAction[] = [];
+    if (!Number.isNaN(tocPrompt.target)) {
+      a.push({ label: `Jump to page ${tocPrompt.target}`, variant: 'filled', onPress: () => scrollToPage(tocPrompt.target, false) });
+    }
+    a.push({ label: 'Select text', variant: 'tonal', onPress: () => playback.select(tocPrompt.charStart) });
+    a.push({ label: 'Cancel', variant: 'ghost' });
+    return a;
+  }, [tocPrompt, scrollToPage, playback]);
+
+  // Follow mode: when on, keep the playing/selected chunk in view as it advances.
+  // Reads currentPage via a ref so the user's own scrolling doesn't retrigger
+  // this — only a chunk change does.
+  const activeOffset = activeChunk?.charStart ?? -1;
+  useEffect(() => {
+    if (!followMode || activeOffset < 0 || pageCount <= 0) return;
+    scrollToReadingOffset(activeOffset, true);
+  }, [followMode, activeOffset, pageCount, scrollToReadingOffset]);
+
+  // Persist the reading position (char offset of the current chunk) so the
+  // library's "Continue" can resume it.
+  const currentCharStart = playback.currentChunk?.charStart ?? -1;
+  useEffect(() => {
+    if (doc && playback.engaged && currentCharStart >= 0) setCursor(doc.docHash, currentCharStart);
+  }, [doc?.docHash, playback.engaged, currentCharStart, setCursor]);
+
+  // Resume the saved position once, when the text is ready (highlight + follow,
+  // no auto-play — the user presses play to continue).
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (status !== 'ready' || !doc || resumedRef.current) return;
+    resumedRef.current = true;
+    const saved = useDocumentsStore.getState().cursor[doc.docHash];
+    if (saved != null && saved > 0) playback.goTo(saved);
+  }, [status, doc?.docHash, playback]);
+
   const labelForPage = useCallback(
     (pg: number) => {
       const items = blocksByPage.get(pg);
@@ -110,32 +267,50 @@ export default function ReaderScreen() {
 
   const renderBlock = (b: ExtractedBlock, gbi: number) => {
     const pad = { paddingLeft: b.indent * INDENT_STEP };
+    if (b.kind === 'pageHeader') {
+      // Running header/footer — greyed, receded, and separated by a rule. Not
+      // spoken, so it isn't tappable/selectable like body text.
+      return (
+        <View key={gbi} style={styles.pageHeader}>
+          <Text numberOfLines={1} style={ty(TYPE.caption, p.textDim)}>{b.text}</Text>
+        </View>
+      );
+    }
     if (b.kind === 'h2') {
       return <Text key={gbi} style={[ty(TYPE.titleSerif, p.text), styles.heading, pad]}>{b.text}</Text>;
     }
     if (b.kind === 'toc') {
       const target = b.target ? parseInt(b.target, 10) : NaN;
       return (
-        <Pressable key={gbi} onPress={() => { if (!Number.isNaN(target)) scrollToPage(target, false); }} style={[styles.tocRow, pad]}>
+        <Pressable key={gbi} onPress={() => promptTocAction(b.title, target, b.charStart)} style={[styles.tocRow, pad]}>
           <Text style={[ty(TYPE.body, p.text), styles.tocTitle]}>{renderTocTitle(b.title, p.primary)}</Text>
           <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.tocLeader, { color: p.textDim }]}>{TOC_DOTS}</Text>
           {b.target ? <Text style={ty(TYPE.label, p.primary)}>{b.target}</Text> : null}
         </Pressable>
       );
     }
+    // Whole paragraph is the tap target (incl. line gaps + the trailing-margin
+    // gap) so taps that land off a glyph still select the right sentence; a tap
+    // outside any sentence falls back to the paragraph's first sentence.
     return (
-      <Text key={gbi} style={[ty(TYPE.reader, p.text), styles.paragraph, pad]}>
-        {b.sentences.map((s, si) => {
-          const flatIdx = playing ? flatIndexByKey.get(`${gbi}:${si}`) ?? -1 : -1;
-          const isCurrent = flatIdx === current && playing;
-          const color = isCurrent ? p.highlightInk : playing && flatIdx < current ? p.textMuted : p.text;
-          return (
-            <Text key={si} onPress={() => { setCurrent(flatIdx); setPlaying(true); }} style={{ color, backgroundColor: isCurrent ? p.highlight : 'transparent' }}>
-              {s.text}{si < b.sentences.length - 1 ? ' ' : ''}
-            </Text>
-          );
-        })}
-      </Text>
+      <Pressable key={gbi} onPress={() => handleSentenceTap(b.sentences[0]?.charStart ?? b.charStart)} style={pad}>
+        <Text style={ty(TYPE.reader, p.text)}>
+          {b.sentences.map((s, si) => {
+            // Accent highlight = playing/selected chunk; gray = a pending tap made
+            // while audio is playing; dim = already read.
+            const isCurrent = !!activeChunk && s.charStart >= activeChunk.charStart && s.charStart < activeChunk.charEnd;
+            const isPending = !!pendingChunk && s.charStart >= pendingChunk.charStart && s.charStart < pendingChunk.charEnd;
+            const isRead = !!activeChunk && s.charStart < activeChunk.charStart;
+            const color = isCurrent ? p.highlightInk : isRead ? p.textMuted : p.text;
+            const bg = isCurrent ? p.highlight : isPending ? p.surfaceAlt : 'transparent';
+            return (
+              <Text key={si} onPress={() => handleSentenceTap(s.charStart)} style={{ color, backgroundColor: bg }}>
+                {s.text}{si < b.sentences.length - 1 ? ' ' : ''}
+              </Text>
+            );
+          })}
+        </Text>
+      </Pressable>
     );
   };
 
@@ -169,7 +344,7 @@ export default function ReaderScreen() {
     <View style={styles.screen}>
       <AppBar onBack={() => navigation.goBack()} title={doc?.title} subtitle={pageCount > 0 ? `${pageCount} pages` : undefined} actions={<IconButton icon="more" accessibilityLabel="More" />} />
 
-      <View style={styles.body}>
+      <View style={styles.body} onTouchStart={showHint ? dismissHint : undefined}>
         {status === 'loading' ? (
           <View style={styles.emptyState}>
             <Spinner size={26} color={p.primary} />
@@ -193,7 +368,7 @@ export default function ReaderScreen() {
             <FlatList
               ref={listRef}
               data={data}
-              extraData={`${loadedPages}:${geomVersion}`}
+              extraData={`${loadedPages}:${geomVersion}:${activeChunk?.charStart ?? -1}:${pendingChunk?.charStart ?? -1}`}
               keyExtractor={(pg) => String(pg)}
               renderItem={({ item }) => renderSlot(item)}
               getItemLayout={getItemLayout}
@@ -214,29 +389,33 @@ export default function ReaderScreen() {
             <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>No document open.</Text>
           </View>
         )}
-        {hasPages && status === 'ready' && !playing && current === 0 ? <TapHint /> : null}
+        {showHint ? <TapHint onClose={dismissHint} /> : null}
       </View>
 
       {hasPages ? (
         <View style={styles.pageBar}>
-          <IconButton icon="back" onPress={() => scrollToPage(currentPage - 1)} accessibilityLabel="Previous page" />
+          <Chip label="Follow" selected={followMode} onPress={toggleFollow} />
           <Text style={ty(TYPE.label, p.textMuted)}>
             Page {currentPage} / {pageCount}
             {status === 'streaming' ? `  ·  ${loadedPages} loaded` : ''}
           </Text>
-          <IconButton icon="chevR" onPress={() => scrollToPage(currentPage + 1)} accessibilityLabel="Next page" />
+          <View style={styles.pageNav}>
+            <IconButton icon="back" onPress={() => scrollToPage(currentPage - 1)} accessibilityLabel="Previous page" />
+            <IconButton icon="chevR" onPress={() => scrollToPage(currentPage + 1)} accessibilityLabel="Next page" />
+          </View>
         </View>
       ) : null}
 
       <PlayerControls
-        playing={playing}
-        onTogglePlay={() => setPlaying((v) => !v)}
-        onSkipBack={() => setCurrent((c) => Math.max(0, c - 1))}
-        onSkipFwd={() => setCurrent((c) => Math.min(Math.max(0, total - 1), c + 1))}
-        progress={progress}
-        onScrub={setProgress}
-        position="0:00"
-        duration="0:00"
+        playing={playback.playing}
+        loading={playback.loading}
+        onTogglePlay={onTogglePlay}
+        onSkipBack={playback.previous}
+        onSkipFwd={playback.next}
+        progress={playback.durationSec > 0 ? playback.positionSec / playback.durationSec : 0}
+        onScrub={playback.seek}
+        position={formatTime(playback.positionSec)}
+        duration={formatTime(Math.max(0, playback.durationSec - playback.positionSec))}
         speed={speed}
         onSpeed={() => setSpeedSheet(true)}
         voiceName={voiceLabel(voiceId)}
@@ -257,6 +436,25 @@ export default function ReaderScreen() {
           </View>
         </View>
       </Sheet>
+
+      <ActionDialog
+        open={!!tocPrompt}
+        onClose={() => setTocPrompt(null)}
+        title={tocPrompt?.title}
+        message="This is a contents entry. Jump to its section, or select the text to read from here."
+        actions={tocActions}
+      />
+
+      <ActionDialog
+        open={playPrompt}
+        onClose={clearPending}
+        title="Jump here?"
+        message="Audio is still playing. Start reading from the tapped sentence, or keep playing where you are."
+        actions={[
+          { label: 'Play from here', variant: 'filled', onPress: () => { if (pendingOffset != null) playback.playFrom(pendingOffset); } },
+          { label: 'Keep playing', variant: 'ghost' },
+        ]}
+      />
 
       {extractor}
     </View>

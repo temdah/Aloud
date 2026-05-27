@@ -35,8 +35,13 @@ export type Chunk = {
   textHash: string; // guards cached audio/timing against drift (§7.2)
 };
 
-/** Persisted per-document chunk list. Reused on reopen if docHash matches. */
+/** Persisted per-document chunk list. Reused on reopen only if docHash AND
+ *  textHash match — a re-extraction that changes the text invalidates it. */
 export type DocumentManifest = {
   docHash: string;
+  /** stableHash of the canonical text the chunks were built from. */
+  textHash: string;
+  /** Bumped when the chunker algorithm changes; invalidates stored chunks. */
+  chunkerVersion: number;
   chunks: Chunk[];
 };

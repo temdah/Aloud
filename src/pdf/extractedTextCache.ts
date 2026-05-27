@@ -6,7 +6,7 @@ import type { ExtractedDocument } from './pdfExtractionTypes';
 const TEXT_DIR = 'text';
 
 // Bump when the extraction/reflow logic changes so stale caches are re-extracted.
-const EXTRACTOR_VERSION = 8;
+const EXTRACTOR_VERSION = 9;
 
 type CacheEnvelope = { version: number; doc: ExtractedDocument };
 
@@ -33,4 +33,9 @@ export function saveExtractedText(docHash: string, doc: ExtractedDocument): void
   if (file.exists) file.delete();
   file.create();
   file.write(JSON.stringify({ version: EXTRACTOR_VERSION, doc } satisfies CacheEnvelope));
+}
+
+export function deleteExtractedText(docHash: string): void {
+  const file = cacheFile(docHash);
+  if (file.exists) file.delete();
 }

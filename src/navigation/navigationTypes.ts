@@ -5,7 +5,7 @@ export type RootStackParamList = {
   Library: undefined;
   Reader: { docId: string };
   Settings: undefined;
-  Download: undefined;
+  VoiceModel: undefined;
   TextToSpeechDemo: undefined;
   Licenses: undefined;
 };

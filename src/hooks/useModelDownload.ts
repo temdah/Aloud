@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { areModelsDownloaded, DEFAULT_VOICE, ensureModelsDownloaded } from '../supertonic';
+import { areModelsDownloaded, deleteModel, ensureModelsDownloaded } from '../supertonic';
 
 export type ModelDownloadStatus = 'idle' | 'downloading' | 'ready' | 'error';
 
@@ -11,16 +11,18 @@ export type ModelDownloadState = {
   error?: string;
   /** Begin (or retry) the download. */
   start: () => void;
+  /** Delete this build's files to free storage; resets back to 'idle'. */
+  remove: () => void;
 };
 
-// Controller for the first-run model download — wraps ensureModelsDownloaded
-// with reactive progress. Drives DownloadScreen. Starts in 'ready' if the
-// model is already present.
-export function useModelDownload(voiceId: string = DEFAULT_VOICE): ModelDownloadState {
+// Controller for one model build's download — wraps ensureModelsDownloaded with
+// reactive progress. Drives a model card / the voice-model screen. Starts in
+// 'ready' if that build is already present on device.
+export function useModelDownload(modelId: string, voiceId: string): ModelDownloadState {
   const [status, setStatus] = useState<ModelDownloadStatus>(() =>
-    areModelsDownloaded(voiceId) ? 'ready' : 'idle',
+    areModelsDownloaded(modelId, voiceId) ? 'ready' : 'idle',
   );
-  const [progress, setProgress] = useState(() => (areModelsDownloaded(voiceId) ? 1 : 0));
+  const [progress, setProgress] = useState(() => (areModelsDownloaded(modelId, voiceId) ? 1 : 0));
   const [files, setFiles] = useState<{ name: string; fraction: number }[]>([]);
   const [error, setError] = useState<string | undefined>();
 
@@ -29,7 +31,7 @@ export function useModelDownload(voiceId: string = DEFAULT_VOICE): ModelDownload
     setError(undefined);
     const seen = new Map<string, { written: number; total: number }>();
 
-    ensureModelsDownloaded(voiceId, ({ file, bytesWritten, totalBytes }) => {
+    ensureModelsDownloaded(modelId, voiceId, ({ file, bytesWritten, totalBytes }) => {
       seen.set(file, { written: bytesWritten, total: totalBytes > 0 ? totalBytes : bytesWritten });
       const all = Array.from(seen.values());
       const written = all.reduce((sum, x) => sum + x.written, 0);
@@ -45,7 +47,15 @@ export function useModelDownload(voiceId: string = DEFAULT_VOICE): ModelDownload
         setError(e instanceof Error ? e.message : String(e));
         setStatus('error');
       });
-  }, [voiceId]);
+  }, [modelId, voiceId]);
 
-  return { status, progress, files, error, start };
+  const remove = useCallback(() => {
+    deleteModel(modelId);
+    setStatus('idle');
+    setProgress(0);
+    setFiles([]);
+    setError(undefined);
+  }, [modelId]);
+
+  return { status, progress, files, error, start, remove };
 }

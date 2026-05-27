@@ -20,6 +20,16 @@ export const makeStyles = (p: Palette) =>
     pageSection: {
       marginBottom: 18,
     },
+    pageHeader: {
+      borderBottomWidth: 1,
+      borderBottomColor: p.border,
+      paddingBottom: 6,
+      marginBottom: 12,
+      opacity: 0.6,
+    },
+    pageNav: {
+      flexDirection: 'row',
+    },
     pageDivider: {
       textAlign: 'center',
       marginBottom: 8,

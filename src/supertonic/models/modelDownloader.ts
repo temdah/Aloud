@@ -3,14 +3,15 @@ import { buildAssetList } from './modelCatalog';
 import { modelDirectory } from './modelStorage';
 import type { ModelDownloadProgress } from './modelTypes';
 
-// Ensures all model/asset files for a voice are present on device, downloading
-// any that are missing or incomplete. Safe to call on every launch.
+// Ensures all files for a model build + voice are present on device,
+// downloading any that are missing or incomplete. Safe to call on every launch.
 export async function ensureModelsDownloaded(
+  modelId: string,
   voice: string,
   onProgress?: ModelDownloadProgress,
 ): Promise<void> {
-  const dir = modelDirectory();
-  const assets = buildAssetList(voice);
+  const dir = modelDirectory(modelId);
+  const assets = buildAssetList(modelId, voice);
 
   for (let i = 0; i < assets.length; i++) {
     const asset = assets[i];
@@ -41,10 +42,10 @@ export async function ensureModelsDownloaded(
   }
 }
 
-// True if every model/asset file for a voice is already present on device.
-export function areModelsDownloaded(voice: string): boolean {
-  const dir = modelDirectory();
-  return buildAssetList(voice).every((asset) => {
+// True if every file for a model build + voice is already present on device.
+export function areModelsDownloaded(modelId: string, voice: string): boolean {
+  const dir = modelDirectory(modelId);
+  return buildAssetList(modelId, voice).every((asset) => {
     const file = new File(dir, asset.name);
     return file.exists && file.size >= asset.minBytes;
   });

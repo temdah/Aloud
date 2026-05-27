@@ -3,11 +3,14 @@ import { Pressable, Text, View } from 'react-native';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import { Icon } from '../Icon';
 import { IconButton } from '../IconButton';
+import { ProcessingRing } from '../ProcessingRing';
 import { Slider } from '../Slider';
 import { makeStyles } from './PlayerControls.styles';
 
 export type PlayerControlsProps = {
   playing: boolean;
+  /** Synthesizing the selected chunk — show a spinner on the play button. */
+  loading?: boolean;
   onTogglePlay: () => void;
   onSkipBack: () => void;
   onSkipFwd: () => void;
@@ -21,7 +24,7 @@ export type PlayerControlsProps = {
 };
 
 export function PlayerControls({
-  playing, onTogglePlay, onSkipBack, onSkipFwd,
+  playing, loading = false, onTogglePlay, onSkipBack, onSkipFwd,
   progress, onScrub, position, duration, speed, onSpeed, voiceName,
 }: PlayerControlsProps) {
   const { palette: p } = useTheme();
@@ -39,14 +42,17 @@ export function PlayerControls({
           <Text numberOfLines={1} style={ty(TYPE.bodySmall, p.textMuted)}>{voiceName}</Text>
         </View>
         <IconButton icon="skipBack" onPress={onSkipBack} size={44} accessibilityLabel="Skip back" />
-        <Pressable
-          onPress={onTogglePlay}
-          accessibilityRole="button"
-          accessibilityLabel={playing ? 'Pause' : 'Play'}
-          style={[styles.playButton, elevation(2)]}
-        >
-          <Icon name={playing ? 'pause' : 'play'} size={26} color={p.onPrimary} />
-        </Pressable>
+        <View style={styles.playWrap}>
+          <ProcessingRing active={loading} />
+          <Pressable
+            onPress={onTogglePlay}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? 'Pause' : 'Play'}
+            style={[styles.playButton, elevation(2)]}
+          >
+            <Icon name={playing ? 'pause' : 'play'} size={26} color={p.onPrimary} />
+          </Pressable>
+        </View>
         <IconButton icon="skipFwd" onPress={onSkipFwd} size={44} accessibilityLabel="Skip forward" />
         <Pressable onPress={onSpeed} accessibilityRole="button" accessibilityLabel="Playback speed" style={styles.speedButton}>
           <Text style={ty(TYPE.label, p.textMuted)}>×</Text>

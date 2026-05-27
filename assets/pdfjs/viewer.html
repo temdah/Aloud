@@ -157,7 +157,7 @@ function linesFromItems(items) {
 // pages; returns its updated value. Prose lines that fill the column merge; a
 // short trailing line ends the paragraph. TOC/leader lines + headings stay
 // discrete; bare page-number lines (footers) are dropped.
-function blocksForPage(rawLines, bodyH, stops, pageNo, inToc) {
+function blocksForPage(rawLines, bodyH, stops, pageNo, inToc, boilerplate) {
   const blocks = [];
   const present = rawLines.filter(function (l) { return normalizeLine(l.raw) !== ''; });
   const pageRight = percentile(present.map(function (l) { return l.right || 0; }), 0.92);
@@ -178,6 +178,15 @@ function blocksForPage(rawLines, bodyH, stops, pageNo, inToc) {
   for (const ln of rawLines) {
     const t = normalizeLine(ln.raw);
     if (t === '') { flush(); prevShort = true; prevY = null; continue; }
+    // Running header/footer (recurs across pages): keep it as a separate block
+    // so the viewer can show it greyed off — but it is excluded from the spoken
+    // text in canonicalizePage.
+    if (boilerplate && boilerplate.has(boilerKey(ln.raw))) {
+      flush();
+      blocks.push({ kind: 'pageHeader', text: t, page: pageNo, indent: 0 });
+      prevShort = true; prevY = null;
+      continue;
+    }
     if (/^\d{1,4}$/.test(t)) { flush(); prevShort = true; prevY = null; continue; }
 
     const centered = ln.left !== null && ln.right !== null &&
@@ -245,6 +254,10 @@ function canonicalizePage(blocks, base) {
       const full = b.target ? b.title + ' ' + b.target : b.title;
       const cs = base + text.length; text += full; const ce = base + text.length; text += '\n\n';
       out.push({ kind: 'toc', title: b.title, target: b.target, charStart: cs, charEnd: ce, page: b.page, indent: b.indent });
+    } else if (b.kind === 'pageHeader') {
+      // Shown (greyed) but never spoken: no text in the stream, zero-width range.
+      const cs = base + text.length;
+      out.push({ kind: 'pageHeader', text: b.text, charStart: cs, charEnd: cs, page: b.page, indent: b.indent });
     } else {
       const cs = base + text.length; text += b.text; const ce = base + text.length;
       const sentences = splitSentences(b.text, cs);
@@ -253,6 +266,34 @@ function canonicalizePage(blocks, base) {
     }
   }
   return { blocks: out, text: text };
+}
+
+// Normalized key for cross-page repetition: drop a leading/trailing page number
+// and case/space noise so "Title 4" and "Title 5" compare equal.
+function boilerKey(raw) {
+  return normalizeLine(raw).replace(/^\d+\s+/, '').replace(/\s+\d+$/, '').trim().toLowerCase();
+}
+
+// Running headers/footers are lines that recur on most pages (the page number
+// aside). Return the set of their normalized keys so they can be set apart from
+// body text. Needs enough pages to tell boilerplate from real repetition.
+function detectBoilerplate(pageLines) {
+  const set = new Set();
+  const total = pageLines.length;
+  if (total < 4) return set;
+  const counts = new Map();
+  for (const lines of pageLines) {
+    const seen = new Set();
+    for (const ln of lines) {
+      const k = boilerKey(ln.raw);
+      if (k.length < 4 || seen.has(k)) continue;
+      seen.add(k);
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+  }
+  const threshold = Math.max(3, Math.ceil(total * 0.5));
+  for (const [k, c] of counts) if (c >= threshold) set.add(k);
+  return set;
 }
 
 async function main() {
@@ -272,33 +313,37 @@ async function main() {
     const pageCount = pdf.numPages;
     post({ type: 'meta', pageCount: pageCount });
 
-    // Stream one page at a time. Indent stops + body font size are learned from
-    // the first pages (where the TOC lives) and then frozen, so the cross-page
-    // reflow stays stable without needing every page up front.
+    // Pass 1: parse every page's lines once and learn the body font size +
+    // indent stops from the first pages (where the TOC lives).
     const FREEZE_AFTER = 12;
+    const pageLines = new Array(pageCount);
     const heights = [];
     const lefts = [];
-    let bodyH = 0;
-    let stops = [0];
-    let inToc = false;
-    let base = 0;
-
     for (let p = 1; p <= pageCount; p++) {
       const page = await pdf.getPage(p);
       const tc = await page.getTextContent();
       const lines = linesFromItems(tc.items);
-
+      pageLines[p - 1] = lines;
       if (p <= FREEZE_AFTER) {
         for (const ln of lines) {
           if (ln.height > 0) heights.push(ln.height);
           if (ln.left !== null && normalizeLine(ln.raw) !== '') lefts.push(ln.left);
         }
-        const hs = heights.slice().sort(function (a, b) { return a - b; });
-        bodyH = hs.length ? hs[Math.floor(hs.length / 2)] : bodyH;
-        stops = stopsFromLefts(lefts, bodyH);
       }
+    }
+    const hs = heights.slice().sort(function (a, b) { return a - b; });
+    const bodyH = hs.length ? hs[Math.floor(hs.length / 2)] : 0;
+    const stops = stopsFromLefts(lefts, bodyH);
 
-      const res = blocksForPage(lines, bodyH, stops, p, inToc);
+    // Detect running headers/footers across pages so they can be set apart and
+    // kept out of the spoken text.
+    const boilerplate = detectBoilerplate(pageLines);
+
+    // Pass 2: reflow + emit each page in order (no re-parse).
+    let inToc = false;
+    let base = 0;
+    for (let p = 1; p <= pageCount; p++) {
+      const res = blocksForPage(pageLines[p - 1], bodyH, stops, p, inToc, boilerplate);
       inToc = res.inToc;
       const canon = canonicalizePage(res.blocks, base);
       base += canon.text.length;

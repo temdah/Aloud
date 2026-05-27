@@ -12,7 +12,9 @@ export type ExtractedSentence = {
 export type ExtractedBlock =
   | { kind: 'h2'; text: string; charStart: number; charEnd: number; page: number; indent: number }
   | { kind: 'p'; sentences: ExtractedSentence[]; charStart: number; charEnd: number; page: number; indent: number }
-  | { kind: 'toc'; title: string; target: string; charStart: number; charEnd: number; page: number; indent: number };
+  | { kind: 'toc'; title: string; target: string; charStart: number; charEnd: number; page: number; indent: number }
+  // Running header/footer (recurs across pages). Shown greyed + set apart, never spoken.
+  | { kind: 'pageHeader'; text: string; charStart: number; charEnd: number; page: number; indent: number };
 
 export type ExtractedDocument = {
   /** Canonical reading-order text. Chunk/sentence offsets index into this. */

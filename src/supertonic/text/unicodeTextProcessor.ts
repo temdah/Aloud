@@ -67,6 +67,15 @@ export class UnicodeTextProcessor {
     while (text.includes("''")) text = text.replace("''", "'");
     while (text.includes('``')) text = text.replace('``', '`');
 
+    // A blank line is a block boundary (e.g. a heading before its body). If the
+    // text just before it has no terminal punctuation, insert a period so the
+    // model takes a natural pause there instead of running the heading straight
+    // into the next sentence. Boundaries that are already punctuated (".", ":",
+    // etc.) keep their own pause cue.
+    text = text.replace(/([^\s.!?:;,'")\]])\s*\n\s*\n/g, '$1. ');
+    // Any remaining hard line breaks collapse to spaces (handled below too).
+    text = text.replace(/[\r\n]+/g, ' ');
+
     text = text.replace(/\s+/g, ' ').trim();
 
     if (!/[.!?;:,'")\]}…。」』】〉》›»]$/.test(text)) {

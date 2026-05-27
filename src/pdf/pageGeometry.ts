@@ -25,6 +25,9 @@ function estimateBlockHeight(b: ExtractedBlock): number {
     const len = (b.title?.length ?? 0) + 4;
     return Math.max(1, Math.ceil(len / READER_CPL)) * TOC_LINE;
   }
+  if (b.kind === 'pageHeader') {
+    return READER_LINE + PARA_MARGIN; // one greyed line + its separating rule
+  }
   const len = b.sentences.reduce((s, x) => s + x.text.length + 1, 0);
   return Math.max(1, Math.ceil(len / READER_CPL)) * READER_LINE + PARA_MARGIN;
 }

@@ -4,5 +4,3 @@
 export type PageBlock =
   | { kind: 'h2'; text: string }
   | { kind: 'p'; sentences: string[] };
-
-export type FlatSentence = { bi: number; si: number; text: string };

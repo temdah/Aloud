@@ -5,7 +5,8 @@ import type { Palette } from '../../theme';
 export const makeStyles = (_p: Palette) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: '#fff', paddingTop: 56, paddingHorizontal: 16 },
-    title: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
+    title: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
+    hint: { fontSize: 12, color: '#666', marginBottom: 12 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
     steps: { fontSize: 14 },
     logBox: { flex: 1, marginTop: 12, backgroundColor: '#f2f2f2', borderRadius: 8, padding: 12 },

@@ -29,6 +29,12 @@ export const makeStyles = (p: Palette) =>
       gap: 6,
       minWidth: 0,
     },
+    playWrap: {
+      width: 68,
+      height: 68,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     playButton: {
       width: 56,
       height: 56,

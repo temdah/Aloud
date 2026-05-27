@@ -7,8 +7,11 @@ export type RawChunk = { text: string; charStart: number; charEnd: number };
 const ABBREVIATION = /\b(?:mr|mrs|ms|dr|prof|sr|jr|vs|inc|ltd|co|corp|st|ave|blvd|e\.g|i\.e|etc)\.$/i;
 
 // Sentence-aware chunking that PRESERVES char offsets into the source stream,
-// so each chunk's [charStart, charEnd) is a verbatim slice of the document.
-// (The design's global char offset is the join key, so offsets must be exact.)
+// so each chunk's [charStart, charEnd) is a verbatim slice of the document. (The
+// design's global char offset is the join key, so offsets must be exact.)
+// Chunks accumulate whole sentences up to ~maxLen so the synthesized clip is
+// long enough to play smoothly (tiny per-sentence clips stutter at boundaries).
+// Precise tap-to-start is handled separately by a "lead" chunk in usePlayback.
 export function chunkText(text: string, maxLen = 300): RawChunk[] {
   const ends = sentenceBoundaries(text);
   const chunks: RawChunk[] = [];
