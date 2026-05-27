@@ -1,6 +1,6 @@
 // Public API for the Supertonic on-device TTS module.
 
-export { DEFAULT_VOICE } from './models/modelCatalog';
+export { DEFAULT_VOICE, AVAILABLE_VOICES } from './models/modelCatalog';
 export { ensureModelsDownloaded } from './models/modelDownloader';
 export { loadTextToSpeech, loadVoiceStyle } from './textToSpeechLoader';
 export { TextToSpeech } from './synthesis/textToSpeech';

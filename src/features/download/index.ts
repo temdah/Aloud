@@ -1,0 +1,1 @@
+export { DownloadHero } from './DownloadHero';

@@ -5,6 +5,9 @@ import type { ModelAsset } from './modelTypes';
 const HUGGING_FACE_REPO = 'Supertone/supertonic-2';
 const BASE_URL = `https://huggingface.co/${HUGGING_FACE_REPO}/resolve/main`;
 
+// The model's real voice styles (one embedding JSON each on Hugging Face).
+export const AVAILABLE_VOICES = ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5'] as const;
+
 export const DEFAULT_VOICE = 'M1';
 
 // File names (relative to the model directory) for config and tokenizer assets.

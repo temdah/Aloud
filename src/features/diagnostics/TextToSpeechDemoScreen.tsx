@@ -10,7 +10,7 @@ import {
   loadVoiceStyle,
   TextToSpeech,
   VoiceStyle,
-} from '../supertonic';
+} from '../../supertonic';
 
 const SAMPLE_SENTENCE =
   'The quick brown fox jumps over the lazy dog, and then it reads a book aloud.';

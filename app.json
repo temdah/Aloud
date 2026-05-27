@@ -25,7 +25,8 @@
     "plugins": [
       "expo-audio",
       "onnxruntime-react-native",
-      "./plugins/withOnnxruntimePackage"
+      "./plugins/withOnnxruntimePackage",
+      "expo-font"
     ]
   }
 }
