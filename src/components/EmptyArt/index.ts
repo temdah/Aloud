@@ -1,0 +1,1 @@
+export { EmptyArt } from './EmptyArt';
