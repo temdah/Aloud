@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+<script type="module">
+// Headless PDF.js text extractor. Runs inside a react-native-webview loaded
+// from a file:// directory that also holds pdf.min.mjs, pdf.worker.min.mjs and
+// the PDF itself (staged as window.PDF_FILE, injected before content load).
+// Everything is fetched as same-directory siblings (allowFileAccessFromFileURLs)
+// and the library/worker are imported via blob: URLs to dodge file:// module
+// CORS restrictions.
+
+const RN = window.ReactNativeWebView;
+
+function post(obj) {
+  try { RN.postMessage(JSON.stringify(obj)); } catch (e) {}
+}
+function status(stage) { post({ type: 'status', stage: stage }); }
+
+// Chromium's fetch() rejects file:// URLs; XHR honors allowFileAccessFromFileURLs
+// (file:// reads report status 0 on success).
+function xhrLoad(url, responseType) {
+  return new Promise(function (resolve, reject) {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.responseType = responseType;
+    xhr.onload = function () {
+      if (xhr.status === 0 || xhr.status === 200) resolve(xhr.response);
+      else reject(new Error('HTTP ' + xhr.status + ' for ' + url));
+    };
+    xhr.onerror = function () { reject(new Error('read failed for ' + url)); };
+    xhr.send();
+  });
+}
+
+// Tidy a single reconstructed line: collapse table-of-contents dot leaders
+// ("Coverage . . . . 8" -> "Coverage 8") and runs of whitespace. Four-or-more
+// dots (optionally space-separated) are leaders; "..." ellipses are preserved.
+function normalizeLine(s) {
+  return s
+    .replace(/(?:\.\s*){4,}/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// Split a paragraph into sentences, keeping each sentence's offset relative to
+// the canonical stream (base = paragraph start in canonical text).
+function splitSentences(text, base) {
+  const out = [];
+  const closers = '")]’”';
+  const openers = '"\'“‘([';
+  let i = 0;
+  const n = text.length;
+  let start = 0;
+  const push = (segStart, segEnd) => {
+    const seg = text.slice(segStart, segEnd);
+    const lead = seg.length - seg.replace(/^\s+/, '').length;
+    const core = seg.trim();
+    if (!core) return;
+    const s = segStart + lead;
+    out.push({ text: core, charStart: base + s, charEnd: base + s + core.length });
+  };
+  while (i < n) {
+    const c = text[i];
+    if (c === '.' || c === '!' || c === '?') {
+      let j = i + 1;
+      while (j < n && closers.indexOf(text[j]) >= 0) j++;
+      let k = j;
+      while (k < n && /\s/.test(text[k])) k++;
+      const atEnd = k >= n;
+      const nextCh = text[k];
+      if (atEnd || (nextCh && (/[A-Z0-9]/.test(nextCh) || openers.indexOf(nextCh) >= 0))) {
+        push(start, j);
+        start = k;
+        i = k;
+        continue;
+      }
+    }
+    i++;
+  }
+  if (start < n) push(start, n);
+  return out;
+}
+
+function percentile(values, pct) {
+  if (values.length === 0) return 0;
+  const sorted = values.slice().sort(function (a, b) { return a - b; });
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.round(pct * (sorted.length - 1))));
+  return sorted[idx];
+}
+
+// A TOC entry: a long dot-leader run, OR a short dot-run immediately before a
+// trailing page number (long titles leave room for only a couple of dots).
+function isTocLine(raw) {
+  return /(?:\.\s*){4,}/.test(raw) || /(?:\.\s*){2,}\d{1,4}\s*$/.test(raw);
+}
+
+// Split a TOC line into title + trailing page number, stripping leader dots.
+function splitTocEntry(t) {
+  const m = t.match(/^(.*\S)[\s.]+(\d{1,4})$/);
+  if (m) return { title: m[1].replace(/[\s.]+$/, ''), target: m[2] };
+  return { title: t, target: '' };
+}
+
+// Cluster all line left-edges into ascending indent "stops" (tolerance-based),
+// so a line's depth is its nearest stop index, not a guessed step size.
+function computeIndentStops(pageLines, bodyH) {
+  const lefts = [];
+  for (const lines of pageLines) {
+    for (const ln of lines) {
+      if (ln.left !== null && normalizeLine(ln.raw) !== '') lefts.push(ln.left);
+    }
+  }
+  if (lefts.length === 0) return [0];
+  lefts.sort(function (a, b) { return a - b; });
+  const tol = Math.max(bodyH * 0.6, 6);
+  const stops = [lefts[0]];
+  for (const x of lefts) {
+    if (x - stops[stops.length - 1] > tol) stops.push(x);
+  }
+  return stops;
+}
+
+function levelFor(left, stops) {
+  if (left === null) return 0;
+  let best = 0, bestDist = Infinity;
+  for (let i = 0; i < stops.length; i++) {
+    const d = Math.abs(left - stops[i]);
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  return Math.min(3, best);
+}
+
+async function buildLines(pdf, pageCount) {
+  const pageLines = [];
+  const heights = [];
+  for (let p = 1; p <= pageCount; p++) {
+    status('page ' + p + '/' + pageCount);
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    const items = tc.items;
+    const lines = [];
+    let cur = '';
+    let curH = 0, curY = null, curLeft = null, curRight = null;
+    for (const it of items) {
+      if (typeof it.str !== 'string') continue;
+      const h = it.height || (it.transform ? Math.abs(it.transform[3]) : 0);
+      const x = it.transform ? it.transform[4] : 0;
+      const y = it.transform ? it.transform[5] : 0;
+      const w = it.width || 0;
+      if (cur === '') { curY = y; curLeft = x; }
+      cur += it.str;
+      if (h > curH) curH = h;
+      if (curLeft === null || x < curLeft) curLeft = x;
+      if (curRight === null || x + w > curRight) curRight = x + w;
+      if (it.hasEOL) {
+        lines.push({ raw: cur, height: curH, y: curY, left: curLeft, right: curRight });
+        if (curH > 0) heights.push(curH);
+        cur = ''; curH = 0; curY = null; curLeft = null; curRight = null;
+      }
+    }
+    if (cur !== '') {
+      lines.push({ raw: cur, height: curH, y: curY, left: curLeft, right: curRight });
+      if (curH > 0) heights.push(curH);
+    }
+    pageLines.push(lines);
+  }
+  heights.sort(function (a, b) { return a - b; });
+  const bodyH = heights.length ? heights[Math.floor(heights.length / 2)] : 0;
+  return { pageLines: pageLines, bodyH: bodyH };
+}
+
+// Reflow lines into blocks using geometry. Prose lines that fill the column are
+// merged; a line ending well before the right edge ends the paragraph (classic
+// "short last line" rule). TOC/leader lines and headings stay discrete; bare
+// page-number lines (footers) are dropped.
+function buildBlocks(pageLines, bodyH, stops) {
+  const blocks = [];
+  // True while inside the "Contents" section, where entries (incl. bold headers
+  // like "Part I … 9") end in a page number but may have no dot leader.
+  let inToc = false;
+  for (let p = 0; p < pageLines.length; p++) {
+    const rawLines = pageLines[p];
+    const pageNo = p + 1;
+
+    const present = rawLines.filter(function (l) { return normalizeLine(l.raw) !== ''; });
+    const pageRight = percentile(present.map(function (l) { return l.right || 0; }), 0.92);
+    const pageLeft = percentile(present.map(function (l) { return l.left || 0; }), 0.08);
+    const shortGap = Math.max(bodyH * 2, (pageRight - pageLeft) * 0.12);
+    const indentGap = bodyH * 1.2;
+
+    let para = '';
+    let paraIndent = 0;
+    let prevShort = true;
+    let prevY = null;
+    const flush = function () {
+      const t = para.trim();
+      if (t) blocks.push({ kind: 'p', text: t, page: pageNo, indent: paraIndent });
+      para = '';
+    };
+
+    for (const ln of rawLines) {
+      const t = normalizeLine(ln.raw);
+      if (t === '') { flush(); prevShort = true; prevY = null; continue; }
+      if (/^\d{1,4}$/.test(t)) { flush(); prevShort = true; prevY = null; continue; }
+
+      // Centered lines (inset on both sides) aren't indented — keep them at 0.
+      const centered = ln.left !== null && ln.right !== null &&
+        ln.left - pageLeft > indentGap && pageRight - ln.right > indentGap;
+      const lvl = centered ? 0 : levelFor(ln.left, stops);
+
+      // A TOC entry: a dot-leader line, or (inside Contents) any short line that
+      // ends in a page number — covers leaderless bold headers like "Part I … 9".
+      const endsWithNumber = /\s\d{1,4}$/.test(t);
+      const isToc = isTocLine(ln.raw) || (inToc && endsWithNumber && t.length <= 90);
+      if (isToc) {
+        const entry = splitTocEntry(t);
+        let title = entry.title;
+        let entryIndent = lvl;
+        // A wrapped entry's first line has NO trailing number; fold it in. A
+        // complete preceding entry (ends in a number) must NOT be merged.
+        const stub = para.trim();
+        if (stub && stub.length < 160 && !/[.!?:]$/.test(stub) && !/\d$/.test(stub)) {
+          title = stub + ' ' + title;
+          entryIndent = paraIndent;
+          para = '';
+        } else {
+          flush();
+        }
+        blocks.push({ kind: 'toc', title: title, target: entry.target, page: pageNo, indent: entryIndent });
+        prevShort = true; prevY = ln.y;
+        continue;
+      }
+
+      const isHeading = bodyH > 0 && ln.height >= bodyH * 1.35 && t.length <= 80;
+      if (isHeading) {
+        if (/^contents$|table of contents/i.test(t)) inToc = true;
+        flush();
+        blocks.push({ kind: 'h2', text: t, page: pageNo, indent: lvl });
+        prevShort = true; prevY = ln.y;
+        continue;
+      }
+
+      // A long body paragraph marks the end of the Contents section.
+      if (inToc && t.length > 120) inToc = false;
+
+      const gap = prevY !== null && ln.y !== null && Math.abs(prevY - ln.y) > (ln.height || bodyH) * 1.8;
+      const indented = ln.left !== null && ln.left - pageLeft > indentGap;
+      if (para === '' || prevShort || indented || gap) {
+        flush();
+        para = t;
+        paraIndent = lvl;
+      } else if (para.charAt(para.length - 1) === '-') {
+        para = para.slice(0, -1) + t;
+      } else {
+        para = para + ' ' + t;
+      }
+      prevShort = ln.right !== null && pageRight - ln.right > shortGap;
+      prevY = ln.y;
+    }
+    flush();
+  }
+  return blocks;
+}
+
+function toCanonical(blocks) {
+  let text = '';
+  const out = [];
+  for (const b of blocks) {
+    if (b.kind === 'h2') {
+      const cs = text.length;
+      text += b.text;
+      const ce = text.length;
+      text += '\n\n';
+      out.push({ kind: 'h2', text: b.text, charStart: cs, charEnd: ce, page: b.page, indent: b.indent });
+    } else if (b.kind === 'toc') {
+      const full = b.target ? b.title + ' ' + b.target : b.title;
+      const cs = text.length;
+      text += full;
+      const ce = text.length;
+      text += '\n\n';
+      out.push({ kind: 'toc', title: b.title, target: b.target, charStart: cs, charEnd: ce, page: b.page, indent: b.indent });
+    } else {
+      const cs = text.length;
+      text += b.text;
+      const ce = text.length;
+      const sentences = splitSentences(b.text, cs);
+      text += '\n\n';
+      out.push({ kind: 'p', sentences: sentences, charStart: cs, charEnd: ce, page: b.page, indent: b.indent });
+    }
+  }
+  return { text: text.replace(/\s+$/, ''), blocks: out };
+}
+
+async function main() {
+  try {
+    status('loading-library');
+    const libText = await xhrLoad('./pdf.min.mjs', 'text');
+    const lib = await import(URL.createObjectURL(new Blob([libText], { type: 'text/javascript' })));
+    const workerText = await xhrLoad('./pdf.worker.min.mjs', 'text');
+    lib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([workerText], { type: 'text/javascript' }));
+
+    status('loading-pdf');
+    const pdfFile = window.PDF_FILE || 'source.pdf';
+    const bytes = new Uint8Array(await xhrLoad('./' + pdfFile, 'arraybuffer'));
+
+    status('parsing');
+    const pdf = await lib.getDocument({ data: bytes }).promise;
+    const pageCount = pdf.numPages;
+
+    const built = await buildLines(pdf, pageCount);
+    const stops = computeIndentStops(built.pageLines, built.bodyH);
+    const blocks = buildBlocks(built.pageLines, built.bodyH, stops);
+    const canonical = toCanonical(blocks);
+
+    post({ type: 'result', document: { text: canonical.text, blocks: canonical.blocks, pageCount: pageCount } });
+  } catch (e) {
+    post({ type: 'error', message: (e && e.message) ? e.message : String(e) });
+  }
+}
+
+main();
+</script>
+</body>
+</html>

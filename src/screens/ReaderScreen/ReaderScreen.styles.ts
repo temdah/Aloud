@@ -34,6 +34,20 @@ export const makeStyles = (p: Palette) =>
     paragraph: {
       marginBottom: 14,
     },
+    tocRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      marginBottom: 10,
+    },
+    tocTitle: {
+      flexShrink: 1,
+    },
+    tocLeader: {
+      flex: 1,
+      minWidth: 24,
+      marginHorizontal: 6,
+      fontSize: 12,
+    },
     emptyState: {
       flex: 1,
       alignItems: 'center',

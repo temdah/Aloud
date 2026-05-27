@@ -27,7 +27,8 @@
       "onnxruntime-react-native",
       "./plugins/withOnnxruntimePackage",
       "./plugins/withOldArchitecture",
-      "expo-font"
+      "expo-font",
+      "expo-asset"
     ]
   }
 }
