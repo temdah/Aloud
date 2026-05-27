@@ -7,6 +7,7 @@ export type RootStackParamList = {
   Settings: undefined;
   Download: undefined;
   TextToSpeechDemo: undefined;
+  Licenses: undefined;
 };
 
 export type AppNavigation = NativeStackNavigationProp<RootStackParamList>;

@@ -21,8 +21,11 @@ export type ExtractedDocument = {
   pageCount: number;
 };
 
-// Messages posted from the extraction WebView back to React Native.
+// Messages streamed from the extraction WebView back to React Native: the page
+// count arrives first, then one message per page as it is extracted, then done.
 export type ExtractionMessage =
   | { type: 'status'; stage: string }
-  | { type: 'result'; document: ExtractedDocument }
+  | { type: 'meta'; pageCount: number }
+  | { type: 'page'; page: number; blocks: ExtractedBlock[]; textSegment: string }
+  | { type: 'done' }
   | { type: 'error'; message: string };

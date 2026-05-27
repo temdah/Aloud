@@ -12,8 +12,43 @@ export const makeStyles = (p: Palette) =>
       flex: 1,
     },
     scrollContent: {
-      padding: 22,
-      paddingBottom: 16,
+      paddingHorizontal: 22,
+      paddingTop: 18,
+      paddingBottom: 24,
+      paddingRight: 46,
+    },
+    pageSection: {
+      marginBottom: 18,
+    },
+    pageDivider: {
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    placeholderCard: {
+      opacity: 0.5,
+      minHeight: 440,
+      justifyContent: 'flex-start',
+    },
+    skelLine: {
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: p.border,
+      marginBottom: 12,
+    },
+    emptyPage: {
+      minHeight: 64,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pageBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 18,
+      paddingVertical: 4,
+      borderTopWidth: 1,
+      borderTopColor: p.border,
+      backgroundColor: p.background,
     },
     card: {
       backgroundColor: p.surface,

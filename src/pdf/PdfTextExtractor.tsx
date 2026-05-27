@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import type { ExtractedDocument, ExtractionMessage } from './pdfExtractionTypes';
+import type { ExtractedBlock, ExtractionMessage } from './pdfExtractionTypes';
 import { ensurePdfRuntime, stagePdf } from './pdfRuntime';
 
 type PdfTextExtractorProps = {
   fileUri: string;
   docHash: string;
-  onResult: (doc: ExtractedDocument) => void;
+  onMeta: (pageCount: number) => void;
+  onPage: (page: number, blocks: ExtractedBlock[], textSegment: string) => void;
+  onDone: () => void;
   onError: (message: string) => void;
   onStatus?: (stage: string) => void;
 };
 
 // Headless WebView that runs PDF.js purely to extract text. Rendered offscreen;
 // it executes JS regardless of being invisible. Mount it only while extracting.
-export function PdfTextExtractor({ fileUri, docHash, onResult, onError, onStatus }: PdfTextExtractorProps) {
+// Pages stream back one message at a time (meta → page… → done).
+export function PdfTextExtractor({ fileUri, docHash, onMeta, onPage, onDone, onError, onStatus }: PdfTextExtractorProps) {
   const [setup, setSetup] = useState<{ viewerUri: string; pdfFile: string } | null>(null);
 
   useEffect(() => {
@@ -44,7 +47,9 @@ export function PdfTextExtractor({ fileUri, docHash, onResult, onError, onStatus
       return;
     }
     if (msg.type === 'status') onStatus?.(msg.stage);
-    else if (msg.type === 'result') onResult(msg.document);
+    else if (msg.type === 'meta') onMeta(msg.pageCount);
+    else if (msg.type === 'page') onPage(msg.page, msg.blocks, msg.textSegment);
+    else if (msg.type === 'done') onDone();
     else if (msg.type === 'error') onError(msg.message);
   };
 

@@ -7,6 +7,7 @@ export * from './AppBar';
 export * from './Card';
 export * from './ListItem';
 export * from './Slider';
+export * from './PageScrubber';
 export * from './ProgressBar';
 export * from './Chip';
 export * from './Sheet';

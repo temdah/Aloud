@@ -6,3 +6,5 @@ export { useImportDocument } from './useImportDocument';
 export type { ImportDocumentState } from './useImportDocument';
 export { usePdfText } from './usePdfText';
 export type { PdfTextState, PdfTextStatus } from './usePdfText';
+export { usePageGeometry } from './usePageGeometry';
+export type { PageGeometry } from './usePageGeometry';
