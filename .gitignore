@@ -47,6 +47,7 @@ yarn-error.*
 # AI assistant files
 .claude/
 CLAUDE.md
+handoff.md
 
 # logs
 *.log
