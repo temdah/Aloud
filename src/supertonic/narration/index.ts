@@ -1,0 +1,13 @@
+export { chunkText, buildChunks } from './textChunker';
+export type { RawChunk } from './textChunker';
+export { ensureChunkAudio } from './narrator';
+export {
+  chunkWavFile,
+  chunkTimingFile,
+  isChunkCached,
+  clearDocumentCache,
+  documentCacheDir,
+  settingsHash,
+} from './audioCache';
+export { readManifest, writeManifest, loadChunks } from './manifest';
+export type { NarrationSettings } from './narrationTypes';

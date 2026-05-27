@@ -1,0 +1,37 @@
+// Imports engine pieces directly (NOT the src/supertonic barrel) so narration
+// can be re-exported from that barrel without a circular dependency.
+import type { Chunk } from '../../types';
+import { encodeWav } from '../synthesis/wavEncoder';
+import type { TextToSpeech } from '../synthesis/textToSpeech';
+import type { VoiceStyle } from '../synthesis/voiceStyle';
+import { chunkWavFile } from './audioCache';
+import type { NarrationSettings } from './narrationTypes';
+
+const WAV_HEADER_BYTES = 44;
+
+// Returns a playable file:// uri for a chunk's audio, synthesizing + caching it
+// on a cache miss (keyed by the chunk's charStart + settings). Idempotent —
+// used for both the active chunk and generate-ahead prefetch.
+//
+// Word-level Map B (timing.json) is NOT produced yet: the engine exposes only a
+// total duration, not per-word timings, so the player highlights at chunk level
+// (the design's sanctioned fallback). When per-word durations are available,
+// write them via chunkTimingFile here.
+export async function ensureChunkAudio(
+  tts: TextToSpeech,
+  voice: VoiceStyle,
+  docHash: string,
+  chunk: Chunk,
+  settings: NarrationSettings,
+): Promise<string> {
+  const file = chunkWavFile(docHash, chunk.charStart, settings);
+  if (file.exists && file.size > WAV_HEADER_BYTES) return file.uri;
+
+  const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, settings.speed);
+  const bytes = encodeWav(waveform, tts.sampleRate);
+
+  if (file.exists) file.delete();
+  file.create();
+  file.write(bytes);
+  return file.uri;
+}

@@ -40,3 +40,12 @@ export async function ensureModelsDownloaded(
     }
   }
 }
+
+// True if every model/asset file for a voice is already present on device.
+export function areModelsDownloaded(voice: string): boolean {
+  const dir = modelDirectory();
+  return buildAssetList(voice).every((asset) => {
+    const file = new File(dir, asset.name);
+    return file.exists && file.size >= asset.minBytes;
+  });
+}
