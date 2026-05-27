@@ -17,14 +17,14 @@ export function BookRow({ book, last = false, onPress }: BookRowProps) {
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${book.title} by ${book.author}`}
+      accessibilityLabel={book.author ? `${book.title} by ${book.author}` : book.title}
       android_ripple={{ color: p.surfaceAlt }}
       style={[styles.base, { borderBottomWidth: last ? 0 : 1 }]}
     >
       <CoverThumb idx={book.cover} width={48} height={62} />
       <View style={styles.body}>
         <Text numberOfLines={1} style={ty(TYPE.titleSerif, p.text)}>{book.title}</Text>
-        <Text numberOfLines={1} style={[ty(TYPE.bodySmall, p.textMuted), styles.author]}>{book.author}</Text>
+        {book.author ? <Text numberOfLines={1} style={[ty(TYPE.bodySmall, p.textMuted), styles.author]}>{book.author}</Text> : null}
         <View style={styles.metaRow}>
           <View style={styles.progressWrap}>
             <ProgressBar value={book.progress} height={4} color={book.state === 'playing' ? p.primary : p.borderStrong} />

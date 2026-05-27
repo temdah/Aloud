@@ -1,42 +1,54 @@
-import { useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { DefaultTheme, NavigationContainer, type Theme } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useMemo } from 'react';
 import DownloadScreen from '../screens/DownloadScreen';
 import LibraryScreen from '../screens/LibraryScreen';
 import ReaderScreen from '../screens/ReaderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import TextToSpeechDemoScreen from '../screens/TextToSpeechDemoScreen';
 import { useTheme } from '../theme';
-import { makeStyles } from './AppNavigator.styles';
+import type { RootStackParamList } from './navigationTypes';
 
-type Route = 'library' | 'reader' | 'settings' | 'download' | 'tts';
-const ROUTES: Route[] = ['library', 'reader', 'settings', 'download', 'tts'];
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// Minimal route switcher. The bottom strip is TEMP dev scaffolding so every
-// screen is reachable — replace with a navigation library (out of scope now).
+// Screens with their own AppBar manage their own header/back; Download and the
+// diagnostics screen rely on the native stack header instead.
 export function AppNavigator() {
-  const { palette: p } = useTheme();
-  const styles = useMemo(() => makeStyles(p), [p]);
-  const [route, setRoute] = useState<Route>('library');
+  const { palette: p, mode } = useTheme();
+
+  const navTheme = useMemo<Theme>(
+    () => ({
+      ...DefaultTheme,
+      dark: mode === 'dark',
+      colors: {
+        ...DefaultTheme.colors,
+        primary: p.primary,
+        background: p.background,
+        card: p.surface,
+        text: p.text,
+        border: p.border,
+      },
+    }),
+    [mode, p],
+  );
 
   return (
-    <View style={styles.root}>
-      <View style={styles.body}>
-        {route === 'library' && (
-          <LibraryScreen onOpenBook={() => setRoute('reader')} onOpenSettings={() => setRoute('settings')} onImport={() => setRoute('download')} />
-        )}
-        {route === 'reader' && <ReaderScreen onBack={() => setRoute('library')} />}
-        {route === 'settings' && <SettingsScreen onBack={() => setRoute('library')} />}
-        {route === 'download' && <DownloadScreen />}
-        {route === 'tts' && <TextToSpeechDemoScreen />}
-      </View>
-
-      <View style={styles.tabBar}>
-        {ROUTES.map((r) => (
-          <Pressable key={r} onPress={() => setRoute(r)} style={[styles.tab, { backgroundColor: route === r ? p.primarySoft : 'transparent' }]}>
-            <Text style={[styles.tabLabel, { color: route === r ? p.primary : p.textMuted }]}>{r}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: p.background },
+          headerStyle: { backgroundColor: p.surface },
+          headerTintColor: p.text,
+          headerShadowVisible: false,
+        }}
+      >
+        <Stack.Screen name="Library" component={LibraryScreen} />
+        <Stack.Screen name="Reader" component={ReaderScreen} />
+        <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="Download" component={DownloadScreen} options={{ headerShown: true, title: 'Voice model' }} />
+        <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Voice engine' }} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }

@@ -1,7 +1,7 @@
 export type BookState = 'playing' | 'paused' | 'fresh' | 'done';
 
 export type Book = {
-  id: number;
+  id: string;
   title: string;
   author: string;
   pages: number;
