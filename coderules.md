@@ -103,10 +103,16 @@ PDFReader/
   `Modal`, and `PanResponder`.
 
 ## 10. Commits & repo hygiene
-- Commit messages follow **Conventional Commits**
-  (https://www.conventionalcommits.org): `type(scope): summary`
-  (`feat`, `fix`, `refactor`, `chore`, …), lowercase imperative, with a body
-  for the why.
+- Commit messages use a **Conventional-Commits type with NO scope**:
+  `type: summary` (`feat`, `fix`, `refactor`, `chore`, …) — never
+  `type(scope): summary`. Lowercase imperative summary, then a **blank line**,
+  then a `-` bulleted body describing what was done. Example:
+  ```
+  feat: headless PDF.js text extraction feeding the reader
+
+  - Bundle pdfjs-dist (ESM) + viewer.html as Metro assets
+  - Cache extracted text per doc; build + persist the chunk manifest
+  ```
 - Keep AI-assistant artifacts out of the repo (`.claude/`, `CLAUDE.md`,
   `handoff.md` are gitignored; no `Co-Authored-By` assistant trailers).
 - Generated native folders (`android/`, `ios/`) and `node_modules/` are
