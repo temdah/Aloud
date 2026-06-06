@@ -28,6 +28,11 @@ export const makeStyles = (p: Palette) =>
       flex: 1,
       maxWidth: 100,
     },
+    trailing: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
     playCircle: {
       width: 36,
       height: 36,

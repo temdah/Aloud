@@ -34,6 +34,9 @@ export function Icon({ name, size = 24, color, stroke = 1.75 }: IconProps) {
       case 'chevR': return <Path d="M9 6l6 6-6 6" {...line} />;
       case 'wave': return <Path d="M4 12h2M8 8v8M11 5v14M14 9v6M17 7v10M20 11v2" {...line} />;
       case 'trash': return <Path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13" {...line} />;
+      case 'star': return <Path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.4l6.5-.9L12 2.6z" fill={c} stroke={c} strokeWidth={stroke} strokeLinejoin="round" />;
+      case 'starLine': return <Path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.4l6.5-.9L12 2.6z" {...line} />;
+      case 'sort': return <Path d="M4 7h12M4 12h8M4 17h4M16 17V7m0 10l3-3m-3 3l-3-3" {...line} />;
       default: return <Rect x="4" y="4" width="16" height="16" rx="2" {...line} />;
     }
   };

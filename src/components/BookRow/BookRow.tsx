@@ -8,9 +8,9 @@ import { PlayingPulse } from '../PlayingPulse';
 import { ProgressBar } from '../ProgressBar';
 import { makeStyles } from './BookRow.styles';
 
-export type BookRowProps = { book: Book; last?: boolean; onPress?: () => void; onLongPress?: () => void };
+export type BookRowProps = { book: Book; favourite?: boolean; last?: boolean; onPress?: () => void; onLongPress?: () => void };
 
-export function BookRow({ book, last = false, onPress, onLongPress }: BookRowProps) {
+export function BookRow({ book, favourite = false, last = false, onPress, onLongPress }: BookRowProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
   return (
@@ -33,15 +33,18 @@ export function BookRow({ book, last = false, onPress, onLongPress }: BookRowPro
           <Text style={ty(TYPE.caption, p.textDim)}>{book.eta}</Text>
         </View>
       </View>
-      {book.state === 'playing' ? (
-        <PlayingPulse />
-      ) : book.state === 'done' ? (
-        <Icon name="check" size={18} color={p.success} />
-      ) : (
-        <View style={styles.playCircle}>
-          <Icon name="play" size={14} color={p.text} />
-        </View>
-      )}
+      <View style={styles.trailing}>
+        {favourite ? <Icon name="star" size={15} color={p.primary} /> : null}
+        {book.state === 'playing' ? (
+          <PlayingPulse />
+        ) : book.state === 'done' ? (
+          <Icon name="check" size={18} color={p.success} />
+        ) : (
+          <View style={styles.playCircle}>
+            <Icon name="play" size={14} color={p.text} />
+          </View>
+        )}
+      </View>
     </Pressable>
   );
 }

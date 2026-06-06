@@ -63,13 +63,18 @@ export function ActionDialog({ open, onClose, title, message, actions }: ActionD
 
   return (
     <View style={styles.overlay}>
-      <Animated.View style={[StyleSheet.absoluteFill, { opacity: anim }]}>
-        <BlurView
-          intensity={48}
-          tint={mode === 'dark' ? 'dark' : 'light'}
-          experimentalBlurMethod="dimezisBlurView"
-          style={StyleSheet.absoluteFill}
-        />
+      {/* The BlurView must NOT be nested inside an opacity-animated layer:
+          dimezisBlurView samples the window content behind it, and a
+          native-driven opacity animation forces its parent onto a separate
+          composited layer, so the blur would sample nothing. Keep the blur
+          mounted with the overlay and fade a plain scrim instead. */}
+      <BlurView
+        intensity={48}
+        tint={mode === 'dark' ? 'dark' : 'light'}
+        experimentalBlurMethod="dimezisBlurView"
+        style={StyleSheet.absoluteFill}
+      />
+      <Animated.View style={[StyleSheet.absoluteFill, styles.scrim, { opacity: anim }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss" />
       </Animated.View>
 

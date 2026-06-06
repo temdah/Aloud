@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useMemo } from 'react';
 import LibraryScreen from '../screens/LibraryScreen';
 import LicensesScreen from '../screens/LicensesScreen';
+import PrerenderScreen from '../screens/PrerenderScreen';
 import ReaderScreen from '../screens/ReaderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import TextToSpeechDemoScreen from '../screens/TextToSpeechDemoScreen';
@@ -46,6 +47,7 @@ export function AppNavigator() {
       >
         <Stack.Screen name="Library" component={LibraryScreen} />
         <Stack.Screen name="Reader" component={ReaderScreen} />
+        <Stack.Screen name="Prerender" component={PrerenderScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="Licenses" component={LicensesScreen} />
         <Stack.Screen name="VoiceModel" component={VoiceModelScreen} />

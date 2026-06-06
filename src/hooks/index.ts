@@ -8,3 +8,5 @@ export { usePdfText } from './usePdfText';
 export type { PdfTextState, PdfTextStatus } from './usePdfText';
 export { usePageGeometry } from './usePageGeometry';
 export type { PageGeometry } from './usePageGeometry';
+export { usePrerender } from './usePrerender';
+export type { PrerenderState, PrerenderStatus } from './usePrerender';

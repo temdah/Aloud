@@ -21,6 +21,21 @@ export const makeStyles = (p: Palette) =>
       marginBottom: 32,
       textAlign: 'center',
     },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginHorizontal: 16,
+      marginTop: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      borderRadius: 12,
+      backgroundColor: p.surfaceAlt,
+    },
+    searchInput: {
+      flex: 1,
+      paddingVertical: 6,
+    },
     filterRow: {
       flexDirection: 'row',
       gap: 6,
@@ -30,5 +45,11 @@ export const makeStyles = (p: Palette) =>
     },
     listContent: {
       paddingBottom: 120,
+    },
+    noMatch: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingBottom: 80,
     },
   });

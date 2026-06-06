@@ -47,3 +47,18 @@ export function clearDocumentCache(docHash: string): void {
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (dir.exists) dir.delete();
 }
+
+/** Count + total bytes of a document's cached audio (for "manage recordings"). */
+export function documentCacheStats(docHash: string): { count: number; bytes: number } {
+  const dir = new Directory(Paths.document, ROOT, docHash);
+  if (!dir.exists) return { count: 0, bytes: 0 };
+  let count = 0;
+  let bytes = 0;
+  for (const entry of dir.list()) {
+    if (entry instanceof File && entry.uri.endsWith('.wav')) {
+      count += 1;
+      bytes += entry.size ?? 0;
+    }
+  }
+  return { count, bytes };
+}

@@ -13,6 +13,9 @@ export const makeStyles = (p: Palette) =>
       zIndex: 1000,
       elevation: 1000,
     },
+    scrim: {
+      backgroundColor: 'rgba(0, 0, 0, 0.22)',
+    },
     center: {
       position: 'absolute',
       top: 0,

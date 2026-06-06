@@ -1,3 +1,4 @@
+import { AVAILABLE_LANGUAGES, type SupportedLanguage } from '../text/languages';
 import type { ModelAsset } from './modelTypes';
 
 // Conservative minimum byte sizes per file, used to detect truncated downloads.
@@ -23,6 +24,8 @@ export type ModelInfo = {
   tagline: string;
   overview: string;
   languages: string;
+  /** Language tags this build can synthesize (gates the audiobook picker). */
+  langCodes: SupportedLanguage[];
   minBytes: FileMinBytes;
 };
 
@@ -35,6 +38,7 @@ export const MODELS: ModelInfo[] = [
     tagline: 'Lighter & faster',
     overview: 'Smaller download and quicker to synthesize — the snappiest option. Best if you want fast setup and minimal waiting.',
     languages: 'English, Korean, Spanish, Portuguese, French',
+    langCodes: ['en', 'ko', 'es', 'pt', 'fr'],
     minBytes: {
       durationPredictor: 1_400_000,
       textEncoder: 26_000_000,
@@ -53,6 +57,7 @@ export const MODELS: ModelInfo[] = [
     tagline: 'Highest quality · 31 languages',
     overview: 'The most natural voice and the widest language coverage. Larger download and a bit slower to synthesize (heavier model).',
     languages: '31 languages',
+    langCodes: [...AVAILABLE_LANGUAGES],
     minBytes: {
       durationPredictor: 3_000_000,
       textEncoder: 30_000_000,

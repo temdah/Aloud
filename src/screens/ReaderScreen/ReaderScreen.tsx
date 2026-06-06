@@ -42,11 +42,30 @@ export default function ReaderScreen() {
   const doc = useDocumentsStore((s) => s.documents.find((d) => d.docHash === route.params.docId));
   const markHintSeen = useDocumentsStore((s) => s.markHintSeen);
   const setCursor = useDocumentsStore((s) => s.setCursor);
+  const renderProfile = useDocumentsStore((s) => s.renderProfile[route.params.docId]);
+  const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
   const modelId = useSettingsStore((s) => s.modelId);
   const voiceId = useSettingsStore((s) => s.voiceId);
   const speed = useSettingsStore((s) => s.speed);
   const setSpeed = useSettingsStore((s) => s.setSpeed);
   const steps = useSettingsStore((s) => s.steps);
+
+  // A document that was pre-rendered ("full audiobook") pins the exact narration
+  // settings it was made with; the reader uses those so tap-to-start reads the
+  // pre-rendered cache instead of re-synthesizing. Otherwise fall back to the
+  // global voice settings.
+  const effModelId = renderProfile?.modelId ?? modelId;
+  const effVoiceId = renderProfile?.voiceId ?? voiceId;
+  const effSteps = renderProfile?.steps ?? steps;
+  const effLang = renderProfile?.lang ?? 'en';
+  const effSpeed = renderProfile?.speed ?? speed;
+  const setEffSpeed = useCallback(
+    (v: number) => {
+      if (renderProfile) setRenderProfile(route.params.docId, { ...renderProfile, speed: v });
+      else setSpeed(v);
+    },
+    [renderProfile, setRenderProfile, route.params.docId, setSpeed],
+  );
 
   const { status, document, pageCount, loadedPages, stage, error, extractor } = usePdfText(doc);
 
@@ -72,7 +91,7 @@ export default function ReaderScreen() {
     [status, doc?.docHash, document?.text],
   );
 
-  const playback = usePlayback({ docHash: doc?.docHash ?? '', chunks, text: document?.text ?? '', modelId, voiceId, speed, steps });
+  const playback = usePlayback({ docHash: doc?.docHash ?? '', chunks, text: document?.text ?? '', modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang });
 
   // Highlight the selected/playing chunk once the user has engaged (tapped a
   // sentence or pressed play); nothing is highlighted before that.
@@ -82,9 +101,9 @@ export default function ReaderScreen() {
   // Tapping a sentence only selects + highlights it (free, no model needed).
   // Pressing play needs a model — route to the picker when none is chosen yet.
   const onTogglePlay = useCallback(() => {
-    if (!modelId) return navigation.navigate('VoiceModel');
+    if (!effModelId) return navigation.navigate('VoiceModel');
     playback.toggle();
-  }, [modelId, navigation, playback]);
+  }, [effModelId, navigation, playback]);
 
   const listRef = useRef<FlatList<number>>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -416,22 +435,22 @@ export default function ReaderScreen() {
         onScrub={playback.seek}
         position={formatTime(playback.positionSec)}
         duration={formatTime(Math.max(0, playback.durationSec - playback.positionSec))}
-        speed={speed}
+        speed={effSpeed}
         onSpeed={() => setSpeedSheet(true)}
-        voiceName={voiceLabel(voiceId)}
+        voiceName={voiceLabel(effVoiceId)}
       />
 
       <Sheet open={speedSheet} onClose={() => setSpeedSheet(false)} title="Playback speed" heightRatio={0.42}>
         <View style={styles.sheetBody}>
-          <Text style={[ty(TYPE.display, p.text), styles.speedValue]}>×{speed.toFixed(2)}</Text>
-          <Slider value={speed} min={0.9} max={1.5} step={0.05} onChange={setSpeed} ticks={[0.9, 1.0, 1.05, 1.25, 1.5]} />
+          <Text style={[ty(TYPE.display, p.text), styles.speedValue]}>×{effSpeed.toFixed(2)}</Text>
+          <Slider value={effSpeed} min={0.9} max={1.5} step={0.05} onChange={setEffSpeed} ticks={[0.9, 1.0, 1.05, 1.25, 1.5]} />
           <View style={styles.sliderLabels}>
             <Text style={ty(TYPE.mono, p.textMuted)}>0.90</Text>
             <Text style={ty(TYPE.mono, p.textMuted)}>1.50</Text>
           </View>
           <View style={styles.presetRow}>
             {SPEED_PRESETS.map((v) => (
-              <Chip key={v} label={`×${v.toFixed(2)}`} selected={Math.abs(speed - v) < 0.01} onPress={() => setSpeed(v)} />
+              <Chip key={v} label={`×${v.toFixed(2)}`} selected={Math.abs(effSpeed - v) < 0.01} onPress={() => setEffSpeed(v)} />
             ))}
           </View>
         </View>
