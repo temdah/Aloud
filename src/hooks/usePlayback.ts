@@ -53,6 +53,10 @@ export type UsePlaybackOptions = {
   speed: number;
   steps: number;
   lang?: string;
+  /** Document title shown on the lock-screen / media notification. */
+  title?: string;
+  /** Secondary line on the lock-screen (defaults to the app name). */
+  artist?: string;
 };
 
 export type Playback = {
@@ -87,7 +91,7 @@ export type Playback = {
 // Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
 // tapping starts at the exact tapped sentence via a one-off "lead" chunk, then
 // continues with the canonical chunks after it. Highlight is chunk-level.
-export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en' }: UsePlaybackOptions): Playback {
+export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en', title, artist }: UsePlaybackOptions): Playback {
   // A player we own for the hook's lifetime (created once, released on unmount):
   // useAudioPlayer() released the native player mid-session (replace() failed
   // with ERR_USING_RELEASED_SHARED_OBJECT).
@@ -111,14 +115,39 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const anchorIndexRef = useRef(0); // canonical index the current chunk starts in
   const resumeIndexRef = useRef(0); // canonical index to play after the current chunk
   const loadedKeyRef = useRef(-1); // charStart of the audio currently in the player
+  // Whether this player currently owns the OS lock-screen / media notification.
+  const lockScreenActiveRef = useRef(false);
+  // Latest "now playing" metadata; kept in a ref so the play callback doesn't
+  // need to be re-created when the title/artist change.
+  const lockMetadataRef = useRef<{ title: string; artist: string }>({ title: 'Document', artist: 'PDF Read-Aloud' });
+  useEffect(() => {
+    lockMetadataRef.current = { title: title?.trim() || 'Document', artist: artist?.trim() || 'PDF Read-Aloud' };
+    if (lockScreenActiveRef.current) {
+      try {
+        playerRef.current?.updateLockScreenMetadata?.(lockMetadataRef.current);
+      } catch {}
+    }
+  }, [title, artist]);
 
   const settings = useMemo<NarrationSettings>(
     () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang }),
     [modelId, voiceId, speed, steps, lang],
   );
 
+  // Configure the audio session once for sustained background playback.
+  // `shouldPlayInBackground` keeps audio alive when the screen is off, and
+  // `doNotMix` is required for the OS to bind the lock-screen controls to us.
+  useEffect(() => {
+    setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' }).catch((e) =>
+      console.warn('[usePlayback] failed to set audio mode:', e),
+    );
+  }, []);
+
   useEffect(() => {
     return () => {
+      try {
+        playerRef.current?.clearLockScreenControls?.();
+      } catch {}
       try {
         playerRef.current?.remove?.();
       } catch {}
@@ -161,11 +190,19 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       try {
         const uri = await ensureChunkAudio(engine.tts, engine.voice, docHash, chunk, settings);
         if (token !== playTokenRef.current) return; // superseded
-        await setAudioModeAsync({ playsInSilentMode: true });
-        if (token !== playTokenRef.current) return;
         player.replace(uri);
         loadedKeyRef.current = chunk.charStart;
         player.play();
+        // Claim the lock-screen / media notification on first audio so transport
+        // controls appear and background playback is sustained past ~3 min.
+        if (!lockScreenActiveRef.current) {
+          try {
+            player.setActiveForLockScreen(true, lockMetadataRef.current);
+            lockScreenActiveRef.current = true;
+          } catch (e) {
+            console.warn('[usePlayback] failed to activate lock-screen controls:', e);
+          }
+        }
         setLoading(false);
         // Generate-ahead from the next canonical chunk so boundaries don't stall.
         void (async () => {

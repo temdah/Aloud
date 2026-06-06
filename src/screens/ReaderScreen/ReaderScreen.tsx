@@ -91,7 +91,7 @@ export default function ReaderScreen() {
     [status, doc?.docHash, document?.text],
   );
 
-  const playback = usePlayback({ docHash: doc?.docHash ?? '', chunks, text: document?.text ?? '', modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang });
+  const playback = usePlayback({ docHash: doc?.docHash ?? '', chunks, text: document?.text ?? '', modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, title: doc?.title });
 
   // Highlight the selected/playing chunk once the user has engaged (tapped a
   // sentence or pressed play); nothing is highlighted before that.
