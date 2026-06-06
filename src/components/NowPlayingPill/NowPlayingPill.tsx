@@ -6,10 +6,10 @@ import { CoverThumb } from '../CoverThumb';
 import { Icon } from '../Icon';
 import { makeStyles } from './NowPlayingPill.styles';
 
-export type NowPlayingPillProps = { book: Book; onPress?: () => void; onToggle?: () => void };
+export type NowPlayingPillProps = { book: Book; playing?: boolean; onPress?: () => void; onToggle?: () => void };
 
 // Floating "now playing" bar above the library list.
-export function NowPlayingPill({ book, onPress, onToggle }: NowPlayingPillProps) {
+export function NowPlayingPill({ book, playing = true, onPress, onToggle }: NowPlayingPillProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
   return (
@@ -22,8 +22,8 @@ export function NowPlayingPill({ book, onPress, onToggle }: NowPlayingPillProps)
         <Text style={ty(TYPE.bodySmall, p.textMuted)}>Now playing</Text>
         <Text numberOfLines={1} style={ty(TYPE.label, p.text)}>{book.title}</Text>
       </View>
-      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityLabel="Pause" style={styles.toggle}>
-        <Icon name="pause" size={18} color={p.onPrimary} />
+      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityLabel={playing ? 'Pause' : 'Play'} style={styles.toggle}>
+        <Icon name={playing ? 'pause' : 'play'} size={18} color={p.onPrimary} />
       </Pressable>
     </Pressable>
   );

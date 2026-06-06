@@ -7,6 +7,7 @@ export {
   chunkWavFile,
   chunkTimingFile,
   isChunkCached,
+  chunkAudioUri,
   clearDocumentCache,
   documentCacheStats,
   documentCacheDir,

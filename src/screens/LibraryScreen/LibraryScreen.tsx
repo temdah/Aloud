@@ -5,6 +5,7 @@ import { File } from 'expo-file-system';
 import { ActionDialog, AppBar, BookRow, Button, Chip, EmptyArt, FAB, Icon, IconButton } from '../../components';
 import { useImportDocument } from '../../hooks';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
+import { usePlaybackContext } from '../../playback';
 import { useDocumentsStore } from '../../stores';
 import { clearDocumentCache, documentCacheStats } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
@@ -31,8 +32,11 @@ export default function LibraryScreen() {
   const documents = useDocumentsStore((s) => s.documents);
   const cursor = useDocumentsStore((s) => s.cursor);
   const favourites = useDocumentsStore((s) => s.favourites);
+  const audiobook = useDocumentsStore((s) => s.audiobook);
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
   const removeDocument = useDocumentsStore((s) => s.removeDocument);
+  const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
+  const { playback, activeDoc } = usePlaybackContext();
   const { importDocument } = useImportDocument();
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<Sort>('recent');
@@ -62,6 +66,14 @@ export default function LibraryScreen() {
   const openBook = (docId: string) => navigation.navigate('Reader', { docId });
   const openSettings = () => navigation.navigate('Settings');
   const menuStats = menuDoc ? documentCacheStats(menuDoc.docHash) : null;
+  // The floating mini-player is visible here whenever a document is engaged; lift
+  // the FAB above it so they don't overlap.
+  const pillVisible = !!activeDoc && playback.engaged;
+  const audiobookFor = (docId: string) => {
+    const a = audiobook[docId];
+    if (!a) return undefined;
+    return { value: a.total > 0 ? a.done / a.total : 0, status: a.status };
+  };
 
   if (books.length === 0) {
     return (
@@ -124,6 +136,7 @@ export default function LibraryScreen() {
               book={b}
               favourite={favourites.includes(b.id)}
               last={i === visible.length - 1}
+              audiobook={audiobookFor(b.id)}
               onPress={() => openBook(b.id)}
               onLongPress={() => {
                 const doc = documents.find((d) => d.docHash === b.id);
@@ -133,7 +146,7 @@ export default function LibraryScreen() {
           ))}
         </ScrollView>
       )}
-      <FAB icon="plus" label="Import PDF" onPress={importDocument} />
+      <FAB icon="plus" label="Import PDF" onPress={importDocument} raised={pillVisible} />
 
       <ActionDialog
         open={sortMenu}
@@ -171,13 +184,17 @@ export default function LibraryScreen() {
                 {
                   label: menuStats && menuStats.bytes > 0 ? `Clear cached audio · ${formatSize(menuStats.bytes)}` : 'Clear cached audio',
                   variant: 'tonal',
-                  onPress: () => clearDocumentCache(menuDoc.docHash),
+                  onPress: () => {
+                    clearDocumentCache(menuDoc.docHash);
+                    clearAudiobook(menuDoc.docHash);
+                  },
                 },
                 {
                   label: 'Delete',
                   variant: 'danger',
                   onPress: () => {
                     clearDocumentCache(menuDoc.docHash);
+                    clearAudiobook(menuDoc.docHash);
                     deleteExtractedText(menuDoc.docHash);
                     try {
                       new File(menuDoc.fileUri).delete();

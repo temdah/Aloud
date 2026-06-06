@@ -1,7 +1,8 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ensureChunkAudio, loadTextToSpeech, loadVoiceStyle } from '../supertonic';
+import { chunkAudioUri, ensureChunkAudio, isChunkCached, loadTextToSpeech, loadVoiceStyle, settingsHash } from '../supertonic';
 import type { NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
+import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
 import { stableHash } from '../utils';
 
@@ -11,6 +12,9 @@ const PREFETCH_AHEAD = 4;
 // Minimum length (chars) of a mid-chunk "lead" so the first clip isn't a tiny
 // stutter; a shorter remainder merges forward into the next chunk(s).
 const MIN_LEAD = 140;
+// Lock-screen transport extras. Android renders an OS Media3 notification (it
+// can't be themed to match the app); these add seek buttons beside play/pause.
+const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true } as const;
 
 function chunkIndexForOffset(chunks: Chunk[], charOffset: number): number {
   const hit = chunks.findIndex((c) => charOffset >= c.charStart && charOffset < c.charEnd);
@@ -86,6 +90,8 @@ export type Playback = {
   goTo: (charOffset: number) => void;
   /** Seek within the current chunk's audio (fraction 0..1 of its duration). */
   seek: (fraction: number) => void;
+  /** Fully halt playback: stop audio, drop the selection, release the OS controls. */
+  stop: () => void;
 };
 
 // Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
@@ -96,7 +102,10 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // useAudioPlayer() released the native player mid-session (replace() failed
   // with ERR_USING_RELEASED_SHARED_OBJECT).
   const playerRef = useRef<AudioPlayer | null>(null);
-  if (!playerRef.current) playerRef.current = createAudioPlayer();
+  if (!playerRef.current) {
+    playerRef.current = createAudioPlayer();
+    playerRef.current.shouldCorrectPitch = true; // keep voice natural when sped up
+  }
   const player = playerRef.current;
   const status = useAudioPlayerStatus(player);
 
@@ -119,9 +128,17 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const lockScreenActiveRef = useRef(false);
   // Latest "now playing" metadata; kept in a ref so the play callback doesn't
   // need to be re-created when the title/artist change.
-  const lockMetadataRef = useRef<{ title: string; artist: string }>({ title: 'Document', artist: 'PDF Read-Aloud' });
+  const lockMetadataRef = useRef<{ title: string; artist: string; albumTitle: string }>({
+    title: 'Document',
+    artist: 'PDF Read-Aloud',
+    albumTitle: 'PDF Read-Aloud',
+  });
   useEffect(() => {
-    lockMetadataRef.current = { title: title?.trim() || 'Document', artist: artist?.trim() || 'PDF Read-Aloud' };
+    lockMetadataRef.current = {
+      title: title?.trim() || 'Document',
+      artist: artist?.trim() || 'PDF Read-Aloud',
+      albumTitle: 'PDF Read-Aloud',
+    };
     if (lockScreenActiveRef.current) {
       try {
         playerRef.current?.updateLockScreenMetadata?.(lockMetadataRef.current);
@@ -132,6 +149,15 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const settings = useMemo<NarrationSettings>(
     () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang }),
     [modelId, voiceId, speed, steps, lang],
+  );
+
+  // A book whose full audiobook finished rendering with these exact settings: we
+  // can play straight from cache (no engine cold-load, no "loading" spinner) and
+  // snap starts to canonical chunk boundaries so every clip is a cache hit.
+  const audiobook = useDocumentsStore((s) => s.audiobook[docHash]);
+  const fullyRendered = useMemo(
+    () => !!modelId && audiobook?.status === 'done' && audiobook.profileHash === settingsHash(settings),
+    [modelId, audiobook?.status, audiobook?.profileHash, settings],
   );
 
   // Configure the audio session once for sustained background playback.
@@ -155,11 +181,43 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     };
   }, []);
 
+  // The player now outlives any single screen (it lives in the global provider),
+  // so switching to a *different* document must stop the old one and clear the
+  // selection/lock-screen. Reopening the SAME document leaves playback running.
+  const prevDocRef = useRef(docHash);
+  useEffect(() => {
+    if (prevDocRef.current === docHash) return;
+    prevDocRef.current = docHash;
+    playTokenRef.current++;
+    activeRef.current = false;
+    finishedHandledRef.current = false;
+    player.pause();
+    setEngaged(false);
+    setCurrent(null);
+    currentRef.current = null;
+    loadedKeyRef.current = -1;
+    anchorIndexRef.current = 0;
+    resumeIndexRef.current = 0;
+    try {
+      playerRef.current?.clearLockScreenControls?.();
+    } catch {}
+    lockScreenActiveRef.current = false;
+  }, [docHash, player]);
+
   useEffect(() => {
     let cancelled = false;
-    setReady(false);
     engineRef.current = null;
-    if (!modelId) return; // no model picked yet — leave the engine unloaded
+    if (!modelId) {
+      setReady(false);
+      return; // no model picked yet — leave the engine unloaded
+    }
+    if (fullyRendered) {
+      // Cached audiobook: don't pay the ONNX cold-load — playback reads WAVs
+      // directly. The engine lazy-loads only if some clip is unexpectedly missing.
+      setReady(true);
+      return;
+    }
+    setReady(false);
     loadEngine(modelId, voiceId)
       .then((engine) => {
         if (cancelled) return;
@@ -170,12 +228,27 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     return () => {
       cancelled = true;
     };
+  }, [modelId, voiceId, fullyRendered]);
+
+  // Lazily load the engine on demand (cache miss while otherwise running from
+  // cache). Returns null if no model is selected.
+  const ensureEngine = useCallback(async (): Promise<{ tts: TextToSpeech; voice: VoiceStyle } | null> => {
+    if (engineRef.current) return engineRef.current;
+    if (!modelId) return null;
+    const engine = await loadEngine(modelId, voiceId);
+    engineRef.current = engine;
+    return engine;
   }, [modelId, voiceId]);
+
+  // Apply the requested playback speed live (cache is rendered at neutral rate).
+  useEffect(() => {
+    try {
+      player.setPlaybackRate(speed, 'high');
+    } catch {}
+  }, [speed, player]);
 
   const playChunkObject = useCallback(
     async (chunk: Chunk, anchorIdx: number, resumeIdx: number) => {
-      const engine = engineRef.current;
-      if (!engine) return;
       const token = ++playTokenRef.current;
       activeRef.current = true;
       currentRef.current = chunk;
@@ -183,21 +256,36 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       resumeIndexRef.current = resumeIdx;
       setCurrent(chunk);
       setEngaged(true);
-      setLoading(true);
       // Stop whatever is playing right now so it doesn't keep going while the
       // newly requested chunk synthesizes (e.g. after "play from here").
       player.pause();
       try {
-        const uri = await ensureChunkAudio(engine.tts, engine.voice, docHash, chunk, settings);
+        let uri: string;
+        if (isChunkCached(docHash, chunk.charStart, settings)) {
+          // Cache hit — play instantly, no engine and no "loading" spinner.
+          uri = chunkAudioUri(docHash, chunk.charStart, settings);
+        } else {
+          setLoading(true);
+          const engine = await ensureEngine();
+          if (!engine) {
+            if (token === playTokenRef.current) setLoading(false);
+            return;
+          }
+          if (token !== playTokenRef.current) return; // superseded while loading
+          uri = await ensureChunkAudio(engine.tts, engine.voice, docHash, chunk, settings);
+        }
         if (token !== playTokenRef.current) return; // superseded
         player.replace(uri);
+        try {
+          player.setPlaybackRate(speed, 'high');
+        } catch {}
         loadedKeyRef.current = chunk.charStart;
         player.play();
         // Claim the lock-screen / media notification on first audio so transport
         // controls appear and background playback is sustained past ~3 min.
         if (!lockScreenActiveRef.current) {
           try {
-            player.setActiveForLockScreen(true, lockMetadataRef.current);
+            player.setActiveForLockScreen(true, lockMetadataRef.current, LOCK_OPTIONS);
             lockScreenActiveRef.current = true;
           } catch (e) {
             console.warn('[usePlayback] failed to activate lock-screen controls:', e);
@@ -205,11 +293,15 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         }
         setLoading(false);
         // Generate-ahead from the next canonical chunk so boundaries don't stall.
+        // Cached chunks are skipped; the engine lazy-loads only if one is missing.
         void (async () => {
           for (let k = 0; k < PREFETCH_AHEAD; k++) {
             if (token !== playTokenRef.current) return;
             const ahead = chunks[resumeIdx + k];
             if (!ahead) return;
+            if (isChunkCached(docHash, ahead.charStart, settings)) continue;
+            const engine = await ensureEngine();
+            if (!engine) return;
             try {
               await ensureChunkAudio(engine.tts, engine.voice, docHash, ahead, settings);
             } catch {}
@@ -220,7 +312,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         console.warn('[usePlayback] failed to play chunk at', chunk.charStart, e);
       }
     },
-    [chunks, docHash, player, settings],
+    [chunks, docHash, player, settings, speed, ensureEngine],
   );
 
   const playCanonical = useCallback(
@@ -270,11 +362,26 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const previous = useCallback(() => playCanonical(Math.max(0, anchorIndexRef.current - 1)), [playCanonical]);
   const seekToChunk = useCallback((i: number) => playCanonical(i), [playCanonical]);
 
+  // Where to actually start for a tapped/resumed offset. A fully-cached audiobook
+  // snaps to the enclosing canonical chunk (always a cache hit, no synthesis);
+  // otherwise it builds a precise mid-sentence lead.
+  const resolveStart = useCallback(
+    (charOffset: number): Lead | null => {
+      if (fullyRendered) {
+        const i = chunkIndexForOffset(chunks, charOffset);
+        if (i < 0) return null;
+        return { chunk: chunks[i], anchorIdx: i, resumeIdx: i + 1 };
+      }
+      return buildLead(text, chunks, charOffset);
+    },
+    [fullyRendered, text, chunks],
+  );
+
   const setSelection = useCallback(
-    (charOffset: number, stop: boolean) => {
-      const lead = buildLead(text, chunks, charOffset);
+    (charOffset: number, stopCurrent: boolean) => {
+      const lead = resolveStart(charOffset);
       if (!lead) return;
-      if (stop) {
+      if (stopCurrent) {
         playTokenRef.current++;
         activeRef.current = false;
         setLoading(false);
@@ -286,7 +393,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       setCurrent(lead.chunk);
       setEngaged(true);
     },
-    [text, chunks, player],
+    [resolveStart, player],
   );
 
   const select = useCallback((charOffset: number) => setSelection(charOffset, true), [setSelection]);
@@ -294,11 +401,32 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
 
   const playFrom = useCallback(
     (charOffset: number) => {
-      const lead = buildLead(text, chunks, charOffset);
+      const lead = resolveStart(charOffset);
       if (lead) void playChunkObject(lead.chunk, lead.anchorIdx, lead.resumeIdx);
     },
-    [text, chunks, playChunkObject],
+    [resolveStart, playChunkObject],
   );
+
+  // Hard stop: halt audio, drop the selection, and release the OS media controls
+  // so nothing lingers in the notification. (The "Stop" transport action.)
+  const stop = useCallback(() => {
+    playTokenRef.current++;
+    activeRef.current = false;
+    finishedHandledRef.current = false;
+    setLoading(false);
+    player.pause();
+    try {
+      void player.seekTo(0);
+    } catch {}
+    setEngaged(false);
+    setCurrent(null);
+    currentRef.current = null;
+    loadedKeyRef.current = -1;
+    try {
+      playerRef.current?.clearLockScreenControls?.();
+    } catch {}
+    lockScreenActiveRef.current = false;
+  }, [player]);
 
   const seek = useCallback(
     (fraction: number) => {
@@ -328,6 +456,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     playFrom,
     goTo,
     seek,
+    stop,
   };
 }
 

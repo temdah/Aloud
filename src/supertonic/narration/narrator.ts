@@ -27,7 +27,9 @@ export async function ensureChunkAudio(
   const file = chunkWavFile(docHash, chunk.charStart, settings);
   if (file.exists && file.size > WAV_HEADER_BYTES) return file.uri;
 
-  const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, settings.speed);
+  // Render at the engine's neutral rate (1.0); the desired playback speed is
+  // applied live via the player's playback rate, so the cache is speed-agnostic.
+  const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0);
   const bytes = encodeWav(waveform, tts.sampleRate);
 
   if (file.exists) file.delete();

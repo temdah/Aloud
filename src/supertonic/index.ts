@@ -10,7 +10,7 @@ export { VoiceStyle } from './synthesis/voiceStyle';
 export { encodeWav } from './synthesis/wavEncoder';
 export { AVAILABLE_LANGUAGES, isLanguageSupported, languageLabel, LANGUAGE_LABELS } from './text/languages';
 export type { SupportedLanguage } from './text/languages';
-export { chunkText, buildChunks, ensureChunkAudio, isChunkCached, clearDocumentCache, documentCacheStats, loadChunks, readManifest, prerenderDocument } from './narration';
+export { chunkText, buildChunks, ensureChunkAudio, isChunkCached, chunkAudioUri, settingsHash, clearDocumentCache, documentCacheStats, loadChunks, readManifest, prerenderDocument } from './narration';
 export type { NarrationSettings, PrerenderProgress, PrerenderResult } from './narration';
 export type { ModelDownloadProgress } from './models/modelTypes';
 export type { SupertonicConfig, SynthesisProgress, SynthesisResult } from './synthesis/synthesisTypes';

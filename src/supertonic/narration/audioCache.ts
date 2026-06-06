@@ -12,10 +12,15 @@ const WAV_HEADER_BYTES = 44;
 
 // Bump when text preprocessing / synthesis changes the produced audio for the
 // same settings, so stale cached WAVs are regenerated instead of replayed.
-const SYNTH_VERSION = 2;
+// v3: speed is no longer baked into the audio — clips are rendered at the engine's
+// neutral rate and the desired speed is applied live via the player's playback
+// rate, so changing speed never invalidates the cache (old speed-keyed clips from
+// v2 simply orphan until the cache is cleared).
+const SYNTH_VERSION = 3;
 
 export function settingsHash(s: NarrationSettings): string {
-  return stableHash(`v${SYNTH_VERSION}|${s.modelId}|${s.voiceId}|${s.speed}|${s.steps}|${s.lang}`);
+  // NOTE: speed deliberately excluded — see SYNTH_VERSION note above.
+  return stableHash(`v${SYNTH_VERSION}|${s.modelId}|${s.voiceId}|${s.steps}|${s.lang}`);
 }
 
 export function documentCacheDir(docHash: string): Directory {
@@ -40,6 +45,11 @@ export function chunkTimingFile(docHash: string, charStart: number, s: Narration
 export function isChunkCached(docHash: string, charStart: number, s: NarrationSettings): boolean {
   const file = chunkWavFile(docHash, charStart, s);
   return file.exists && file.size > WAV_HEADER_BYTES;
+}
+
+/** The file:// uri of a chunk's cached audio (caller must ensure it's cached). */
+export function chunkAudioUri(docHash: string, charStart: number, s: NarrationSettings): string {
+  return chunkWavFile(docHash, charStart, s).uri;
 }
 
 // Removes all cached audio/timing for a document (e.g. "clear cached audio").

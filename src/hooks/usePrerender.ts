@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
-import { loadTextToSpeech, loadVoiceStyle, prerenderDocument } from '../supertonic';
+import { useCallback } from 'react';
+import { usePrerenderContext } from '../prerender';
+import { useDocumentsStore } from '../stores';
 import type { NarrationSettings } from '../supertonic';
 import type { Chunk } from '../types';
 
@@ -19,54 +20,37 @@ export type PrerenderState = {
   cancel: () => void;
 };
 
-// Drives "process entire book": loads the engine + voice once, then walks every
-// chunk via prerenderDocument with reactive progress. Already-cached chunks count
-// instantly, so a cancelled render resumes cheaply. The cache it fills is the same
-// one the live player reads, so afterward playback never waits.
+// Thin view over the global PrerenderProvider + persisted store. The actual
+// render loop lives in the provider (so it survives leaving the screen); this
+// hook just exposes the current document's status/progress and start/cancel.
 export function usePrerender(docHash: string, chunks: Chunk[]): PrerenderState {
-  const [status, setStatus] = useState<PrerenderStatus>('idle');
-  const [done, setDone] = useState(0);
-  const [error, setError] = useState<string | undefined>();
-  const total = chunks.length;
-  const cancelRef = useRef(false);
+  const { activeDocHash, start: ctxStart, cancel: ctxCancel } = usePrerenderContext();
+  const audiobook = useDocumentsStore((s) => s.audiobook[docHash]);
+  const total = chunks.length || audiobook?.total || 0;
+  const running = activeDocHash === docHash;
 
-  const start = useCallback(
-    (settings: NarrationSettings) => {
-      if (!settings.modelId) {
-        setError('Pick a voice model first.');
-        setStatus('error');
-        return;
-      }
-      cancelRef.current = false;
-      setError(undefined);
-      setDone(0);
-      setStatus('running');
-      void (async () => {
-        try {
-          const tts = await loadTextToSpeech(settings.modelId);
-          const voice = await loadVoiceStyle(settings.modelId, settings.voiceId);
-          const result = await prerenderDocument({
-            tts,
-            voice,
-            docHash,
-            chunks,
-            settings,
-            onProgress: ({ done: d }) => setDone(d),
-            shouldCancel: () => cancelRef.current,
-          });
-          setStatus(result.completed ? 'done' : 'cancelled');
-        } catch (e) {
-          setError(e instanceof Error ? e.message : String(e));
-          setStatus('error');
-        }
-      })();
-    },
-    [docHash, chunks],
-  );
+  const status: PrerenderStatus = running
+    ? 'running'
+    : audiobook?.status === 'done'
+      ? 'done'
+      : audiobook?.status === 'cancelled'
+        ? 'cancelled'
+        : audiobook?.status === 'error'
+          ? 'error'
+          : 'idle';
 
-  const cancel = useCallback(() => {
-    cancelRef.current = true;
-  }, []);
+  const done = audiobook?.done ?? 0;
 
-  return { status, done, total, progress: total > 0 ? done / total : 0, error, start, cancel };
+  const start = useCallback((settings: NarrationSettings) => ctxStart(docHash, chunks, settings), [ctxStart, docHash, chunks]);
+  const cancel = useCallback(() => ctxCancel(docHash), [ctxCancel, docHash]);
+
+  return {
+    status,
+    done,
+    total,
+    progress: total > 0 ? done / total : 0,
+    error: status === 'error' ? audiobook?.error : undefined,
+    start,
+    cancel,
+  };
 }

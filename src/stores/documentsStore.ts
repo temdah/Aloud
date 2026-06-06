@@ -4,6 +4,17 @@ import type { NarrationSettings } from '../supertonic';
 import type { ImportedDocument } from '../types';
 import { fileStorage } from './fileStorage';
 
+/** Persisted full-audiobook ("prerender") progress so it survives leaving the
+ *  screen — drives the Library circular progress and "always reuse cache". */
+export type AudiobookState = {
+  done: number;
+  total: number;
+  status: 'running' | 'done' | 'cancelled' | 'error';
+  /** settingsHash of the profile the render was made with (cache reuse guard). */
+  profileHash: string;
+  error?: string;
+};
+
 type DocumentsState = {
   documents: ImportedDocument[];
   /** docHashes whose first-open reader hint has already been shown. */
@@ -15,6 +26,8 @@ type DocumentsState = {
   /** docHash → the narration settings a full-audiobook render was made with.
    *  The reader uses this profile so tap-to-start hits the pre-rendered cache. */
   renderProfile: Record<string, NarrationSettings>;
+  /** docHash → full-audiobook render progress/status (persisted). */
+  audiobook: Record<string, AudiobookState>;
   /** Add an imported PDF, or replace an existing one with the same docHash. */
   addDocument: (doc: ImportedDocument) => void;
   /** Record a document's page count once its text layer has been parsed. */
@@ -27,6 +40,10 @@ type DocumentsState = {
   setCursor: (docHash: string, chunkIdx: number) => void;
   /** Pin (or clear) the narration profile a full audiobook was rendered with. */
   setRenderProfile: (docHash: string, profile: NarrationSettings | null) => void;
+  /** Record full-audiobook render progress/status for a document. */
+  setAudiobook: (docHash: string, state: AudiobookState) => void;
+  /** Forget a document's full-audiobook state (e.g. after clearing its cache). */
+  clearAudiobook: (docHash: string) => void;
   /** Remove a document and all of its associated bookkeeping (cursor, hint). */
   removeDocument: (docHash: string) => void;
 };
@@ -39,6 +56,7 @@ export const useDocumentsStore = create<DocumentsState>()(
       favourites: [],
       cursor: {},
       renderProfile: {},
+      audiobook: {},
       addDocument: (doc) =>
         set((state) => ({
           documents: [doc, ...state.documents.filter((d) => d.docHash !== doc.docHash)],
@@ -63,14 +81,23 @@ export const useDocumentsStore = create<DocumentsState>()(
           const { [docHash]: _removed, ...renderProfile } = state.renderProfile;
           return { renderProfile };
         }),
+      setAudiobook: (docHash, audiobookState) =>
+        set((state) => ({ audiobook: { ...state.audiobook, [docHash]: audiobookState } })),
+      clearAudiobook: (docHash) =>
+        set((state) => {
+          const { [docHash]: _removed, ...audiobook } = state.audiobook;
+          return { audiobook };
+        }),
       removeDocument: (docHash) =>
         set((state) => {
           const { [docHash]: _cursor, ...cursor } = state.cursor;
           const { [docHash]: _profile, ...renderProfile } = state.renderProfile;
+          const { [docHash]: _audiobook, ...audiobook } = state.audiobook;
           return {
             documents: state.documents.filter((d) => d.docHash !== docHash),
             cursor,
             renderProfile,
+            audiobook,
             hintsSeen: state.hintsSeen.filter((h) => h !== docHash),
             favourites: state.favourites.filter((h) => h !== docHash),
           };

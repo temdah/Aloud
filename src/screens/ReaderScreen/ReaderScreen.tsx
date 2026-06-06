@@ -2,7 +2,8 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View, type ViewToken } from 'react-native';
 import { ActionDialog, AppBar, Chip, Icon, IconButton, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, voiceLabel, type DialogAction } from '../../components';
-import { usePageGeometry, usePdfText, usePlayback } from '../../hooks';
+import { usePageGeometry, usePdfText } from '../../hooks';
+import { usePlaybackContext } from '../../playback';
 import type { ExtractedBlock } from '../../pdf';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { loadChunks } from '../../supertonic';
@@ -91,7 +92,14 @@ export default function ReaderScreen() {
     [status, doc?.docHash, document?.text],
   );
 
-  const playback = usePlayback({ docHash: doc?.docHash ?? '', chunks, text: document?.text ?? '', modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, title: doc?.title });
+  // Playback now lives in a global provider so audio + transport survive leaving
+  // this screen (mini player on other screens). The Reader registers the open
+  // document with the engine; consuming `playback` works exactly as before.
+  const { playback, activeDoc, setActiveDoc } = usePlaybackContext();
+  useEffect(() => {
+    if (status !== 'ready' || !doc || !document?.text) return;
+    setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang });
+  }, [status, doc, document?.text, chunks, effModelId, effVoiceId, effSpeed, effSteps, effLang, setActiveDoc]);
 
   // Highlight the selected/playing chunk once the user has engaged (tapped a
   // sentence or pressed play); nothing is highlighted before that.
@@ -264,14 +272,18 @@ export default function ReaderScreen() {
   }, [doc?.docHash, playback.engaged, currentCharStart, setCursor]);
 
   // Resume the saved position once, when the text is ready (highlight + follow,
-  // no auto-play — the user presses play to continue).
+  // no auto-play — the user presses play to continue). Wait until the engine has
+  // actually registered this document (so its chunks are loaded), and never
+  // disturb a document that's already playing (returning to it from elsewhere).
   const resumedRef = useRef(false);
   useEffect(() => {
     if (status !== 'ready' || !doc || resumedRef.current) return;
+    if (activeDoc?.doc.docHash !== doc.docHash) return; // engine not yet on this doc
     resumedRef.current = true;
+    if (playback.engaged) return; // already playing this doc — leave it be
     const saved = useDocumentsStore.getState().cursor[doc.docHash];
     if (saved != null && saved > 0) playback.goTo(saved);
-  }, [status, doc?.docHash, playback]);
+  }, [status, doc?.docHash, activeDoc?.doc.docHash, playback]);
 
   const labelForPage = useCallback(
     (pg: number) => {
@@ -429,6 +441,7 @@ export default function ReaderScreen() {
         playing={playback.playing}
         loading={playback.loading}
         onTogglePlay={onTogglePlay}
+        onStop={playback.stop}
         onSkipBack={playback.previous}
         onSkipFwd={playback.next}
         progress={playback.durationSec > 0 ? playback.positionSec / playback.durationSec : 0}

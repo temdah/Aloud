@@ -1,10 +1,10 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { AppBar, Button, Chip, Icon, ProgressBar, Sheet, VoicePicker, voiceLabel } from '../../components';
-import { usePrerender } from '../../hooks';
+import { ActionDialog, AppBar, Button, Chip, Icon, ProgressBar, Sheet, Spinner, VoicePicker, voiceLabel } from '../../components';
+import { usePdfText, usePrerender } from '../../hooks';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { areModelsDownloaded, languageLabel, MODELS, readManifest } from '../../supertonic';
+import { areModelsDownloaded, languageLabel, MODELS, readManifest, settingsHash } from '../../supertonic';
 import type { ModelInfo, NarrationSettings } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, PrerenderRoute } from '../../navigation/navigationTypes';
@@ -36,12 +36,17 @@ export default function PrerenderScreen() {
 
   const doc = useDocumentsStore((s) => s.documents.find((d) => d.docHash === docId));
   const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
+  const audiobook = useDocumentsStore((s) => s.audiobook[docId]);
   const defaultModelId = useSettingsStore((s) => s.modelId);
   const defaultVoice = useSettingsStore((s) => s.voiceId);
   const defaultSpeed = useSettingsStore((s) => s.speed);
   const steps = useSettingsStore((s) => s.steps);
 
-  const chunks = useMemo(() => readManifest(docId)?.chunks ?? [], [docId]);
+  // Prepare the book's text headlessly — no need to open the reader first. The
+  // hidden extractor (mounted below) streams pages, persists the text cache and
+  // writes the chunk manifest; we re-read the manifest once it's ready.
+  const pdfText = usePdfText(doc);
+  const chunks = useMemo(() => readManifest(docId)?.chunks ?? [], [docId, pdfText.status]);
 
   const [model, setModel] = useState<ModelInfo>(() => pickInitialModel(defaultModelId, defaultVoice));
   const [voiceId, setVoiceId] = useState(defaultVoice);
@@ -49,6 +54,7 @@ export default function PrerenderScreen() {
   const [speed, setSpeed] = useState(defaultSpeed);
   const [voiceSheet, setVoiceSheet] = useState(false);
   const [langSheet, setLangSheet] = useState(false);
+  const [confirmReprofile, setConfirmReprofile] = useState(false);
 
   const prerender = usePrerender(docId, chunks);
   const running = prerender.status === 'running';
@@ -66,9 +72,19 @@ export default function PrerenderScreen() {
     if (!m.langCodes.includes(lang as never)) setLang(m.langCodes[0]);
   };
 
-  const startRender = () => {
+  // A finished audiobook is pinned to the profile it was rendered with. Changing
+  // voice/model/language (speed is applied live, so it doesn't count) means the
+  // existing clips can't be reused — warn before re-rendering from scratch.
+  const cacheInvalidated = audiobook?.status === 'done' && audiobook.profileHash !== settingsHash(settings);
+
+  const doStart = () => {
     setRenderProfile(docId, settings);
     prerender.start(settings);
+  };
+
+  const startRender = () => {
+    if (cacheInvalidated) setConfirmReprofile(true);
+    else doStart();
   };
 
   return (
@@ -77,11 +93,22 @@ export default function PrerenderScreen() {
 
       {chunks.length === 0 ? (
         <View style={styles.notReady}>
-          <Icon name="book" size={40} color={p.textDim} />
-          <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>
-            Open this book once so its text is prepared, then come back to make the audiobook.
-          </Text>
-          <Button label="Open book" variant="tonal" onPress={() => navigation.navigate('Reader', { docId })} />
+          {pdfText.status === 'error' ? (
+            <>
+              <Icon name="book" size={40} color={p.textDim} />
+              <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>
+                Couldn’t prepare this book’s text{pdfText.error ? ` — ${pdfText.error}` : ''}.
+              </Text>
+              <Button label="Open book" variant="tonal" onPress={() => navigation.navigate('Reader', { docId })} />
+            </>
+          ) : (
+            <>
+              <Spinner size={32} color={p.primary} />
+              <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>
+                Preparing pages…{pdfText.pageCount > 0 ? ` ${pdfText.loadedPages} / ${pdfText.pageCount}` : ''}
+              </Text>
+            </>
+          )}
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
@@ -224,6 +251,20 @@ export default function PrerenderScreen() {
           ))}
         </ScrollView>
       </Sheet>
+
+      <ActionDialog
+        open={confirmReprofile}
+        onClose={() => setConfirmReprofile(false)}
+        title="Re-render this audiobook?"
+        message="You’ve changed the voice, model or language. The audio already cached for this book can’t be reused, so it will be rendered again from scratch."
+        actions={[
+          { label: 'Re-render', variant: 'filled', onPress: doStart },
+          { label: 'Cancel', variant: 'ghost' },
+        ]}
+      />
+
+      {/* Hidden — drives headless text extraction when the manifest isn't ready. */}
+      {pdfText.extractor}
     </View>
   );
 }

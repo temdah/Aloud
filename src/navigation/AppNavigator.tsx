@@ -1,6 +1,7 @@
-import { DefaultTheme, NavigationContainer, type Theme } from '@react-navigation/native';
+import { createNavigationContainerRef, DefaultTheme, NavigationContainer, type Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { MiniPlayer } from '../components/MiniPlayer';
 import LibraryScreen from '../screens/LibraryScreen';
 import LicensesScreen from '../screens/LicensesScreen';
 import PrerenderScreen from '../screens/PrerenderScreen';
@@ -13,10 +14,19 @@ import type { RootStackParamList } from './navigationTypes';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+// A container-level ref so the global MiniPlayer (rendered outside the navigator)
+// can navigate, and so we can read the active route to hide it on the Reader.
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
 // Screens with their own AppBar manage their own header/back; the diagnostics
 // screen relies on the native stack header instead.
 export function AppNavigator() {
   const { palette: p, mode } = useTheme();
+  const [routeName, setRouteName] = useState<string | undefined>(undefined);
+  const syncRoute = useCallback(() => setRouteName(navigationRef.getCurrentRoute()?.name), []);
+  const openReader = useCallback((docId: string) => {
+    if (navigationRef.isReady()) navigationRef.navigate('Reader', { docId });
+  }, []);
 
   const navTheme = useMemo<Theme>(
     () => ({
@@ -35,7 +45,7 @@ export function AppNavigator() {
   );
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme} onReady={syncRoute} onStateChange={syncRoute}>
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
@@ -53,6 +63,8 @@ export function AppNavigator() {
         <Stack.Screen name="VoiceModel" component={VoiceModelScreen} />
         <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Voice engine' }} />
       </Stack.Navigator>
+      {/* The Reader has its own full transport bar, so hide the mini player there. */}
+      <MiniPlayer hidden={routeName === 'Reader'} onOpen={openReader} />
     </NavigationContainer>
   );
 }

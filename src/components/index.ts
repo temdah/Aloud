@@ -10,6 +10,7 @@ export * from './ListItem';
 export * from './Slider';
 export * from './PageScrubber';
 export * from './ProgressBar';
+export * from './CircularProgress';
 export * from './Chip';
 export * from './Sheet';
 export * from './PlayerControls';

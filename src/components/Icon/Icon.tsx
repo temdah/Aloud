@@ -14,6 +14,7 @@ export function Icon({ name, size = 24, color, stroke = 1.75 }: IconProps) {
     switch (name) {
       case 'play': return <Path d="M7 5l12 7-12 7V5z" fill={c} />;
       case 'pause': return <><Rect x="6" y="5" width="4" height="14" rx="1" fill={c} /><Rect x="14" y="5" width="4" height="14" rx="1" fill={c} /></>;
+      case 'stop': return <Rect x="6" y="6" width="12" height="12" rx="2" fill={c} />;
       case 'skipBack': return <Path d="M11 6l-7 6 7 6V6z M20 6l-7 6 7 6V6z" fill={c} />;
       case 'skipFwd': return <Path d="M13 6l7 6-7 6V6z M4 6l7 6-7 6V6z" fill={c} />;
       case 'back': return <Path d="M15 18l-6-6 6-6" {...line} />;

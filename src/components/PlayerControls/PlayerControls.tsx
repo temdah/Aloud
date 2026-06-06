@@ -12,6 +12,8 @@ export type PlayerControlsProps = {
   /** Synthesizing the selected chunk — show a spinner on the play button. */
   loading?: boolean;
   onTogglePlay: () => void;
+  /** Stop the whole read-aloud (clears the selection + media controls). */
+  onStop?: () => void;
   onSkipBack: () => void;
   onSkipFwd: () => void;
   progress: number;
@@ -24,7 +26,7 @@ export type PlayerControlsProps = {
 };
 
 export function PlayerControls({
-  playing, loading = false, onTogglePlay, onSkipBack, onSkipFwd,
+  playing, loading = false, onTogglePlay, onStop, onSkipBack, onSkipFwd,
   progress, onScrub, position, duration, speed, onSpeed, voiceName,
 }: PlayerControlsProps) {
   const { palette: p } = useTheme();
@@ -38,6 +40,7 @@ export function PlayerControls({
       </View>
       <View style={styles.controlRow}>
         <View style={styles.voiceWrap}>
+          {onStop ? <IconButton icon="stop" onPress={onStop} size={36} accessibilityLabel="Stop" /> : null}
           <Icon name="voice" size={16} color={p.textMuted} />
           <Text numberOfLines={1} style={ty(TYPE.bodySmall, p.textMuted)}>{voiceName}</Text>
         </View>
