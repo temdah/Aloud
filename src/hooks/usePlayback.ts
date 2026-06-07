@@ -70,6 +70,10 @@ export type Playback = {
   loading: boolean;
   /** True once a chunk is selected or playback has started (drives highlight). */
   engaged: boolean;
+  /** True once audio has actually started for this document (stays true while
+   *  paused, cleared on stop / document switch). Gates the global MiniPlayer so
+   *  it never shows for a mere text selection that hasn't played. */
+  started: boolean;
   /** The chunk currently playing/selected (a canonical chunk or a tap-start lead). */
   currentChunk: Chunk | null;
   total: number;
@@ -112,6 +116,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [engaged, setEngaged] = useState(false);
+  const [started, setStarted] = useState(false);
   const [current, setCurrent] = useState<Chunk | null>(null);
 
   const engineRef = useRef<{ tts: TextToSpeech; voice: VoiceStyle } | null>(null);
@@ -193,6 +198,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     finishedHandledRef.current = false;
     player.pause();
     setEngaged(false);
+    setStarted(false);
     setCurrent(null);
     currentRef.current = null;
     loadedKeyRef.current = -1;
@@ -256,6 +262,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       resumeIndexRef.current = resumeIdx;
       setCurrent(chunk);
       setEngaged(true);
+      setStarted(true); // audio is now actually engaged → MiniPlayer may show
       // Stop whatever is playing right now so it doesn't keep going while the
       // newly requested chunk synthesizes (e.g. after "play from here").
       player.pause();
@@ -419,6 +426,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       void player.seekTo(0);
     } catch {}
     setEngaged(false);
+    setStarted(false);
     setCurrent(null);
     currentRef.current = null;
     loadedKeyRef.current = -1;
@@ -442,6 +450,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     playing: status.playing,
     loading,
     engaged,
+    started,
     currentChunk: current,
     total: chunks.length,
     positionSec: status.currentTime,

@@ -3,9 +3,11 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { ActionDialog, AppBar, Button, Chip, Icon, ProgressBar, Sheet, Spinner, VoicePicker, voiceLabel } from '../../components';
 import { usePdfText, usePrerender } from '../../hooks';
+import { usePlaybackContext } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { areModelsDownloaded, languageLabel, MODELS, readManifest, settingsHash } from '../../supertonic';
+import { areModelsDownloaded, languageLabel, loadChunks, MODELS, readManifest, settingsHash } from '../../supertonic';
 import type { ModelInfo, NarrationSettings } from '../../supertonic';
+import type { Chunk } from '../../types';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, PrerenderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './PrerenderScreen.styles';
@@ -46,7 +48,22 @@ export default function PrerenderScreen() {
   // hidden extractor (mounted below) streams pages, persists the text cache and
   // writes the chunk manifest; we re-read the manifest once it's ready.
   const pdfText = usePdfText(doc);
-  const chunks = useMemo(() => readManifest(docId)?.chunks ?? [], [docId, pdfText.status]);
+  // Once the text is ready, derive chunks straight from it: loadChunks is
+  // idempotent (reuses a valid manifest, otherwise rebuilds + persists). This
+  // is what un-sticks "Preparing pages…" forever when the text was cached but
+  // the chunk manifest is missing — e.g. a prior chunk-build threw (it's
+  // swallowed in usePdfText) or the audio/manifest cache was cleared while the
+  // extracted text survived. While still extracting we just read the manifest.
+  const chunks = useMemo<Chunk[]>(() => {
+    if (pdfText.status === 'ready' && pdfText.document) {
+      try {
+        return loadChunks(docId, pdfText.document.text);
+      } catch {
+        return [];
+      }
+    }
+    return readManifest(docId)?.chunks ?? [];
+  }, [docId, pdfText.status, pdfText.document]);
 
   const [model, setModel] = useState<ModelInfo>(() => pickInitialModel(defaultModelId, defaultVoice));
   const [voiceId, setVoiceId] = useState(defaultVoice);
@@ -58,6 +75,10 @@ export default function PrerenderScreen() {
 
   const prerender = usePrerender(docId, chunks);
   const running = prerender.status === 'running';
+
+  // When the global MiniPlayer is floating (audio actually playing), pad the
+  // scroll content so the "Make full audiobook" button can clear the pill.
+  const { playback } = usePlaybackContext();
 
   const settings: NarrationSettings = { modelId: model.id, voiceId, speed, steps, lang };
   const downloaded = areModelsDownloaded(model.id, voiceId);
@@ -93,7 +114,16 @@ export default function PrerenderScreen() {
 
       {chunks.length === 0 ? (
         <View style={styles.notReady}>
-          {pdfText.status === 'error' ? (
+          {pdfText.status === 'loading' || pdfText.status === 'streaming' || pdfText.status === 'idle' ? (
+            <>
+              <Spinner size={32} color={p.primary} />
+              <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>
+                Preparing pages…{pdfText.pageCount > 0 ? ` ${pdfText.loadedPages} / ${pdfText.pageCount}` : ''}
+              </Text>
+            </>
+          ) : (
+            // status is 'error', or 'ready' yet still no chunks (a build that
+            // produced nothing) — never leave the user on an endless spinner.
             <>
               <Icon name="book" size={40} color={p.textDim} />
               <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>
@@ -101,17 +131,10 @@ export default function PrerenderScreen() {
               </Text>
               <Button label="Open book" variant="tonal" onPress={() => navigation.navigate('Reader', { docId })} />
             </>
-          ) : (
-            <>
-              <Spinner size={32} color={p.primary} />
-              <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>
-                Preparing pages…{pdfText.pageCount > 0 ? ` ${pdfText.loadedPages} / ${pdfText.pageCount}` : ''}
-              </Text>
-            </>
           )}
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, playback.started && { paddingBottom: 112 }]}>
           <Text style={[ty(TYPE.body, p.textMuted), styles.intro]}>
             Generate the whole book ahead of time so playback never pauses to synthesize. Pick the voice and language, then start — you can keep using the app while it renders.
           </Text>

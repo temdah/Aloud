@@ -15,7 +15,9 @@ export type MiniPlayerProps = {
 export function MiniPlayer({ hidden = false, onOpen }: MiniPlayerProps) {
   const { playback, activeDoc } = usePlaybackContext();
 
-  if (hidden || !activeDoc || !playback.engaged) return null;
+  // Gate on `started` (audio has actually played), not `engaged` (which is also
+  // true for a mere text selection) — otherwise the bar shows with no audio.
+  if (hidden || !activeDoc || !playback.started) return null;
 
   const book = documentToBook(activeDoc.doc);
   return (
