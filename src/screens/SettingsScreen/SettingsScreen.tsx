@@ -1,9 +1,9 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBar, Icon, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
-import { findModel } from '../../supertonic';
-import { useSettingsStore } from '../../stores';
+import { AppBar, Icon, LanguagePicker, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
+import { documentCacheStats, findModel, languageLabel } from '../../supertonic';
+import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation } from '../../navigation/navigationTypes';
 import { makeStyles } from './SettingsScreen.styles';
@@ -16,14 +16,37 @@ export default function SettingsScreen() {
   const modelId = useSettingsStore((s) => s.modelId);
   const voice = useSettingsStore((s) => s.voiceId);
   const setVoice = useSettingsStore((s) => s.setVoice);
+  const lang = useSettingsStore((s) => s.lang);
+  const setLang = useSettingsStore((s) => s.setLang);
   const speed = useSettingsStore((s) => s.speed);
   const setSpeed = useSettingsStore((s) => s.setSpeed);
   const steps = useSettingsStore((s) => s.steps);
   const setSteps = useSettingsStore((s) => s.setSteps);
 
+  const documents = useDocumentsStore((s) => s.documents);
+
   const [voiceSheet, setVoiceSheet] = useState(false);
+  const [langSheet, setLangSheet] = useState(false);
 
   const activeModel = findModel(modelId);
+
+  // Total cached audio across every document, for the "Cached audio" subtitle.
+  const cacheTotal = useMemo(() => {
+    let count = 0;
+    let bytes = 0;
+    for (const d of documents) {
+      const s = documentCacheStats(d.docHash);
+      count += s.count;
+      bytes += s.bytes;
+    }
+    return { count, bytes };
+  }, [documents]);
+  const cacheLabel =
+    cacheTotal.bytes <= 0
+      ? 'No cached audio'
+      : cacheTotal.bytes < 1024 * 1024
+        ? `${Math.max(1, Math.round(cacheTotal.bytes / 1024))} KB across ${cacheTotal.count} clip${cacheTotal.count === 1 ? '' : 's'}`
+        : `${(cacheTotal.bytes / (1024 * 1024)).toFixed(cacheTotal.bytes < 10 * 1024 * 1024 ? 1 : 0)} MB across ${cacheTotal.count} clips`;
 
   return (
     <View style={styles.screen}>
@@ -31,6 +54,12 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <SettingsSection title="Voice">
           <SettingRow icon="voice" title="Reading voice" value={voiceLabel(voice)} onPress={() => setVoiceSheet(true)} />
+          <SettingRow
+            icon="book"
+            title="Language"
+            value={languageLabel(lang)}
+            onPress={() => (activeModel ? setLangSheet(true) : navigation.navigate('VoiceModel'))}
+          />
         </SettingsSection>
 
         <SettingsSection title="Playback">
@@ -82,9 +111,10 @@ export default function SettingsScreen() {
             <ListItem
               divider={false}
               leading={<View style={styles.leadingMuted}><Icon name="trash" size={16} color={p.textMuted} /></View>}
-              title="Clear cached audio"
-              subtitle="No cached audio"
+              title="Cached audio"
+              subtitle={cacheLabel}
               trailing={<Icon name="chevR" size={18} color={p.textDim} />}
+              onPress={() => navigation.navigate('Storage')}
             />
           </View>
         </SettingsSection>
@@ -117,7 +147,18 @@ export default function SettingsScreen() {
       </ScrollView>
 
       <Sheet open={voiceSheet} onClose={() => setVoiceSheet(false)} title="Reading voice" heightRatio={0.78}>
-        <VoicePicker value={voice} onChange={setVoice} />
+        <VoicePicker value={voice} onChange={setVoice} modelId={modelId} lang={lang} />
+      </Sheet>
+
+      <Sheet open={langSheet} onClose={() => setLangSheet(false)} title="Language" heightRatio={0.78}>
+        <LanguagePicker
+          value={lang}
+          onChange={(code) => {
+            setLang(code);
+            setLangSheet(false);
+          }}
+          langCodes={activeModel?.langCodes ?? []}
+        />
       </Sheet>
     </View>
   );

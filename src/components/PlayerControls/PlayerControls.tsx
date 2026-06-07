@@ -22,12 +22,15 @@ export type PlayerControlsProps = {
   duration: string;
   speed: number;
   onSpeed: () => void;
-  voiceName: string;
+  /** Open the sleep-timer menu (moon button, far-left). */
+  onSleep: () => void;
+  /** Minutes left on the sleep timer, or null when it's off. */
+  sleepMinutesLeft?: number | null;
 };
 
 export function PlayerControls({
   playing, loading = false, onTogglePlay, onStop, onSkipBack, onSkipFwd,
-  progress, onScrub, position, duration, speed, onSpeed, voiceName,
+  progress, onScrub, position, duration, speed, onSpeed, onSleep, sleepMinutesLeft = null,
 }: PlayerControlsProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -39,9 +42,18 @@ export function PlayerControls({
         <Text style={ty(TYPE.mono, p.textMuted)}>-{duration}</Text>
       </View>
       <View style={styles.controlRow}>
-        <View style={styles.voiceWrap}>
-          <Icon name="voice" size={16} color={p.textMuted} />
-          <Text numberOfLines={1} style={[ty(TYPE.bodySmall, p.textMuted), styles.voiceName]}>{voiceName}</Text>
+        <View style={styles.leftCluster}>
+          <Pressable
+            onPress={onSleep}
+            accessibilityRole="button"
+            accessibilityLabel="Sleep timer"
+            style={styles.sleepButton}
+          >
+            <Icon name="moon" size={20} color={sleepMinutesLeft != null ? p.primary : p.textMuted} />
+            {sleepMinutesLeft != null ? (
+              <Text style={ty(TYPE.label, p.primary)}>{sleepMinutesLeft}m</Text>
+            ) : null}
+          </Pressable>
           {onStop ? <IconButton icon="stop" onPress={onStop} size={36} accessibilityLabel="Stop" /> : null}
         </View>
         <IconButton icon="skipBack" onPress={onSkipBack} size={44} accessibilityLabel="Skip back" />

@@ -250,7 +250,7 @@ export default function PrerenderScreen() {
       )}
 
       <Sheet open={voiceSheet} onClose={() => setVoiceSheet(false)} title="Voice" heightRatio={0.7}>
-        <VoicePicker value={voiceId} onChange={(id) => { setVoiceId(id); setVoiceSheet(false); }} />
+        <VoicePicker value={voiceId} onChange={(id) => { setVoiceId(id); setVoiceSheet(false); }} modelId={model.id} lang={lang} />
       </Sheet>
 
       <Sheet open={langSheet} onClose={() => setLangSheet(false)} title="Language" heightRatio={0.6}>

@@ -1,14 +1,14 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View, type ViewToken } from 'react-native';
-import { ActionDialog, AppBar, Chip, Icon, IconButton, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, voiceLabel, type DialogAction } from '../../components';
+import { ActionDialog, AppBar, Chip, Icon, IconButton, LanguagePicker, ManageCacheSheet, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, VoicePicker, voiceLabel, type DialogAction } from '../../components';
 import { usePageGeometry, usePdfText } from '../../hooks';
 import { File } from 'expo-file-system';
 import { usePlaybackContext } from '../../playback';
 import type { ExtractedBlock } from '../../pdf';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, loadChunks } from '../../supertonic';
+import { clearDocumentCache, findModel, isChunkCached, languageLabel, loadChunks } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './ReaderScreen.styles';
@@ -51,8 +51,12 @@ export default function ReaderScreen() {
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
   const removeDocument = useDocumentsStore((s) => s.removeDocument);
   const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
+  const audiobook = useDocumentsStore((s) => s.audiobook[route.params.docId]);
+  const setDocLang = useDocumentsStore((s) => s.setDocLang);
   const modelId = useSettingsStore((s) => s.modelId);
   const voiceId = useSettingsStore((s) => s.voiceId);
+  const setVoice = useSettingsStore((s) => s.setVoice);
+  const settingsLang = useSettingsStore((s) => s.lang);
   const speed = useSettingsStore((s) => s.speed);
   const setSpeed = useSettingsStore((s) => s.setSpeed);
   const steps = useSettingsStore((s) => s.steps);
@@ -64,7 +68,10 @@ export default function ReaderScreen() {
   const effModelId = renderProfile?.modelId ?? modelId;
   const effVoiceId = renderProfile?.voiceId ?? voiceId;
   const effSteps = renderProfile?.steps ?? steps;
-  const effLang = renderProfile?.lang ?? 'en';
+  // Language precedence: a pinned full-audiobook render wins (its cache was made
+  // in that language); otherwise the per-document override; otherwise the global
+  // default. Keeps tap-to-start reading the right cache.
+  const effLang = renderProfile?.lang ?? doc?.lang ?? settingsLang ?? 'en';
   const effSpeed = renderProfile?.speed ?? speed;
   const setEffSpeed = useCallback(
     (v: number) => {
@@ -128,6 +135,12 @@ export default function ReaderScreen() {
   const [speedSheet, setSpeedSheet] = useState(false);
   const [menu, setMenu] = useState(false);
   const [sleepMenu, setSleepMenu] = useState(false);
+  const [voiceSheet, setVoiceSheet] = useState(false);
+  const [langSheet, setLangSheet] = useState(false);
+  const [manageSheet, setManageSheet] = useState(false);
+  // A voice the user picked that needs confirmation because switching it would
+  // bypass already-cached audio (held until they confirm in the dialog).
+  const [pendingVoice, setPendingVoice] = useState<string | null>(null);
   const [tocPrompt, setTocPrompt] = useState<{ title: string; target: number; charStart: number } | null>(null);
   const [showHint, setShowHint] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,6 +280,52 @@ export default function ReaderScreen() {
     navigation.goBack();
   }, [doc, activeDoc, playback, clearActiveDoc, clearAudiobook, removeDocument, navigation]);
 
+  // Apply a voice change for real. When a full-audiobook profile is pinned, the
+  // reader always reads through that profile, so we must repoint it at the new
+  // voice (and forget the now-stale "done" render so the cache isn't treated as
+  // complete); otherwise we just move the global voice. Either way the effVoiceId
+  // change re-registers the active document, so playback picks up the new voice.
+  const applyVoice = useCallback(
+    (newVoice: string) => {
+      if (!doc) return;
+      if (renderProfile) {
+        setRenderProfile(doc.docHash, { ...renderProfile, voiceId: newVoice });
+        if (audiobook?.status === 'done') clearAudiobook(doc.docHash);
+      } else {
+        setVoice(newVoice);
+      }
+      setPendingVoice(null);
+    },
+    [doc, renderProfile, setRenderProfile, audiobook?.status, clearAudiobook, setVoice],
+  );
+
+  // Voice picked in the sheet. If the document already has cached audio for the
+  // current voice (per-chunk or a full audiobook), switching means that cache is
+  // kept but bypassed and new audio is generated — so we confirm first. With no
+  // cache to bypass, switch immediately.
+  const onVoiceChange = useCallback(
+    (newVoice: string) => {
+      if (!doc || newVoice === effVoiceId) return;
+      const cached =
+        audiobook?.status === 'done' ||
+        (chunks.length > 0 &&
+          isChunkCached(doc.docHash, chunks[0].charStart, {
+            modelId: effModelId ?? '',
+            voiceId: effVoiceId,
+            speed: effSpeed,
+            steps: effSteps,
+            lang: effLang,
+          }));
+      if (cached) {
+        setVoiceSheet(false);
+        setPendingVoice(newVoice);
+      } else {
+        applyVoice(newVoice);
+      }
+    },
+    [doc, effVoiceId, audiobook?.status, chunks, effModelId, effSpeed, effSteps, effLang, applyVoice],
+  );
+
   const menuActions: DialogAction[] = doc
     ? [
         {
@@ -275,23 +334,24 @@ export default function ReaderScreen() {
           onPress: () => toggleFavourite(doc.docHash),
         },
         {
+          label: `Change voice · ${voiceLabel(effVoiceId)}`,
+          variant: 'tonal',
+          onPress: () => (effModelId ? setVoiceSheet(true) : navigation.navigate('VoiceModel')),
+        },
+        {
+          label: `Language · ${languageLabel(effLang)}`,
+          variant: 'tonal',
+          onPress: () => (effModelId ? setLangSheet(true) : navigation.navigate('VoiceModel')),
+        },
+        {
           label: 'Make full audiobook',
           variant: 'tonal',
           onPress: () => navigation.navigate('Prerender', { docId: doc.docHash }),
         },
         {
-          label: sleep.active ? `Sleep timer · ${sleep.minutesLeft}m left` : 'Sleep timer',
+          label: 'Manage cached audio',
           variant: 'tonal',
-          onPress: () => setSleepMenu(true),
-        },
-        {
-          label: 'Clear cached audio',
-          variant: 'tonal',
-          onPress: () => {
-            if (activeDoc?.doc.docHash === doc.docHash) playback.stop();
-            clearDocumentCache(doc.docHash);
-            clearAudiobook(doc.docHash);
-          },
+          onPress: () => setManageSheet(true),
         },
         { label: 'Delete', variant: 'danger', onPress: deleteDocument },
         { label: 'Cancel', variant: 'ghost' },
@@ -520,7 +580,8 @@ export default function ReaderScreen() {
         duration={formatTime(Math.max(0, playback.durationSec - playback.positionSec))}
         speed={effSpeed}
         onSpeed={() => setSpeedSheet(true)}
-        voiceName={voiceLabel(effVoiceId)}
+        onSleep={() => setSleepMenu(true)}
+        sleepMinutesLeft={sleep.active ? sleep.minutesLeft : null}
       />
 
       <Sheet open={speedSheet} onClose={() => setSpeedSheet(false)} title="Playback speed" heightRatio={0.42}>
@@ -538,6 +599,48 @@ export default function ReaderScreen() {
           </View>
         </View>
       </Sheet>
+
+      <Sheet open={voiceSheet} onClose={() => setVoiceSheet(false)} title="Reading voice" heightRatio={0.78}>
+        <VoicePicker value={effVoiceId} onChange={onVoiceChange} modelId={effModelId} lang={effLang} />
+      </Sheet>
+
+      <Sheet open={langSheet} onClose={() => setLangSheet(false)} title="Language" heightRatio={0.78}>
+        <LanguagePicker
+          value={doc?.lang ?? null}
+          onChange={(code) => {
+            if (doc) setDocLang(doc.docHash, code);
+            setLangSheet(false);
+          }}
+          onUseDefault={() => {
+            if (doc) setDocLang(doc.docHash, null);
+            setLangSheet(false);
+          }}
+          defaultLabel={languageLabel(settingsLang)}
+          langCodes={findModel(effModelId)?.langCodes ?? []}
+        />
+      </Sheet>
+
+      <ManageCacheSheet
+        open={manageSheet}
+        onClose={() => setManageSheet(false)}
+        docHash={doc?.docHash ?? null}
+        title={doc?.title}
+      />
+
+      <ActionDialog
+        open={pendingVoice != null}
+        onClose={() => setPendingVoice(null)}
+        title="Change voice?"
+        message={
+          pendingVoice
+            ? `This document already has audio cached for ${voiceLabel(effVoiceId)}. That cache is kept but won't be used — new audio is generated with ${voiceLabel(pendingVoice)} as you play.`
+            : undefined
+        }
+        actions={[
+          { label: pendingVoice ? `Use ${voiceLabel(pendingVoice)}` : 'Change', variant: 'filled', onPress: () => { if (pendingVoice) applyVoice(pendingVoice); } },
+          { label: 'Keep current voice', variant: 'ghost' },
+        ]}
+      />
 
       <ActionDialog
         open={!!tocPrompt}

@@ -22,15 +22,19 @@ export const makeStyles = (p: Palette) =>
       alignItems: 'center',
       gap: 8,
     },
-    voiceWrap: {
+    leftCluster: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
+      gap: 4,
       minWidth: 0,
     },
-    voiceName: {
-      flexShrink: 1,
+    sleepButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 8,
+      paddingHorizontal: 8,
     },
     playWrap: {
       width: 68,

@@ -29,3 +29,5 @@ export * from './DownloadHero';
 export * from './ModelCard';
 export * from './VoicePicker';
 export * from './VoiceSwatch';
+export * from './LanguagePicker';
+export * from './ManageCacheSheet';

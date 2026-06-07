@@ -124,6 +124,50 @@ Notes: a clean all-ABI release build takes ~25–30 min (native ONNX compile for
 - **Model download progress fix:** progress is now byte-weighted against a fixed
   total in the downloader (`overall` field), so the bar fills once instead of
   once per file.
+- **Voice-selection bug fixed:** only the download-time voice's style JSON was
+  ever fetched, so switching to any non-default voice left its ~150 KB style file
+  missing → `loadVoiceStyle` threw → silent no-audio. Fix: `loadEngine`
+  (`usePlayback.ts`) now calls `ensureModelsDownloaded(modelId, voiceId)` before
+  `loadVoiceStyle` (model files are skipped; only the missing voice JSON is
+  pulled). `VoicePicker` also pre-fetches the style on select and its preview
+  button now does a **real on-device synthesis** of a short phrase (load TTS →
+  `loadVoiceStyle` → `synthesize` → `encodeWav` → `createAudioPlayer`), with a
+  per-row spinner. `VoicePicker` gained `modelId` + `lang` props (updated at all
+  three call sites: Settings, Reader, Prerender).
+- **Per-document language (with global fallback):** `settingsStore` gained
+  `lang`/`setLang` (global default, persisted); `ImportedDocument` gained an
+  optional `lang`; `documentsStore` gained `setDocLang(docHash, lang|null)`. The
+  reader resolves `effLang = renderProfile?.lang ?? doc.lang ?? settingsLang`. New
+  `LanguagePicker` component (scrollable, gated to the active model's
+  `langCodes`); surfaced in Settings (global) and the reader overflow (per-doc,
+  with a "Use app default" row).
+- **Reader control shuffle:** the far-left voice icon/name in `PlayerControls` is
+  now a **moon sleep-timer button** (shows minutes left while active; Stop kept).
+  Sleep timer was removed from the overflow menu; the overflow gained **Change
+  voice** and **Language** entries (both open bottom sheets).
+- **Per-voice cache management:** a document's cache can hold audio rendered with
+  several voices/profiles at once (each keyed by its own `settingsHash`). A
+  one-way hash can't be labelled, so `audioCache.ts` now keeps a `profiles.json`
+  registry (`recordCachedProfile`, written from `ensureChunkAudio` on hit **and**
+  miss so pre-feature caches register on replay; pre-registry caches show as
+  "Unknown voice"). New `listCachedProfiles` / `clearProfileCache` group + delete
+  by profile. Shared **`ManageCacheSheet`** lists each cached voice with size +
+  clip count and a per-voice trash button (plus a tap-again "Clear all"); deleting
+  the playing voice stops playback first, and dropping the profile a full
+  audiobook was rendered with also `clearAudiobook`s it. Surfaced in **three**
+  places: reader overflow ("Manage cached audio", replaced the old blunt "Clear
+  cached audio"), library long-press menu ("Manage cached audio · {size}"), and a
+  new global **`StorageScreen`** (route `Storage`) reached from Settings →
+  Models & storage → "Cached audio" (subtitle shows total size across all docs).
+- **Voice switch on a cached audiobook (warn + actually act):** switching voice in
+  the reader's VoicePicker now routes through `onVoiceChange`. If the doc already
+  has cached audio for the current voice (a cached first chunk **or** a `done`
+  full audiobook), it confirms first ("cache is kept but won't be used — new audio
+  is generated with {voice}"). On confirm it **really switches**: when a render
+  profile is pinned it repoints `renderProfile.voiceId` and forgets the now-stale
+  `done` audiobook, otherwise it moves the global voice — either way `effVoiceId`
+  changes, re-registering the active doc so playback re-synthesizes with the new
+  voice. With nothing cached to bypass, it switches silently.
 
 ---
 

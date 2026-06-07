@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chunkAudioUri, ensureChunkAudio, isChunkCached, loadTextToSpeech, loadVoiceStyle, settingsHash } from '../supertonic';
+import { chunkAudioUri, ensureChunkAudio, ensureModelsDownloaded, isChunkCached, loadTextToSpeech, loadVoiceStyle, settingsHash } from '../supertonic';
 import type { NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
@@ -470,6 +470,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
 }
 
 async function loadEngine(modelId: string, voiceId: string): Promise<{ tts: TextToSpeech; voice: VoiceStyle }> {
+  // Safety-net: only the model's *download-time* voice style JSON is fetched up
+  // front, so switching to any other voice would otherwise leave its ~150 KB
+  // style file missing and loadVoiceStyle would throw (silent no-audio). This
+  // fetches the selected voice's file if absent (model files are skipped).
+  await ensureModelsDownloaded(modelId, voiceId);
   const tts = await loadTextToSpeech(modelId);
   const voice = await loadVoiceStyle(modelId, voiceId);
   return { tts, voice };

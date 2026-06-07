@@ -32,6 +32,8 @@ type DocumentsState = {
   addDocument: (doc: ImportedDocument) => void;
   /** Record a document's page count once its text layer has been parsed. */
   setPageCount: (docHash: string, pageCount: number) => void;
+  /** Set a document's narration language override (null clears it → global). */
+  setDocLang: (docHash: string, lang: string | null) => void;
   /** Mark a document's first-open hint as shown (so it never shows again). */
   markHintSeen: (docHash: string) => void;
   /** Toggle a document's favourite (starred) state. */
@@ -64,6 +66,12 @@ export const useDocumentsStore = create<DocumentsState>()(
       setPageCount: (docHash, pageCount) =>
         set((state) => ({
           documents: state.documents.map((d) => (d.docHash === docHash ? { ...d, pageCount } : d)),
+        })),
+      setDocLang: (docHash, lang) =>
+        set((state) => ({
+          documents: state.documents.map((d) =>
+            d.docHash === docHash ? { ...d, lang: lang ?? undefined } : d,
+          ),
         })),
       markHintSeen: (docHash) =>
         set((state) => (state.hintsSeen.includes(docHash) ? state : { hintsSeen: [...state.hintsSeen, docHash] })),

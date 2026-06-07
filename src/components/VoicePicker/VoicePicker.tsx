@@ -1,24 +1,135 @@
-import { useMemo, useState } from 'react';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
+import { File, Paths } from 'expo-file-system';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
+import {
+  ensureModelsDownloaded,
+  encodeWav,
+  loadTextToSpeech,
+  loadVoiceStyle,
+  type TextToSpeech,
+} from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import { Chip } from '../Chip';
 import { Icon } from '../Icon';
+import { Spinner } from '../Spinner';
 import { VoiceSwatch } from '../VoiceSwatch';
 import { VOICES } from './voiceCatalog';
 import { makeStyles } from './VoicePicker.styles';
 
-export type VoicePickerProps = { value: string; onChange: (id: string) => void };
+export type VoicePickerProps = {
+  value: string;
+  onChange: (id: string) => void;
+  /** Active model build; needed to download + synthesize a real preview. */
+  modelId: string | null;
+  /** Language to synthesize the preview phrase in (defaults to English). */
+  lang?: string;
+};
 type GenderFilter = 'all' | 'f' | 'm';
 
-// Body of the voice-picker sheet: gender filter + selectable voice list with
-// preview play. Reusable from Settings (and anywhere a voice is chosen).
-export function VoicePicker({ value, onChange }: VoicePickerProps) {
+// A short, phonetically varied phrase so previews showcase the voice quickly.
+const PREVIEW_SENTENCE = 'Hi, this is how I sound when I read your book aloud.';
+const PREVIEW_FILE = 'voice_preview.wav';
+const PREVIEW_STEPS = 8; // fast enough for an instant-ish on-device preview
+
+// Body of the voice-picker sheet: gender filter + selectable voice list with a
+// real on-device preview. Selecting a voice also downloads its style file (the
+// ~150 KB embedding the engine needs) so reading works immediately afterwards.
+export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePickerProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
   const [gender, setGender] = useState<GenderFilter>('all');
-  const [previewing, setPreviewing] = useState<string | null>(null);
+  // Voice id currently being prepared (downloading model files / synthesizing).
+  const [busy, setBusy] = useState<string | null>(null);
+  // Voice id whose preview clip is currently playing.
+  const [playing, setPlaying] = useState<string | null>(null);
+
+  // Loaded ONNX engine, kept across previews so we don't re-load it per tap.
+  const ttsRef = useRef<{ modelId: string; tts: TextToSpeech } | null>(null);
+  const playerRef = useRef<AudioPlayer | null>(null);
+  const tokenRef = useRef(0);
+  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      tokenRef.current++;
+      if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+      try {
+        playerRef.current?.remove?.();
+      } catch {}
+      playerRef.current = null;
+    };
+  }, []);
 
   const filtered = VOICES.filter((v) => gender === 'all' || v.gender === gender);
+
+  const preview = async (voiceId: string) => {
+    if (!modelId) return;
+    // Toggle off if this voice is already playing.
+    if (playing === voiceId) {
+      tokenRef.current++;
+      try {
+        playerRef.current?.pause();
+      } catch {}
+      setPlaying(null);
+      return;
+    }
+    const token = ++tokenRef.current;
+    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+    setPlaying(null);
+    setBusy(voiceId);
+    try {
+      await ensureModelsDownloaded(modelId, voiceId);
+      if (token !== tokenRef.current) return;
+      if (!ttsRef.current || ttsRef.current.modelId !== modelId) {
+        ttsRef.current = { modelId, tts: await loadTextToSpeech(modelId) };
+      }
+      if (token !== tokenRef.current) return;
+      const tts = ttsRef.current.tts;
+      const voice = await loadVoiceStyle(modelId, voiceId);
+      if (token !== tokenRef.current) return;
+      const { waveform } = await tts.synthesize(PREVIEW_SENTENCE, lang, voice, PREVIEW_STEPS, 1.05);
+      if (token !== tokenRef.current) return;
+
+      const out = new File(Paths.cache, PREVIEW_FILE);
+      if (out.exists) out.delete();
+      out.create();
+      out.write(encodeWav(waveform, tts.sampleRate));
+
+      await setAudioModeAsync({ playsInSilentMode: true });
+      if (token !== tokenRef.current) return;
+      try {
+        playerRef.current?.remove?.();
+      } catch {}
+      playerRef.current = createAudioPlayer(out.uri);
+      playerRef.current.play();
+      setBusy(null);
+      setPlaying(voiceId);
+      // Clear the playing state when the clip finishes (no status hook on a
+      // ref-held player), with a little padding.
+      const audioMs = (waveform.length / tts.sampleRate) * 1000;
+      stopTimerRef.current = setTimeout(() => {
+        if (token === tokenRef.current) setPlaying(null);
+      }, audioMs + 400);
+    } catch (e) {
+      console.warn('[VoicePicker] preview failed:', e);
+      if (token === tokenRef.current) {
+        setBusy(null);
+        setPlaying(null);
+      }
+    }
+  };
+
+  // Selecting a voice: commit it immediately, then pre-fetch its style file so
+  // reading/full-audiobook work right away (the engine also self-heals via its
+  // own ensureModelsDownloaded, this just removes the first-play wait).
+  const select = (voiceId: string) => {
+    onChange(voiceId);
+    if (!modelId) return;
+    void ensureModelsDownloaded(modelId, voiceId).catch((e) =>
+      console.warn('[VoicePicker] failed to pre-fetch voice:', e),
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -31,7 +142,7 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
         {filtered.map((v, i) => (
           <Pressable
             key={v.id}
-            onPress={() => onChange(v.id)}
+            onPress={() => select(v.id)}
             accessibilityRole="button"
             accessibilityState={{ selected: value === v.id }}
             style={[
@@ -48,19 +159,24 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
               <Text style={ty(TYPE.bodySmall, p.textMuted)}>{v.id}</Text>
             </View>
             <Pressable
-              onPress={() => setPreviewing((cur) => (cur === v.id ? null : v.id))}
+              onPress={() => void preview(v.id)}
+              disabled={!modelId || (busy !== null && busy !== v.id)}
               accessibilityRole="button"
               accessibilityLabel={`Preview ${v.label}`}
-              style={[styles.previewBase, { backgroundColor: previewing === v.id ? p.primary : p.surfaceAlt }]}
+              style={[styles.previewBase, { backgroundColor: playing === v.id ? p.primary : p.surfaceAlt }]}
             >
-              <Icon name={previewing === v.id ? 'pause' : 'play'} size={14} color={previewing === v.id ? p.onPrimary : p.text} />
+              {busy === v.id ? (
+                <Spinner size={14} color={p.text} />
+              ) : (
+                <Icon name={playing === v.id ? 'pause' : 'play'} size={14} color={playing === v.id ? p.onPrimary : p.text} />
+              )}
             </Pressable>
             {value === v.id ? <Icon name="check" size={20} color={p.primary} /> : null}
           </Pressable>
         ))}
       </View>
       <Text style={[ty(TYPE.caption, p.textDim), styles.footnote]}>
-        Voices run locally · no audio leaves the device
+        {modelId ? 'Tap a voice to preview · runs locally, no audio leaves the device' : 'Choose a voice model first to preview voices'}
       </Text>
     </View>
   );

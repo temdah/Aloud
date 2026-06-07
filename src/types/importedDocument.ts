@@ -11,6 +11,9 @@ export type ImportedDocument = {
   fileUri: string;
   /** Source format. Drives which extractor runs. Absent ⇒ treat as 'pdf'. */
   kind?: DocumentKind;
+  /** Per-document narration language override (a SupportedLanguage code).
+   *  Absent ⇒ fall back to the global default in settings. */
+  lang?: string;
   /** Content signature — cache namespace and dedupe key. */
   docHash: string;
   /** Size of the copied file in bytes. */
