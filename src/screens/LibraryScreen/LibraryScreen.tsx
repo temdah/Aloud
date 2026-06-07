@@ -2,7 +2,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import { File } from 'expo-file-system';
-import { ActionDialog, AppBar, BookRow, Button, Chip, EmptyArt, FAB, Icon, IconButton, ManageCacheSheet } from '../../components';
+import { ActionDialog, AppBar, BookRow, Chip, EmptyLibrary, FAB, Icon, IconButton, ManageCacheSheet } from '../../components';
 import { useImportDocument } from '../../hooks';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { usePlaybackContext } from '../../playback';
@@ -80,14 +80,7 @@ export default function LibraryScreen() {
     return (
       <View style={styles.screen}>
         <AppBar title="Library" actions={<IconButton icon="settings" onPress={openSettings} accessibilityLabel="Settings" />} />
-        <View style={styles.emptyBody}>
-          <EmptyArt />
-          <Text style={[ty(TYPE.titleLarge, p.text), styles.emptyTitle]}>A library that reads to you</Text>
-          <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>
-            Import a PDF, Markdown, or Word file and tap anywhere in the text. The voice picks up from there — fully offline.
-          </Text>
-          <Button label="Import file" icon="import" size="lg" variant="filled" full onPress={importDocument} />
-        </View>
+        <EmptyLibrary onImport={importDocument} />
       </View>
     );
   }

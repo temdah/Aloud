@@ -159,6 +159,14 @@ Notes: a clean all-ABI release build takes ~25–30 min (native ONNX compile for
   cached audio"), library long-press menu ("Manage cached audio · {size}"), and a
   new global **`StorageScreen`** (route `Storage`) reached from Settings →
   Models & storage → "Cached audio" (subtitle shows total size across all docs).
+- **Empty-library entrance animation:** the first-open / no-documents state is now
+  animated (`EmptyLibrary` wraps the art + copy + import button). On mount the
+  middle book fades in, the two side books spread out from behind/in front of it
+  (`EmptyArt` rewritten with `Animated`), the title types itself out
+  (`Typewriter`, with the full string rendered transparent underneath to reserve
+  layout so it doesn't reflow), the subtitle fades up, and the Import button pops
+  in with a bounce — whole sequence lands in ~1.8s. All native-driver transforms;
+  no new deps.
 - **Voice switch on a cached audiobook (warn + actually act):** switching voice in
   the reader's VoicePicker now routes through `onVoiceChange`. If the doc already
   has cached audio for the current voice (a cached first chunk **or** a `done`

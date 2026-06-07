@@ -18,6 +18,7 @@ export * from './CoverThumb';
 export * from './BookCover';
 export * from './BookRow';
 export * from './EmptyArt';
+export * from './EmptyLibrary';
 export * from './FAB';
 export * from './NowPlayingPill';
 export * from './PlayingPulse';
