@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "PDF Read-Aloud",
-    "slug": "pdf-read-aloud",
+    "name": "Aloud",
+    "slug": "aloud",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -11,7 +11,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.tim.pdfreadaloud",
+      "package": "com.tim.aloud",
       "versionCode": 1,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"

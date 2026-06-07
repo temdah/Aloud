@@ -94,7 +94,7 @@ export default function TextToSpeechDemoScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>PDF Read-Aloud — TTS demo</Text>
+      <Text style={styles.title}>Aloud — TTS demo</Text>
       <Text style={styles.hint}>Install the voice in Settings → voice model first.</Text>
       <View style={styles.row}>
         <Button title="- steps" onPress={() => setSteps((s) => Math.max(1, s - 1))} disabled={busy} />

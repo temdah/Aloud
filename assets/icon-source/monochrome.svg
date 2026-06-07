@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Aloud app icon — monochrome (white silhouette on transparent) for
+       Android 13+ themed icons. The system tints this. -->
+  <g stroke="#ffffff" stroke-width="38" stroke-linecap="round" fill="none">
+    <path d="M603.9 482.8 A120 120 0 0 0 420.1 482.8" />
+    <path d="M649.9 444.3 A180 180 0 0 0 374.1 444.3" />
+    <path d="M695.8 405.7 A240 240 0 0 0 328.2 405.7" />
+  </g>
+  <path d="M512 600 C 430 596 348 606 286 628 L 278 742 C 348 720 430 712 512 714 Z" fill="#ffffff" />
+  <path d="M512 600 C 594 596 676 606 738 628 L 746 742 C 676 720 594 712 512 714 Z" fill="#ffffff" />
+  <path d="M512 596 L512 716" stroke="#ffffff" stroke-width="14" stroke-linecap="round" />
+</svg>

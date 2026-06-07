@@ -36,7 +36,7 @@ export default function LibraryScreen() {
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
   const removeDocument = useDocumentsStore((s) => s.removeDocument);
   const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
-  const { playback, activeDoc } = usePlaybackContext();
+  const { playback, activeDoc, clearActiveDoc } = usePlaybackContext();
   const { importDocument } = useImportDocument();
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<Sort>('recent');
@@ -83,9 +83,9 @@ export default function LibraryScreen() {
           <EmptyArt />
           <Text style={[ty(TYPE.titleLarge, p.text), styles.emptyTitle]}>A library that reads to you</Text>
           <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>
-            Import a PDF and tap anywhere in the text. The voice picks up from there — fully offline.
+            Import a PDF, Markdown, or Word file and tap anywhere in the text. The voice picks up from there — fully offline.
           </Text>
-          <Button label="Import PDF" icon="import" size="lg" variant="filled" full onPress={importDocument} />
+          <Button label="Import file" icon="import" size="lg" variant="filled" full onPress={importDocument} />
         </View>
       </View>
     );
@@ -146,7 +146,7 @@ export default function LibraryScreen() {
           ))}
         </ScrollView>
       )}
-      <FAB icon="plus" label="Import PDF" onPress={importDocument} raised={pillVisible} />
+      <FAB icon="plus" label="Import file" onPress={importDocument} raised={pillVisible} />
 
       <ActionDialog
         open={sortMenu}
@@ -185,6 +185,8 @@ export default function LibraryScreen() {
                   label: menuStats && menuStats.bytes > 0 ? `Clear cached audio · ${formatSize(menuStats.bytes)}` : 'Clear cached audio',
                   variant: 'tonal',
                   onPress: () => {
+                    // Stop playback if we're wiping the cache out from under it.
+                    if (activeDoc?.doc.docHash === menuDoc.docHash) playback.stop();
                     clearDocumentCache(menuDoc.docHash);
                     clearAudiobook(menuDoc.docHash);
                   },
@@ -193,6 +195,13 @@ export default function LibraryScreen() {
                   label: 'Delete',
                   variant: 'danger',
                   onPress: () => {
+                    // If the doc being deleted is the one playing, halt audio and
+                    // release it first — otherwise the player keeps going from the
+                    // already-loaded clip after its files are gone.
+                    if (activeDoc?.doc.docHash === menuDoc.docHash) {
+                      playback.stop();
+                      clearActiveDoc();
+                    }
                     clearDocumentCache(menuDoc.docHash);
                     clearAudiobook(menuDoc.docHash);
                     deleteExtractedText(menuDoc.docHash);

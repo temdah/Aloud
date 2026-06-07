@@ -10,3 +10,5 @@ export { usePageGeometry } from './usePageGeometry';
 export type { PageGeometry } from './usePageGeometry';
 export { usePrerender } from './usePrerender';
 export type { PrerenderState, PrerenderStatus } from './usePrerender';
+export { useSleepTimer } from './useSleepTimer';
+export type { SleepTimer } from './useSleepTimer';

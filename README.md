@@ -1,7 +1,8 @@
-# PDF Read-Aloud
+# Aloud
 
-An offline Android app that reads PDFs aloud with a natural, on-device AI voice.
-Import a PDF, tap anywhere in the text, and it reads from there — fully offline,
+An offline Android app that reads your documents aloud with a natural, on-device
+AI voice. Import a file (PDF, Markdown, or Word), tap anywhere in the text, and it
+reads from there — fully offline,
 with the sentence being spoken highlighted as it plays. Audio is cached per
 document, so reopening never re-synthesizes.
 

@@ -3,10 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View, type ViewToken } from 'react-native';
 import { ActionDialog, AppBar, Chip, Icon, IconButton, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, voiceLabel, type DialogAction } from '../../components';
 import { usePageGeometry, usePdfText } from '../../hooks';
+import { File } from 'expo-file-system';
 import { usePlaybackContext } from '../../playback';
 import type { ExtractedBlock } from '../../pdf';
+import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { loadChunks } from '../../supertonic';
+import { clearDocumentCache, loadChunks } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './ReaderScreen.styles';
@@ -45,6 +47,10 @@ export default function ReaderScreen() {
   const setCursor = useDocumentsStore((s) => s.setCursor);
   const renderProfile = useDocumentsStore((s) => s.renderProfile[route.params.docId]);
   const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
+  const favourites = useDocumentsStore((s) => s.favourites);
+  const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
+  const removeDocument = useDocumentsStore((s) => s.removeDocument);
+  const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
   const modelId = useSettingsStore((s) => s.modelId);
   const voiceId = useSettingsStore((s) => s.voiceId);
   const speed = useSettingsStore((s) => s.speed);
@@ -95,7 +101,7 @@ export default function ReaderScreen() {
   // Playback now lives in a global provider so audio + transport survive leaving
   // this screen (mini player on other screens). The Reader registers the open
   // document with the engine; consuming `playback` works exactly as before.
-  const { playback, activeDoc, setActiveDoc } = usePlaybackContext();
+  const { playback, activeDoc, setActiveDoc, clearActiveDoc, sleep } = usePlaybackContext();
   useEffect(() => {
     if (status !== 'ready' || !doc || !document?.text) return;
     setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang });
@@ -120,6 +126,8 @@ export default function ReaderScreen() {
     currentPageRef.current = currentPage;
   }, [currentPage]);
   const [speedSheet, setSpeedSheet] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [sleepMenu, setSleepMenu] = useState(false);
   const [tocPrompt, setTocPrompt] = useState<{ title: string; target: number; charStart: number } | null>(null);
   const [showHint, setShowHint] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -237,6 +245,68 @@ export default function ReaderScreen() {
       return next;
     });
   }, [activeChunk, scrollToReadingOffset]);
+
+  const isFavourite = doc ? favourites.includes(doc.docHash) : false;
+
+  // Delete the open document (and all its cache) from the reader's overflow
+  // menu, halting playback first if this is the doc currently playing, then
+  // leaving the now-empty reader.
+  const deleteDocument = useCallback(() => {
+    if (!doc) return;
+    if (activeDoc?.doc.docHash === doc.docHash) {
+      playback.stop();
+      clearActiveDoc();
+    }
+    clearDocumentCache(doc.docHash);
+    clearAudiobook(doc.docHash);
+    deleteExtractedText(doc.docHash);
+    try {
+      new File(doc.fileUri).delete();
+    } catch {}
+    removeDocument(doc.docHash);
+    navigation.goBack();
+  }, [doc, activeDoc, playback, clearActiveDoc, clearAudiobook, removeDocument, navigation]);
+
+  const menuActions: DialogAction[] = doc
+    ? [
+        {
+          label: isFavourite ? 'Remove from favourites' : 'Add to favourites',
+          variant: 'tonal',
+          onPress: () => toggleFavourite(doc.docHash),
+        },
+        {
+          label: 'Make full audiobook',
+          variant: 'tonal',
+          onPress: () => navigation.navigate('Prerender', { docId: doc.docHash }),
+        },
+        {
+          label: sleep.active ? `Sleep timer · ${sleep.minutesLeft}m left` : 'Sleep timer',
+          variant: 'tonal',
+          onPress: () => setSleepMenu(true),
+        },
+        {
+          label: 'Clear cached audio',
+          variant: 'tonal',
+          onPress: () => {
+            if (activeDoc?.doc.docHash === doc.docHash) playback.stop();
+            clearDocumentCache(doc.docHash);
+            clearAudiobook(doc.docHash);
+          },
+        },
+        { label: 'Delete', variant: 'danger', onPress: deleteDocument },
+        { label: 'Cancel', variant: 'ghost' },
+      ]
+    : [];
+
+  const sleepActions: DialogAction[] = [
+    ...[15, 30, 45, 60].map((m) => ({
+      label: `${m} minutes`,
+      variant: 'tonal' as const,
+      onPress: () => sleep.start(m),
+    })),
+    ...(sleep.active ? [{ label: 'Turn off', variant: 'danger' as const, onPress: sleep.cancel }] : []),
+    { label: 'Cancel', variant: 'ghost' as const },
+  ];
 
   // Tapping a contents entry is ambiguous (navigate vs. read), so open a themed
   // dialog: jump to the section, or select its text like any sentence.
@@ -373,7 +443,7 @@ export default function ReaderScreen() {
 
   return (
     <View style={styles.screen}>
-      <AppBar onBack={() => navigation.goBack()} title={doc?.title} subtitle={pageCount > 0 ? `${pageCount} pages` : undefined} actions={<IconButton icon="more" accessibilityLabel="More" />} />
+      <AppBar onBack={() => navigation.goBack()} title={doc?.title} subtitle={pageCount > 0 ? `${pageCount} pages` : undefined} actions={<IconButton icon="more" accessibilityLabel="More" onPress={() => setMenu(true)} />} />
 
       <View style={styles.body} onTouchStart={showHint ? dismissHint : undefined}>
         {status === 'loading' ? (
@@ -385,14 +455,14 @@ export default function ReaderScreen() {
         ) : status === 'error' ? (
           <View style={styles.emptyState}>
             <Icon name="book" size={40} color={p.textDim} />
-            <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>Couldn’t read this PDF.</Text>
+            <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>Couldn’t read this document.</Text>
             {error ? <Text style={ty(TYPE.caption, p.textDim)}>{error}</Text> : null}
           </View>
         ) : status === 'ready' && blocks.length === 0 ? (
           <View style={styles.emptyState}>
             <Icon name="book" size={40} color={p.textDim} />
             <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>No selectable text found.</Text>
-            <Text style={ty(TYPE.caption, p.textDim)}>This PDF may be scanned images.</Text>
+            <Text style={ty(TYPE.caption, p.textDim)}>{doc?.kind === 'pdf' || !doc?.kind ? 'This PDF may be scanned images.' : 'This file appears to be empty.'}</Text>
           </View>
         ) : hasPages ? (
           <>
@@ -425,7 +495,7 @@ export default function ReaderScreen() {
 
       {hasPages ? (
         <View style={styles.pageBar}>
-          <Chip label="Follow" selected={followMode} onPress={toggleFollow} />
+          <Chip label="Read along" selected={followMode} onPress={toggleFollow} />
           <Text style={ty(TYPE.label, p.textMuted)}>
             Page {currentPage} / {pageCount}
             {status === 'streaming' ? `  ·  ${loadedPages} loaded` : ''}
@@ -486,6 +556,16 @@ export default function ReaderScreen() {
           { label: 'Play from here', variant: 'filled', onPress: () => { if (pendingOffset != null) playback.playFrom(pendingOffset); } },
           { label: 'Keep playing', variant: 'ghost' },
         ]}
+      />
+
+      <ActionDialog open={menu} onClose={() => setMenu(false)} title={doc?.title} actions={menuActions} />
+
+      <ActionDialog
+        open={sleepMenu}
+        onClose={() => setSleepMenu(false)}
+        title="Sleep timer"
+        message={sleep.active ? `Pausing in about ${sleep.minutesLeft} min.` : 'Pause playback after…'}
+        actions={sleepActions}
       />
 
       {extractor}

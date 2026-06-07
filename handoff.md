@@ -1,14 +1,22 @@
-# PDF Read-Aloud — Engineering Handoff
+# Aloud — Engineering Handoff
 
 Living continuity doc for the project. Source of truth for state, native
 constraints, build recipes, and what's left. Update it as things change.
 
-- **App:** PDF Read-Aloud (`pdf-read-aloud`) — Expo / React Native, Android.
+- **App:** Aloud (`aloud`, package `com.tim.aloud`) — Expo / React Native, Android.
 - **Version:** 1.0.0 (`android.versionCode` 1).
-- **What it does:** Import a PDF → headless PDF.js text extraction → on-device
+- **What it does:** Import a PDF, Markdown, or Word (.docx) file → text
+  extraction (headless PDF.js for PDF; pure-JS extractors for md/docx) → on-device
   neural TTS (Supertonic via ONNX Runtime) → paginated reader with read-aloud,
   full-audiobook prerender, background playback, and lock-screen media controls.
 - **Last updated:** 2026-06-07.
+
+> **Rename note:** the package id changed (`com.tim.pdfreadaloud` →
+> `com.tim.aloud`). This requires a clean native regen + a fresh device install
+> (the old-id app won't upgrade in place): `expo prebuild --platform android
+> --clean` then `expo run:android --variant release`. The release-signing gradle
+> props are still named `PDFREADALOUD_RELEASE_*` (left as-is — they key off
+> `~/.gradle/gradle.properties`, not the app id).
 
 ---
 
@@ -71,8 +79,33 @@ Notes: a clean all-ABI release build takes ~25–30 min (native ONNX compile for
 
 ## What's done
 
+- **Branding → "Aloud":** app name, slug, and package id updated; lock-screen
+  artist/album strings and in-app copy generalized. New app icon (book + sound
+  waves, warm "paper" palette) designed as SVGs in `assets/icon-source/`
+  (`foreground/background/monochrome/icon.svg` + `preview.html`) — **awaiting
+  visual sign-off before rasterizing to the PNG set + updating `app.json`
+  `adaptiveIcon`**.
+- **Multi-format import (PDF + Markdown + .docx):** picker widened; source format
+  recorded on the document (`ImportedDocument.kind`). Pure-JS extractors in
+  `src/extractors/` (`markdownExtractor`, `docxExtractor` via `fflate`, shared
+  `documentBuilder`) emit the same `ExtractedDocument` shape PDF produces, so the
+  reader + chunker are format-agnostic. md/docx parse synchronously (no WebView);
+  PDF still streams through PDF.js. **`fflate` is pure JS — no native rebuild.**
+- **Reader UI fixes:** top-right overflow menu (favourite, make audiobook, sleep
+  timer, clear cached audio, delete); voice status moved far-left and the Stop
+  square swapped into the control row; "Follow" chip renamed "Read along".
+- **Sleep timer:** `useSleepTimer` (absolute-deadline countdown, background-safe)
+  wired into `PlaybackProvider`; pauses playback when it elapses. Surfaced via the
+  reader overflow menu (15/30/45/60 min + Turn off); the menu label shows minutes
+  left while active. "End of chapter" option still open (see future-work).
+- **Bug fix — delete-while-playing:** deleting (or clearing the cache of) the
+  document that's currently playing now halts playback and clears the active doc
+  first (`clearActiveDoc` on the context), so audio can't keep playing after its
+  file/cache is gone.
 - **Engine:** headless PDF.js extraction; Supertonic 2/3 builds via ONNX RT;
-  4-stage TTS pipeline; model downloader with per-build/voice asset lists.
+  4-stage TTS pipeline; model downloader with per-build/voice asset lists. Engine
+  is loaded once in the root `PlaybackProvider` and reused across reader visits
+  (no per-screen cold-load).
 - **Reader/UI:** virtualized paginated reader, instant navigation, licenses
   screen, voice-model screen.
 - **Playback (global):** `PlaybackProvider` lifts playback above the reader so

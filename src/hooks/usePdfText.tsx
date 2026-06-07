@@ -1,4 +1,6 @@
+import { File } from 'expo-file-system';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { extractDocx, extractMarkdown } from '../extractors';
 import { PdfTextExtractor, loadExtractedText, saveExtractedText } from '../pdf';
 import type { ExtractedBlock, ExtractedDocument } from '../pdf';
 import { useDocumentsStore } from '../stores';
@@ -43,6 +45,16 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   const textRef = useRef('');
   const pageCountRef = useRef(0);
 
+  // Persists a fully-built document: cache it, build the chunk manifest, record
+  // the page count. Shared by the md/docx path and the PDF stream's onDone.
+  const finalize = useCallback((d: ImportedDocument, extracted: ExtractedDocument) => {
+    saveExtractedText(d.docHash, extracted);
+    try {
+      loadChunks(d.docHash, extracted.text);
+    } catch {}
+    if (extracted.pageCount > 0) setPageCount(d.docHash, extracted.pageCount);
+  }, [setPageCount]);
+
   useEffect(() => {
     if (!doc) {
       setState(IDLE);
@@ -56,6 +68,22 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
     blocksRef.current = [];
     textRef.current = '';
     pageCountRef.current = 0;
+
+    // Markdown/docx are parsed directly in JS (no WebView), so they resolve
+    // synchronously here. PDF falls through to the streaming extractor below.
+    if (doc.kind === 'markdown' || doc.kind === 'docx') {
+      try {
+        const file = new File(doc.fileUri);
+        const extracted =
+          doc.kind === 'markdown' ? extractMarkdown(file.textSync()) : extractDocx(file.bytesSync());
+        finalize(doc, extracted);
+        setState({ status: 'ready', document: extracted, pageCount: extracted.pageCount, loadedPages: extracted.pageCount, stage: '' });
+      } catch (e) {
+        setState({ ...IDLE, status: 'error', error: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
+
     setState({ ...IDLE, status: 'loading' });
   }, [doc?.docHash]);
 
@@ -82,13 +110,9 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
       blocks: blocksRef.current,
       pageCount: pageCountRef.current,
     };
-    saveExtractedText(doc.docHash, finalDoc);
-    try {
-      loadChunks(doc.docHash, finalDoc.text);
-    } catch {}
-    if (finalDoc.pageCount > 0) setPageCount(doc.docHash, finalDoc.pageCount);
+    finalize(doc, finalDoc);
     setState({ status: 'ready', document: finalDoc, pageCount: finalDoc.pageCount, loadedPages: finalDoc.pageCount, stage: '' });
-  }, [doc?.docHash, setPageCount]);
+  }, [doc?.docHash, finalize]);
 
   const onError = useCallback((message: string) => setState((s) => ({ ...s, status: 'error', error: message })), []);
   const onStatus = useCallback((stage: string) => setState((s) => ({ ...s, stage })), []);

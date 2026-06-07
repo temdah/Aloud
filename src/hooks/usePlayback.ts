@@ -135,14 +135,14 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // need to be re-created when the title/artist change.
   const lockMetadataRef = useRef<{ title: string; artist: string; albumTitle: string }>({
     title: 'Document',
-    artist: 'PDF Read-Aloud',
-    albumTitle: 'PDF Read-Aloud',
+    artist: 'Aloud',
+    albumTitle: 'Aloud',
   });
   useEffect(() => {
     lockMetadataRef.current = {
       title: title?.trim() || 'Document',
-      artist: artist?.trim() || 'PDF Read-Aloud',
-      albumTitle: 'PDF Read-Aloud',
+      artist: artist?.trim() || 'Aloud',
+      albumTitle: 'Aloud',
     };
     if (lockScreenActiveRef.current) {
       try {

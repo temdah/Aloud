@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
-import { usePlayback, type Playback } from '../hooks';
+import { usePlayback, useSleepTimer, type Playback, type SleepTimer } from '../hooks';
 import type { Chunk, ImportedDocument } from '../types';
 
 // Everything the playback engine needs to read a specific document. A screen
@@ -26,6 +26,10 @@ export type PlaybackContextValue = {
   activeDoc: ActiveDoc | null;
   /** Register/replace the document the engine plays. */
   setActiveDoc: (doc: ActiveDoc) => void;
+  /** Forget the active document (e.g. it was deleted) so the engine releases it. */
+  clearActiveDoc: () => void;
+  /** Sleep timer: pauses playback after a chosen number of minutes. */
+  sleep: SleepTimer;
 };
 
 // Stable empty references so the "no document" render doesn't churn deps.
@@ -63,7 +67,18 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     void requestNotificationPermission();
   }, []);
 
-  const value = useMemo<PlaybackContextValue>(() => ({ playback, activeDoc, setActiveDoc }), [playback, activeDoc]);
+  // Keep a ref to pause so the timer's fire callback is stable (the timer hook
+  // captures it once; playback.pause is recreated on status changes).
+  const pauseRef = useRef(playback.pause);
+  pauseRef.current = playback.pause;
+  const sleep = useSleepTimer(useCallback(() => pauseRef.current(), []));
+
+  const clearActiveDoc = useCallback(() => setActiveDoc(null), []);
+
+  const value = useMemo<PlaybackContextValue>(
+    () => ({ playback, activeDoc, setActiveDoc, clearActiveDoc, sleep }),
+    [playback, activeDoc, clearActiveDoc, sleep],
+  );
 
   return <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>;
 }

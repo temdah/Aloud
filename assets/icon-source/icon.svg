@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Aloud app icon — full composite (background + foreground) for the
+       legacy square icon / favicon. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d2914f" />
+      <stop offset="1" stop-color="#a5571f" />
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)" />
+
+  <g stroke="#fff3df" stroke-width="34" stroke-linecap="round" fill="none">
+    <path d="M603.9 482.8 A120 120 0 0 0 420.1 482.8" />
+    <path d="M649.9 444.3 A180 180 0 0 0 374.1 444.3" />
+    <path d="M695.8 405.7 A240 240 0 0 0 328.2 405.7" />
+  </g>
+
+  <ellipse cx="512" cy="760" rx="232" ry="26" fill="#7a3d12" opacity="0.18" />
+  <path d="M512 600 C 430 596 348 606 286 628 L 278 742 C 348 720 430 712 512 714 Z" fill="#fbf4e7" />
+  <path d="M512 600 C 594 596 676 606 738 628 L 746 742 C 676 720 594 712 512 714 Z" fill="#fbf4e7" />
+  <g stroke="#c9a978" stroke-width="9" stroke-linecap="round" opacity="0.7">
+    <path d="M330 650 L468 644" />
+    <path d="M334 678 L470 672" />
+    <path d="M338 706 L460 700" />
+    <path d="M556 644 L694 650" />
+    <path d="M554 672 L690 678" />
+    <path d="M564 700 L686 706" />
+  </g>
+  <path d="M512 600 L512 714" stroke="#b8703a" stroke-width="11" stroke-linecap="round" fill="none" />
+</svg>

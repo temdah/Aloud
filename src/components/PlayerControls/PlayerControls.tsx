@@ -40,9 +40,9 @@ export function PlayerControls({
       </View>
       <View style={styles.controlRow}>
         <View style={styles.voiceWrap}>
-          {onStop ? <IconButton icon="stop" onPress={onStop} size={36} accessibilityLabel="Stop" /> : null}
           <Icon name="voice" size={16} color={p.textMuted} />
-          <Text numberOfLines={1} style={ty(TYPE.bodySmall, p.textMuted)}>{voiceName}</Text>
+          <Text numberOfLines={1} style={[ty(TYPE.bodySmall, p.textMuted), styles.voiceName]}>{voiceName}</Text>
+          {onStop ? <IconButton icon="stop" onPress={onStop} size={36} accessibilityLabel="Stop" /> : null}
         </View>
         <IconButton icon="skipBack" onPress={onSkipBack} size={44} accessibilityLabel="Skip back" />
         <View style={styles.playWrap}>

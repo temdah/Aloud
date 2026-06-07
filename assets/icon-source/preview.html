@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aloud icon preview</title>
+<style>
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #15140f; color: #f0ede6; padding: 32px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h3 { margin: 28px 0 12px; color:#d49156; }
+  p.sub { color: #a39d92; margin: 0 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-end; }
+  .cell { text-align: center; }
+  .cell small { display: block; margin-top: 8px; color: #a39d92; }
+  .mask { width: 160px; height: 160px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .square { border-radius: 0; } .squircle { border-radius: 38px; } .circle { border-radius: 50%; }
+  .tiny { width: 56px; height: 56px; border-radius: 13px; }
+  .swatch { display:inline-block; width:28px; height:28px; border-radius:6px; vertical-align:middle; margin-right:8px; border:1px solid #403c34; }
+  .mono { width:160px; height:160px; border-radius:38px; display:flex; align-items:center; justify-content:center; }
+  .mono.light { background:#e8e2d8; } .mono.dark { background:#2a2823; }
+  .mask svg, .mono svg { display:block; width:100%; height:100%; }
+</style>
+</head>
+<body>
+  <h1>Aloud — app icon preview</h1>
+  <p class="sub">Open book emitting sound waves · warm "paper" palette. Adaptive icon = foreground over terracotta background, masked by the launcher.</p>
+
+  <h3>Launcher mask shapes (full adaptive icon)</h3>
+  <div class="row" id="shapes"></div>
+
+  <h3>Small size & home-screen scale</h3>
+  <div class="row" id="small"></div>
+
+  <h3>Monochrome (themed icon — system tints this)</h3>
+  <div class="row" id="mono"></div>
+
+  <h3>Palette</h3>
+  <p><span class="swatch" style="background:#d2914f"></span>#d2914f &nbsp; <span class="swatch" style="background:#a5571f"></span>#a5571f &nbsp; <span class="swatch" style="background:#fbf4e7"></span>#fbf4e7 &nbsp; <span class="swatch" style="background:#fff3df"></span>#fff3df &nbsp; <span class="swatch" style="background:#b8703a"></span>#b8703a</p>
+
+<script>
+const FULL = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#d2914f"/><stop offset="1" stop-color="#a5571f"/></linearGradient></defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g stroke="#fff3df" stroke-width="34" stroke-linecap="round" fill="none">
+    <path d="M603.9 482.8 A120 120 0 0 0 420.1 482.8"/>
+    <path d="M649.9 444.3 A180 180 0 0 0 374.1 444.3"/>
+    <path d="M695.8 405.7 A240 240 0 0 0 328.2 405.7"/></g>
+  <ellipse cx="512" cy="760" rx="232" ry="26" fill="#7a3d12" opacity="0.18"/>
+  <path d="M512 600 C 430 596 348 606 286 628 L 278 742 C 348 720 430 712 512 714 Z" fill="#fbf4e7"/>
+  <path d="M512 600 C 594 596 676 606 738 628 L 746 742 C 676 720 594 712 512 714 Z" fill="#fbf4e7"/>
+  <g stroke="#c9a978" stroke-width="9" stroke-linecap="round" opacity="0.7">
+    <path d="M330 650 L468 644"/><path d="M334 678 L470 672"/><path d="M338 706 L460 700"/>
+    <path d="M556 644 L694 650"/><path d="M554 672 L690 678"/><path d="M564 700 L686 706"/></g>
+  <path d="M512 600 L512 714" stroke="#b8703a" stroke-width="11" stroke-linecap="round" fill="none"/>
+</svg>`;
+
+const MONO = (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <g stroke="${color}" stroke-width="38" stroke-linecap="round" fill="none">
+    <path d="M603.9 482.8 A120 120 0 0 0 420.1 482.8"/>
+    <path d="M649.9 444.3 A180 180 0 0 0 374.1 444.3"/>
+    <path d="M695.8 405.7 A240 240 0 0 0 328.2 405.7"/></g>
+  <path d="M512 600 C 430 596 348 606 286 628 L 278 742 C 348 720 430 712 512 714 Z" fill="${color}"/>
+  <path d="M512 600 C 594 596 676 606 738 628 L 746 742 C 676 720 594 712 512 714 Z" fill="${color}"/>
+  <path d="M512 596 L512 716" stroke="${color}" stroke-width="14" stroke-linecap="round"/>
+</svg>`;
+
+document.getElementById('shapes').innerHTML = [['square','Square'],['squircle','Squircle'],['circle','Circle']]
+  .map(([c,l]) => `<div class="cell"><div class="mask ${c}">${FULL}</div><small>${l}</small></div>`).join('');
+document.getElementById('small').innerHTML =
+  `<div class="cell"><div class="mask squircle tiny">${FULL}</div><small>56&nbsp;px</small></div>` +
+  `<div class="cell"><div class="mask squircle">${FULL}</div><small>160&nbsp;px</small></div>`;
+document.getElementById('mono').innerHTML =
+  `<div class="cell"><div class="mono light">${MONO('#1a1814')}</div><small>on light</small></div>` +
+  `<div class="cell"><div class="mono dark">${MONO('#ffffff')}</div><small>on dark</small></div>`;
+</script>
+</body>
+</html>

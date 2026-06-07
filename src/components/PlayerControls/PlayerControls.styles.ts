@@ -29,6 +29,9 @@ export const makeStyles = (p: Palette) =>
       gap: 6,
       minWidth: 0,
     },
+    voiceName: {
+      flexShrink: 1,
+    },
     playWrap: {
       width: 68,
       height: 68,
