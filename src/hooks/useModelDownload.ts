@@ -29,15 +29,14 @@ export function useModelDownload(modelId: string, voiceId: string): ModelDownloa
   const start = useCallback(() => {
     setStatus('downloading');
     setError(undefined);
-    const seen = new Map<string, { written: number; total: number }>();
+    const seen = new Map<string, number>();
 
-    ensureModelsDownloaded(modelId, voiceId, ({ file, bytesWritten, totalBytes }) => {
-      seen.set(file, { written: bytesWritten, total: totalBytes > 0 ? totalBytes : bytesWritten });
-      const all = Array.from(seen.values());
-      const written = all.reduce((sum, x) => sum + x.written, 0);
-      const total = all.reduce((sum, x) => sum + x.total, 0);
-      setProgress(total > 0 ? written / total : 0);
-      setFiles(Array.from(seen, ([name, v]) => ({ name, fraction: v.total > 0 ? v.written / v.total : 0 })));
+    ensureModelsDownloaded(modelId, voiceId, ({ file, bytesWritten, totalBytes, overall }) => {
+      // `overall` is computed against a fixed denominator in the downloader, so
+      // it climbs smoothly to 1 once — no per-file resets.
+      setProgress(overall);
+      seen.set(file, totalBytes > 0 ? bytesWritten / totalBytes : 1);
+      setFiles(Array.from(seen, ([name, fraction]) => ({ name, fraction })));
     })
       .then(() => {
         setProgress(1);

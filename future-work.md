@@ -68,4 +68,33 @@ Each item lists the goal, a concrete approach, and where it touches the codebase
 
 ---
 
+## 5. Lock-screen seek & notification control fidelity
+
+**Goal:** make the OS media controls behave like a normal audiobook player.
+
+**Background:** playback is a sequence of *separate per-chunk audio files* loaded via
+`player.replace()` in `usePlayback.ts`, and expo-audio handles the lock-screen
+transport **natively** (no JS hook for the seek buttons).
+
+**Approach**
+- **Cross-clip −10 s / +10 s** — today the lock-screen seek clamps to the current
+  clip (`[0, clipDuration]`), so −10 s lands at the start of the current clip
+  instead of going back into the previous sentence. Fixing this needs either a
+  continuous-timeline playback model (one stream instead of clip-by-clip files)
+  or intercepting the OS seek to manually load the previous clip at an offset.
+  Cheaper interim: map the seek-back button to `previous()` (skip a chunk) when
+  near a clip start — confirm expo-audio exposes the event first.
+- **OS Stop action** — expo-audio's lock-screen options only expose play/pause +
+  seek; there is no Stop button, and an actively-playing media notification can't
+  be swipe-dismissed (Android foreground-service rule; it becomes dismissible on
+  pause). A true OS Stop button would require swapping expo-audio for
+  `react-native-track-player`. Evaluate that trade-off if richer media controls
+  (queue, Android Auto, Stop) become a priority — it also unlocks item 4's
+  Android Auto / CarPlay idea.
+
+**Touches:** `src/hooks/usePlayback.ts` (`LOCK_OPTIONS`, `playChunkObject`,
+seek/next/previous), possibly a playback-engine rewrite or native-dep swap.
+
+---
+
 *Add notes / re-prioritize freely. Items 2 and 3 are gated on confirming Supertonic's voice-conditioning and provider support.*
