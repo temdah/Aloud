@@ -12,6 +12,10 @@ export {
   documentCacheStats,
   documentCacheDir,
   settingsHash,
+  recordCachedProfile,
+  listCachedProfiles,
+  clearProfileCache,
 } from './audioCache';
+export type { CachedProfile, ProfileMeta } from './audioCache';
 export { readManifest, writeManifest, loadChunks } from './manifest';
 export type { NarrationSettings } from './narrationTypes';

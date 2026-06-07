@@ -2,7 +2,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import { File } from 'expo-file-system';
-import { ActionDialog, AppBar, BookRow, Button, Chip, EmptyArt, FAB, Icon, IconButton } from '../../components';
+import { ActionDialog, AppBar, BookRow, Button, Chip, EmptyArt, FAB, Icon, IconButton, ManageCacheSheet } from '../../components';
 import { useImportDocument } from '../../hooks';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { usePlaybackContext } from '../../playback';
@@ -44,6 +44,7 @@ export default function LibraryScreen() {
   const [searching, setSearching] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
   const [menuDoc, setMenuDoc] = useState<ImportedDocument | null>(null);
+  const [manageDoc, setManageDoc] = useState<ImportedDocument | null>(null);
 
   const books = useMemo(() => documents.map(documentToBook), [documents]);
 
@@ -182,14 +183,9 @@ export default function LibraryScreen() {
                   onPress: () => navigation.navigate('Prerender', { docId: menuDoc.docHash }),
                 },
                 {
-                  label: menuStats && menuStats.bytes > 0 ? `Clear cached audio · ${formatSize(menuStats.bytes)}` : 'Clear cached audio',
+                  label: menuStats && menuStats.bytes > 0 ? `Manage cached audio · ${formatSize(menuStats.bytes)}` : 'Manage cached audio',
                   variant: 'tonal',
-                  onPress: () => {
-                    // Stop playback if we're wiping the cache out from under it.
-                    if (activeDoc?.doc.docHash === menuDoc.docHash) playback.stop();
-                    clearDocumentCache(menuDoc.docHash);
-                    clearAudiobook(menuDoc.docHash);
-                  },
+                  onPress: () => setManageDoc(menuDoc),
                 },
                 {
                   label: 'Delete',
@@ -215,6 +211,13 @@ export default function LibraryScreen() {
               ]
             : []
         }
+      />
+
+      <ManageCacheSheet
+        open={!!manageDoc}
+        onClose={() => setManageDoc(null)}
+        docHash={manageDoc?.docHash ?? null}
+        title={manageDoc?.title}
       />
     </View>
   );

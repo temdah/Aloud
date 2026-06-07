@@ -6,6 +6,7 @@ export type RootStackParamList = {
   Reader: { docId: string };
   Prerender: { docId: string };
   Settings: undefined;
+  Storage: undefined;
   VoiceModel: undefined;
   TextToSpeechDemo: undefined;
   Licenses: undefined;

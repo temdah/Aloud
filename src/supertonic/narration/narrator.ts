@@ -4,7 +4,7 @@ import type { Chunk } from '../../types';
 import { encodeWav } from '../synthesis/wavEncoder';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
-import { chunkWavFile } from './audioCache';
+import { chunkWavFile, recordCachedProfile } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
 
 const WAV_HEADER_BYTES = 44;
@@ -24,6 +24,10 @@ export async function ensureChunkAudio(
   chunk: Chunk,
   settings: NarrationSettings,
 ): Promise<string> {
+  // Register this profile so the "manage cached audio" UI can label the voice.
+  // Done on hits too, so caches made before the registry get picked up on replay.
+  recordCachedProfile(docHash, settings);
+
   const file = chunkWavFile(docHash, chunk.charStart, settings);
   if (file.exists && file.size > WAV_HEADER_BYTES) return file.uri;
 

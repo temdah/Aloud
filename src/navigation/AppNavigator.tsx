@@ -7,6 +7,7 @@ import LicensesScreen from '../screens/LicensesScreen';
 import PrerenderScreen from '../screens/PrerenderScreen';
 import ReaderScreen from '../screens/ReaderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import StorageScreen from '../screens/StorageScreen';
 import TextToSpeechDemoScreen from '../screens/TextToSpeechDemoScreen';
 import VoiceModelScreen from '../screens/VoiceModelScreen';
 import { useTheme } from '../theme';
@@ -59,6 +60,7 @@ export function AppNavigator() {
         <Stack.Screen name="Reader" component={ReaderScreen} />
         <Stack.Screen name="Prerender" component={PrerenderScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="Storage" component={StorageScreen} />
         <Stack.Screen name="Licenses" component={LicensesScreen} />
         <Stack.Screen name="VoiceModel" component={VoiceModelScreen} />
         <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Voice engine' }} />
