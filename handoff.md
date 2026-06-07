@@ -80,11 +80,12 @@ Notes: a clean all-ABI release build takes ~25–30 min (native ONNX compile for
 ## What's done
 
 - **Branding → "Aloud":** app name, slug, and package id updated; lock-screen
-  artist/album strings and in-app copy generalized. New app icon (book + sound
-  waves, warm "paper" palette) designed as SVGs in `assets/icon-source/`
-  (`foreground/background/monochrome/icon.svg` + `preview.html`) — **awaiting
-  visual sign-off before rasterizing to the PNG set + updating `app.json`
-  `adaptiveIcon`**.
+  artist/album strings and in-app copy generalized. New app icon (open book +
+  sound waves, warm terracotta palette) designed as SVGs in `assets/icon-source/`
+  (`foreground/background/monochrome/icon.svg` + `preview.html`), **approved**,
+  and rasterized to the PNG set via `npm run icons` (`scripts/generate-icons.js`,
+  using the dev-only `@resvg/resvg-js`). `app.json` `adaptiveIcon.backgroundColor`
+  set to `#bb7437`. The new icon shows after the next clean prebuild + install.
 - **Multi-format import (PDF + Markdown + .docx):** picker widened; source format
   recorded on the document (`ImportedDocument.kind`). Pure-JS extractors in
   `src/extractors/` (`markdownExtractor`, `docxExtractor` via `fflate`, shared
