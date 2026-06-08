@@ -1,6 +1,6 @@
 import { Tensor } from 'onnxruntime-react-native';
 import { lengthsToMask, UnicodeTextProcessor } from '../text/unicodeTextProcessor';
-import type { SupertonicConfig, SupertonicSessions, SynthesisProgress, SynthesisResult } from './synthesisTypes';
+import type { SupertonicConfig, SupertonicSessions, SynthesisProgress, SynthesisResult, SynthesisStageReporter } from './synthesisTypes';
 import type { VoiceStyle } from './voiceStyle';
 
 // Orchestrates the Supertonic inference pipeline:
@@ -24,8 +24,10 @@ export class TextToSpeech {
     totalSteps: number,
     speed = 1.05,
     onProgress?: SynthesisProgress,
+    onStage?: SynthesisStageReporter,
   ): Promise<SynthesisResult> {
     const { textIds, textMask } = this.textProcessor.tokenize([text], [lang]);
+    onStage?.('tokenize');
     const batchSize = 1;
 
     const textIdsTensor = new Tensor(
@@ -46,6 +48,7 @@ export class TextToSpeech {
       text_mask: textMaskTensor,
     });
     const durationsSec = Array.from(durationOut.duration.data as Float32Array, Number).map((d) => d / speed);
+    onStage?.('duration');
 
     // 2. Encode text.
     const textEncOut = await this.sessions.textEncoder.run({
@@ -54,6 +57,7 @@ export class TextToSpeech {
       text_mask: textMaskTensor,
     });
     const textEmb = textEncOut.text_emb;
+    onStage?.('textEncoder');
 
     // 3. Initialize the noisy latent.
     const { latent, latentDim, latentLen, latentMask } = this.initLatent(durationsSec);
@@ -64,6 +68,7 @@ export class TextToSpeech {
       [batchSize, 1, latentMask[0][0].length],
     );
     const totalStepTensor = new Tensor('float32', new Float32Array(batchSize).fill(totalSteps), [batchSize]);
+    onStage?.('initLatent');
 
     // 4. Denoising loop — feed each step's output straight back as the next input.
     let current = latent;
@@ -81,11 +86,13 @@ export class TextToSpeech {
       });
       current = out.denoised_latent.data as unknown as Float32Array<ArrayBuffer>;
     }
+    onStage?.('denoise');
 
     // 5. Vocode the final latent into a waveform.
     const vocoderOut = await this.sessions.vocoder.run({
       latent: new Tensor('float32', current, latentShape),
     });
+    onStage?.('vocoder');
 
     return { waveform: vocoderOut.wav_tts.data as Float32Array, durationsSec };
   }

@@ -13,4 +13,4 @@ export type { SupportedLanguage } from './text/languages';
 export { chunkText, buildChunks, ensureChunkAudio, isChunkCached, chunkAudioUri, settingsHash, clearDocumentCache, documentCacheStats, listCachedProfiles, clearProfileCache, loadChunks, readManifest, prerenderDocument } from './narration';
 export type { NarrationSettings, PrerenderProgress, PrerenderResult, CachedProfile, ProfileMeta } from './narration';
 export type { ModelDownloadProgress } from './models/modelTypes';
-export type { SupertonicConfig, SynthesisProgress, SynthesisResult } from './synthesis/synthesisTypes';
+export type { SupertonicConfig, SynthesisProgress, SynthesisResult, SynthesisStage, SynthesisStageReporter } from './synthesis/synthesisTypes';

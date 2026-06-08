@@ -138,7 +138,7 @@ export default function SettingsScreen() {
               divider={false}
               leading={<View style={styles.leadingMuted}><Icon name="voice" size={16} color={p.textMuted} /></View>}
               title="Voice engine diagnostics"
-              subtitle="Synthesize a test phrase"
+              subtitle="Synthesis performance benchmarks"
               trailing={<Icon name="chevR" size={18} color={p.textDim} />}
               onPress={() => navigation.navigate('TextToSpeechDemo')}
             />

@@ -63,7 +63,7 @@ export function AppNavigator() {
         <Stack.Screen name="Storage" component={StorageScreen} />
         <Stack.Screen name="Licenses" component={LicensesScreen} />
         <Stack.Screen name="VoiceModel" component={VoiceModelScreen} />
-        <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Voice engine' }} />
+        <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Performance' }} />
       </Stack.Navigator>
       {/* The Reader has its own full transport bar, so hide the mini player there. */}
       <MiniPlayer hidden={routeName === 'Reader'} onOpen={openReader} />

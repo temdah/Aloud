@@ -32,3 +32,11 @@ export type SynthesisResult = {
 
 /** Reports denoising-loop progress (current step, total steps). */
 export type SynthesisProgress = (currentStep: number, totalSteps: number) => void;
+
+/** Named pipeline stages, emitted (in order) as each one completes. */
+export type SynthesisStage = 'tokenize' | 'duration' | 'textEncoder' | 'initLatent' | 'denoise' | 'vocoder';
+
+/** Diagnostics-only hook: fired right after each pipeline stage finishes, so a
+ *  caller can timestamp the boundaries. Optional — production callers omit it
+ *  and pay nothing. */
+export type SynthesisStageReporter = (stage: SynthesisStage) => void;
