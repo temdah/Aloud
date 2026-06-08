@@ -56,6 +56,31 @@ export function chunkAudioUri(docHash: string, charStart: number, s: NarrationSe
   return chunkWavFile(docHash, charStart, s).uri;
 }
 
+// --- Ephemeral "fast lead" clips ----------------------------------------------
+// A fast lead is a short first-sentence clip synthesized so audio starts within
+// ~1 s instead of waiting for a whole chunk. It lives in the OS cache dir (NOT
+// the per-document tts cache) for two reasons: (1) a boundary lead shares its
+// charStart with the enclosing canonical chunk, so caching it under the normal
+// key would alias/corrupt that chunk's cache (prerender/audiobook read by
+// charStart only); (2) leads are disposable — the OS may evict them freely.
+// Keyed by length too, so a lead never collides with a different-length clip.
+const LEAD_ROOT = 'tts-lead';
+
+function leadCacheDir(): Directory {
+  const dir = new Directory(Paths.cache, LEAD_ROOT);
+  if (!dir.exists) dir.create({ intermediates: true });
+  return dir;
+}
+
+export function leadWavFile(docHash: string, charStart: number, len: number, s: NarrationSettings): File {
+  return new File(leadCacheDir(), `${docHash}-${charStart}-${len}-${settingsHash(s)}.wav`);
+}
+
+export function isLeadCached(docHash: string, charStart: number, len: number, s: NarrationSettings): boolean {
+  const file = leadWavFile(docHash, charStart, len, s);
+  return file.exists && file.size > WAV_HEADER_BYTES;
+}
+
 // Removes all cached audio/timing for a document (e.g. "clear cached audio").
 export function clearDocumentCache(docHash: string): void {
   const dir = new Directory(Paths.document, ROOT, docHash);

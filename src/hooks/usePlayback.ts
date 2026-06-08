@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chunkAudioUri, ensureChunkAudio, ensureModelsDownloaded, isChunkCached, loadTextToSpeech, loadVoiceStyle, settingsHash } from '../supertonic';
+import { chunkAudioUri, ensureChunkAudio, ensureLeadAudio, ensureModelsDownloaded, isChunkCached, isLeadCached, leadWavFile, loadTextToSpeech, loadVoiceStyle, settingsHash } from '../supertonic';
 import type { NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
@@ -12,6 +12,13 @@ const PREFETCH_AHEAD = 4;
 // Minimum length (chars) of a mid-chunk "lead" so the first clip isn't a tiny
 // stutter; a shorter remainder merges forward into the next chunk(s).
 const MIN_LEAD = 140;
+// "Fast lead": when starting fresh on a not-yet-cached chunk, synthesize only the
+// first sentence first so audio begins in ~1 s instead of after the whole chunk.
+// The rest of the chunk plays right after as a "remainder" clip. We only bother
+// when the lead is at least this long (avoid a 3-word stutter) AND the remainder
+// it leaves behind is worth splitting out (else just render the whole chunk).
+const MIN_FAST_LEAD = 60;
+const MIN_FAST_REMAINDER = 40;
 // Lock-screen transport extras. Android renders an OS Media3 notification (it
 // can't be themed to match the app); these add seek buttons beside play/pause.
 const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true } as const;
@@ -42,6 +49,48 @@ function buildLead(text: string, chunks: Chunk[], charOffset: number): Lead | nu
   const leadText = text.slice(charOffset, charEnd);
   const chunk: Chunk = { idx: i, charStart: charOffset, charEnd, text: leadText, pages: [], textHash: stableHash(leadText) };
   return { chunk, anchorIdx: i, resumeIdx: j + 1 };
+}
+
+// End (exclusive) of the first sentence within [start, end), or `end` if no
+// sentence break is found at least MIN_FAST_LEAD in. Mirrors the chunker's
+// boundary rule: a `.?!` followed by whitespace, ignoring common abbreviations.
+function firstSentenceEnd(text: string, start: number, end: number): number {
+  const re = /[.!?]+/g;
+  re.lastIndex = start;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) && m.index < end) {
+    const stop = m.index + m[0].length;
+    if (stop - start < MIN_FAST_LEAD) continue; // too short — keep extending
+    if (stop < text.length && !/\s/.test(text[stop])) continue; // mid-token dot
+    if (/\b(?:mr|mrs|ms|dr|prof|sr|jr|vs|inc|ltd|co|corp|st|ave|blvd|e\.g|i\.e|etc)\.$/i.test(text.slice(Math.max(start, m.index - 6), m.index + 1)))
+      continue;
+    return Math.min(stop, end);
+  }
+  return end;
+}
+
+type FastStart = { lead: Lead; remainder: Lead | null };
+
+// Splits the start of a fresh playback into a short first-sentence "lead" (fast
+// to synthesize) plus the "remainder" of the enclosing chunk. Returns null when
+// splitting wouldn't help (offset resolves nowhere, or the remainder is tiny).
+function buildFastStart(text: string, chunks: Chunk[], charOffset: number): FastStart | null {
+  if (chunks.length === 0) return null;
+  const i = chunkIndexForOffset(chunks, charOffset);
+  if (i < 0) return null;
+  const startAt = Math.max(charOffset, chunks[i].charStart);
+  const chunkEnd = chunks[i].charEnd;
+  if (chunkEnd - startAt < MIN_FAST_LEAD + MIN_FAST_REMAINDER) return null; // not worth splitting
+  const split = firstSentenceEnd(text, startAt, chunkEnd);
+  if (split >= chunkEnd || chunkEnd - split < MIN_FAST_REMAINDER) return null; // single sentence — no win
+  const mk = (from: number, to: number): Chunk => {
+    const t = text.slice(from, to);
+    return { idx: i, charStart: from, charEnd: to, text: t, pages: [], textHash: stableHash(t) };
+  };
+  return {
+    lead: { chunk: mk(startAt, split), anchorIdx: i, resumeIdx: i + 1 },
+    remainder: { chunk: mk(split, chunkEnd), anchorIdx: i, resumeIdx: i + 1 },
+  };
 }
 
 export type UsePlaybackOptions = {
@@ -128,6 +177,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const currentRef = useRef<Chunk | null>(null);
   const anchorIndexRef = useRef(0); // canonical index the current chunk starts in
   const resumeIndexRef = useRef(0); // canonical index to play after the current chunk
+  // A "remainder" clip queued to play right after the current fast-lead clip
+  // finishes, before resuming canonical chunks. Cleared once consumed.
+  const pendingLeadRef = useRef<Lead | null>(null);
   const loadedKeyRef = useRef(-1); // charStart of the audio currently in the player
   // Whether this player currently owns the OS lock-screen / media notification.
   const lockScreenActiveRef = useRef(false);
@@ -204,6 +256,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     loadedKeyRef.current = -1;
     anchorIndexRef.current = 0;
     resumeIndexRef.current = 0;
+    pendingLeadRef.current = null;
     try {
       playerRef.current?.clearLockScreenControls?.();
     } catch {}
@@ -254,12 +307,16 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }, [speed, player]);
 
   const playChunkObject = useCallback(
-    async (chunk: Chunk, anchorIdx: number, resumeIdx: number) => {
+    async (chunk: Chunk, anchorIdx: number, resumeIdx: number, opts?: { lead?: boolean; next?: Lead | null }) => {
+      const lead = opts?.lead ?? false;
+      const next = opts?.next ?? null;
       const token = ++playTokenRef.current;
       activeRef.current = true;
       currentRef.current = chunk;
       anchorIndexRef.current = anchorIdx;
       resumeIndexRef.current = resumeIdx;
+      // Queue the remainder (if any) to play when this clip finishes.
+      pendingLeadRef.current = next;
       setCurrent(chunk);
       setEngaged(true);
       setStarted(true); // audio is now actually engaged → MiniPlayer may show
@@ -267,10 +324,17 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       // newly requested chunk synthesizes (e.g. after "play from here").
       player.pause();
       try {
+        // Fast-lead clips live in an ephemeral cache (keyed by length) so they
+        // never alias the canonical per-chunk cache; everything else uses it.
+        const cached = lead
+          ? isLeadCached(docHash, chunk.charStart, chunk.text.length, settings)
+          : isChunkCached(docHash, chunk.charStart, settings);
         let uri: string;
-        if (isChunkCached(docHash, chunk.charStart, settings)) {
+        if (cached) {
           // Cache hit — play instantly, no engine and no "loading" spinner.
-          uri = chunkAudioUri(docHash, chunk.charStart, settings);
+          uri = lead
+            ? leadWavFile(docHash, chunk.charStart, chunk.text.length, settings).uri
+            : chunkAudioUri(docHash, chunk.charStart, settings);
         } else {
           setLoading(true);
           const engine = await ensureEngine();
@@ -279,7 +343,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
             return;
           }
           if (token !== playTokenRef.current) return; // superseded while loading
-          uri = await ensureChunkAudio(engine.tts, engine.voice, docHash, chunk, settings);
+          uri = lead
+            ? await ensureLeadAudio(engine.tts, engine.voice, docHash, chunk, settings)
+            : await ensureChunkAudio(engine.tts, engine.voice, docHash, chunk, settings);
         }
         if (token !== playTokenRef.current) return; // superseded
         player.replace(uri);
@@ -299,9 +365,18 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
           }
         }
         setLoading(false);
-        // Generate-ahead from the next canonical chunk so boundaries don't stall.
-        // Cached chunks are skipped; the engine lazy-loads only if one is missing.
+        // Generate-ahead so boundaries don't stall. A queued remainder is the
+        // most urgent (it plays next), then the upcoming canonical chunks.
+        // Cached items are skipped; the engine lazy-loads only if one is missing.
         void (async () => {
+          if (next && !isChunkCached(docHash, next.chunk.charStart, settings)) {
+            if (token !== playTokenRef.current) return;
+            const engine = await ensureEngine();
+            if (!engine) return;
+            try {
+              await ensureChunkAudio(engine.tts, engine.voice, docHash, next.chunk, settings);
+            } catch {}
+          }
           for (let k = 0; k < PREFETCH_AHEAD; k++) {
             if (token !== playTokenRef.current) return;
             const ahead = chunks[resumeIdx + k];
@@ -333,12 +408,37 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   useEffect(() => {
     if (status.didJustFinish && !finishedHandledRef.current) {
       finishedHandledRef.current = true;
-      const next = resumeIndexRef.current;
-      if (activeRef.current && next < chunks.length) playCanonical(next);
-      else activeRef.current = false;
+      if (!activeRef.current) return;
+      const pending = pendingLeadRef.current;
+      if (pending) {
+        // A fast-lead just finished — play the remainder of its chunk next.
+        pendingLeadRef.current = null;
+        void playChunkObject(pending.chunk, pending.anchorIdx, pending.resumeIdx);
+      } else {
+        const next = resumeIndexRef.current;
+        if (next < chunks.length) playCanonical(next);
+        else activeRef.current = false;
+      }
     }
     if (!status.didJustFinish) finishedHandledRef.current = false;
-  }, [status.didJustFinish, chunks.length, playCanonical]);
+  }, [status.didJustFinish, chunks.length, playCanonical, playChunkObject]);
+
+  // Try to begin a fresh start with a fast first-sentence lead so audio starts in
+  // ~1 s. Returns false (caller falls back to the normal path) when a lead won't
+  // help: a fully-rendered audiobook (already instant), a chunk that's already
+  // cached, or text that can't be usefully split.
+  const startFast = useCallback(
+    (charOffset: number): boolean => {
+      if (fullyRendered) return false;
+      const fs = buildFastStart(text, chunks, charOffset);
+      if (!fs) return false;
+      const enclosing = chunks[fs.lead.anchorIdx];
+      if (enclosing && isChunkCached(docHash, enclosing.charStart, settings)) return false;
+      void playChunkObject(fs.lead.chunk, fs.lead.anchorIdx, fs.lead.resumeIdx, { lead: true, next: fs.remainder });
+      return true;
+    },
+    [fullyRendered, text, chunks, docHash, settings, playChunkObject],
+  );
 
   const play = useCallback(() => {
     activeRef.current = true;
@@ -347,11 +447,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     if (cur && status.isLoaded && loadedKeyRef.current === cur.charStart && !status.playing) {
       player.play(); // resume the current chunk in place
     } else if (cur) {
-      void playChunkObject(cur, anchorIndexRef.current, resumeIndexRef.current);
-    } else {
-      playCanonical(0); // nothing selected → start from the top
+      if (!startFast(cur.charStart)) void playChunkObject(cur, anchorIndexRef.current, resumeIndexRef.current);
+    } else if (chunks.length) {
+      if (!startFast(chunks[0].charStart)) playCanonical(0); // nothing selected → start from the top
     }
-  }, [playChunkObject, playCanonical, player, status.isLoaded, status.playing]);
+  }, [playChunkObject, playCanonical, startFast, player, status.isLoaded, status.playing, chunks]);
 
   const pause = useCallback(() => {
     activeRef.current = false;
@@ -391,6 +491,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       if (stopCurrent) {
         playTokenRef.current++;
         activeRef.current = false;
+        pendingLeadRef.current = null;
         setLoading(false);
         player.pause();
       }
@@ -408,10 +509,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
 
   const playFrom = useCallback(
     (charOffset: number) => {
+      if (startFast(charOffset)) return;
       const lead = resolveStart(charOffset);
       if (lead) void playChunkObject(lead.chunk, lead.anchorIdx, lead.resumeIdx);
     },
-    [resolveStart, playChunkObject],
+    [startFast, resolveStart, playChunkObject],
   );
 
   // Hard stop: halt audio, drop the selection, and release the OS media controls
@@ -430,6 +532,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     setCurrent(null);
     currentRef.current = null;
     loadedKeyRef.current = -1;
+    pendingLeadRef.current = null;
     try {
       playerRef.current?.clearLockScreenControls?.();
     } catch {}

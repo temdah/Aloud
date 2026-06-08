@@ -1,12 +1,14 @@
 export { chunkText, buildChunks } from './textChunker';
 export type { RawChunk } from './textChunker';
-export { ensureChunkAudio } from './narrator';
+export { ensureChunkAudio, ensureLeadAudio } from './narrator';
 export { prerenderDocument } from './prerender';
 export type { PrerenderOptions, PrerenderProgress, PrerenderResult } from './prerender';
 export {
   chunkWavFile,
   chunkTimingFile,
   isChunkCached,
+  isLeadCached,
+  leadWavFile,
   chunkAudioUri,
   clearDocumentCache,
   documentCacheStats,

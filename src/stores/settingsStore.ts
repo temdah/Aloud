@@ -29,7 +29,7 @@ export const useSettingsStore = create<SettingsState>()(
       voiceId: DEFAULT_VOICE,
       lang: 'en',
       speed: 1.05,
-      steps: 16,
+      steps: 5,
       setModelId: (modelId) => set({ modelId }),
       setVoice: (voiceId) => set({ voiceId }),
       setLang: (lang) => set({ lang }),

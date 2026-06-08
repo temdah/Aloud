@@ -82,19 +82,19 @@ export default function SettingsScreen() {
 
           <View style={styles.qualityCard}>
             <View style={styles.cardHeaderRow}>
-              <Text style={ty(TYPE.bodyMedium, p.text)}>Quality vs. speed</Text>
+              <Text style={ty(TYPE.bodyMedium, p.text)}>Speed vs. quality</Text>
               <Text style={ty(TYPE.mono, p.textMuted)}>{steps} steps</Text>
             </View>
             <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.qualityHint]}>
-              Fewer inference steps render faster but rougher. More steps smooth out prosody at a small CPU cost.
+              Fewer steps produce each voice clip faster; more steps sound smoother but take longer to generate, so audio starts later.
             </Text>
             <View style={styles.qualitySliderWrap}>
-              <Slider value={steps} min={4} max={32} step={2} onChange={(v) => setSteps(Math.round(v))} ticks={[4, 8, 16, 24, 32]} />
+              <Slider value={steps} min={4} max={16} step={1} onChange={(v) => setSteps(Math.round(v))} ticks={[4, 5, 8, 12, 16]} />
             </View>
             <View style={styles.labelRow}>
-              <Text style={ty(TYPE.mono, p.textDim)}>Fast</Text>
-              <Text style={ty(TYPE.mono, p.textDim)}>Balanced</Text>
-              <Text style={ty(TYPE.mono, p.textDim)}>High</Text>
+              <Text style={ty(TYPE.mono, p.textDim)}>Speed</Text>
+              <Text style={ty(TYPE.mono, p.textDim)}>default 5</Text>
+              <Text style={ty(TYPE.mono, p.textDim)}>Quality</Text>
             </View>
           </View>
         </SettingsSection>
