@@ -97,6 +97,33 @@ export class TextToSpeech {
     return { waveform: vocoderOut.wav_tts.data as Float32Array, durationsSec };
   }
 
+  // Runs ONLY stage 1 (tokenize + duration predictor) to get a text's spoken
+  // length in seconds at the engine's neutral rate (~9 ms, no synthesis). Used to
+  // build a whole-document timeline cheaply; callers apply playback speed live by
+  // dividing. Returns 0 for empty text.
+  async predictDurationSec(text: string, lang: string, voice: VoiceStyle): Promise<number> {
+    if (!text.trim()) return 0;
+    const { textIds, textMask } = this.textProcessor.tokenize([text], [lang]);
+    const batchSize = 1;
+    const textIdsTensor = new Tensor(
+      'int64',
+      BigInt64Array.from(textIds.flat().map((x) => BigInt(x))),
+      [batchSize, textIds[0].length],
+    );
+    const textMaskTensor = new Tensor(
+      'float32',
+      Float32Array.from(textMask.flat(2)),
+      [batchSize, 1, textMask[0][0].length],
+    );
+    const durationOut = await this.sessions.durationPredictor.run({
+      text_ids: textIdsTensor,
+      style_dp: voice.dp,
+      text_mask: textMaskTensor,
+    });
+    const durs = Array.from(durationOut.duration.data as Float32Array, Number);
+    return durs.reduce((sum, d) => sum + d, 0);
+  }
+
   private initLatent(durationsSec: number[]) {
     const { base_chunk_size: baseChunkSize } = this.config.ae;
     const { latent_dim: latentDimBase, chunk_compress_factor: compress } = this.config.ttl;

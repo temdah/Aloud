@@ -34,6 +34,8 @@ type DocumentsState = {
   setPageCount: (docHash: string, pageCount: number) => void;
   /** Set a document's narration language override (null clears it → global). */
   setDocLang: (docHash: string, lang: string | null) => void;
+  /** Pin a document's cover-palette index (its colour); null reverts to derived. */
+  setCover: (docHash: string, cover: number | null) => void;
   /** Mark a document's first-open hint as shown (so it never shows again). */
   markHintSeen: (docHash: string) => void;
   /** Toggle a document's favourite (starred) state. */
@@ -71,6 +73,12 @@ export const useDocumentsStore = create<DocumentsState>()(
         set((state) => ({
           documents: state.documents.map((d) =>
             d.docHash === docHash ? { ...d, lang: lang ?? undefined } : d,
+          ),
+        })),
+      setCover: (docHash, cover) =>
+        set((state) => ({
+          documents: state.documents.map((d) =>
+            d.docHash === docHash ? { ...d, cover: cover ?? undefined } : d,
           ),
         })),
       markHintSeen: (docHash) =>

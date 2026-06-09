@@ -1,7 +1,7 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chunkAudioUri, ensureChunkAudio, ensureLeadAudio, ensureModelsDownloaded, isChunkCached, isLeadCached, leadWavFile, loadTextToSpeech, loadVoiceStyle, settingsHash } from '../supertonic';
-import type { NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
+import { chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isChunkCached, isLeadCached, leadWavFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
+import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
 import { stableHash } from '../utils';
@@ -126,8 +126,17 @@ export type Playback = {
   /** The chunk currently playing/selected (a canonical chunk or a tap-start lead). */
   currentChunk: Chunk | null;
   total: number;
+  /** Position within the CURRENT clip (per-chunk). */
   positionSec: number;
+  /** Duration of the CURRENT clip (per-chunk). */
   durationSec: number;
+  /** Position on the WHOLE-document timeline, in seconds at the active speed.
+   *  0 until the duration table is built. */
+  docPositionSec: number;
+  /** Whole-document runtime in seconds at the active speed (0 until built). */
+  docDurationSec: number;
+  /** True once the duration table is ready (whole-doc timeline is meaningful). */
+  timelineReady: boolean;
   toggle: () => void;
   play: () => void;
   pause: () => void;
@@ -143,6 +152,9 @@ export type Playback = {
   goTo: (charOffset: number) => void;
   /** Seek within the current chunk's audio (fraction 0..1 of its duration). */
   seek: (fraction: number) => void;
+  /** Seek to an absolute time on the whole-document timeline (seconds, at speed):
+   *  maps to the enclosing chunk, starts it, and seeks within it. */
+  seekToTime: (sec: number) => void;
   /** Fully halt playback: stop audio, drop the selection, release the OS controls. */
   stop: () => void;
 };
@@ -167,6 +179,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const [engaged, setEngaged] = useState(false);
   const [started, setStarted] = useState(false);
   const [current, setCurrent] = useState<Chunk | null>(null);
+  // Per-chunk neutral-rate durations for the whole document → the timeline.
+  const [durTable, setDurTable] = useState<DurationTable | null>(null);
 
   const engineRef = useRef<{ tts: TextToSpeech; voice: VoiceStyle } | null>(null);
   const activeRef = useRef(false);
@@ -180,6 +194,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // A "remainder" clip queued to play right after the current fast-lead clip
   // finishes, before resuming canonical chunks. Cleared once consumed.
   const pendingLeadRef = useRef<Lead | null>(null);
+  // A neutral-rate seek (seconds) to apply once the next clip finishes loading,
+  // set by seekToTime so a timeline scrub lands precisely inside its chunk.
+  const pendingSeekRef = useRef<number | null>(null);
   const loadedKeyRef = useRef(-1); // charStart of the audio currently in the player
   // Whether this player currently owns the OS lock-screen / media notification.
   const lockScreenActiveRef = useRef(false);
@@ -257,6 +274,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     anchorIndexRef.current = 0;
     resumeIndexRef.current = 0;
     pendingLeadRef.current = null;
+    pendingSeekRef.current = null;
     try {
       playerRef.current?.clearLockScreenControls?.();
     } catch {}
@@ -299,12 +317,56 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     return engine;
   }, [modelId, voiceId]);
 
+  // Build the whole-document duration table for the timeline. Reads instantly
+  // from disk if cached for this model/voice/lang; otherwise runs the cheap
+  // duration predictor (no synthesis) over every chunk in the background. Depends
+  // only on model/voice/lang, so a speed/steps change just reloads the cache.
+  useEffect(() => {
+    let cancelled = false;
+    setDurTable(null);
+    if (!modelId || chunks.length === 0) return;
+    const cached = loadDurationTable(docHash, chunks.length, settings);
+    if (cached) {
+      setDurTable(cached);
+      return;
+    }
+    void (async () => {
+      const engine = await ensureEngine();
+      if (!engine || cancelled) return;
+      try {
+        const table = await ensureDurationTable(engine.tts, engine.voice, docHash, chunks, settings, {
+          shouldCancel: () => cancelled,
+        });
+        if (table && !cancelled) setDurTable(table);
+      } catch (e) {
+        console.warn('[usePlayback] failed to build duration table:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [docHash, chunks, modelId, settings, ensureEngine]);
+
+  const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
+  const docDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
+
   // Apply the requested playback speed live (cache is rendered at neutral rate).
   useEffect(() => {
     try {
       player.setPlaybackRate(speed, 'high');
     } catch {}
   }, [speed, player]);
+
+  // Apply a queued timeline seek once the freshly-loaded clip reports a duration.
+  useEffect(() => {
+    if (pendingSeekRef.current == null) return;
+    if (!status.isLoaded || status.duration <= 0) return;
+    const target = pendingSeekRef.current;
+    pendingSeekRef.current = null;
+    try {
+      void player.seekTo(Math.max(0, Math.min(status.duration, target)));
+    } catch {}
+  }, [status.isLoaded, status.duration, player]);
 
   const playChunkObject = useCallback(
     async (chunk: Chunk, anchorIdx: number, resumeIdx: number, opts?: { lead?: boolean; next?: Lead | null }) => {
@@ -492,6 +554,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         playTokenRef.current++;
         activeRef.current = false;
         pendingLeadRef.current = null;
+        pendingSeekRef.current = null;
         setLoading(false);
         player.pause();
       }
@@ -533,6 +596,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     currentRef.current = null;
     loadedKeyRef.current = -1;
     pendingLeadRef.current = null;
+    pendingSeekRef.current = null;
     try {
       playerRef.current?.clearLockScreenControls?.();
     } catch {}
@@ -548,6 +612,42 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     [player, status.isLoaded, status.duration],
   );
 
+  // Seek to an absolute position on the whole-document timeline: locate the
+  // enclosing chunk, queue a precise within-chunk seek, then start that chunk.
+  // Snaps to a canonical chunk so it's always a clean cache unit.
+  const seekToTime = useCallback(
+    (sec: number) => {
+      if (!durTable) return;
+      const loc = locateTime(durTable, speed, sec);
+      if (!loc) return;
+      activeRef.current = true;
+      pendingLeadRef.current = null;
+      pendingSeekRef.current = loc.withinNeutralSec;
+      playCanonical(loc.index);
+    },
+    [durTable, speed, playCanonical],
+  );
+
+  // Map the current clip's position onto the whole-document timeline. The clip
+  // may be a full canonical chunk, a fast-lead, or a remainder, so we offset by
+  // the canonical chunk's start time plus the lead portion already played before
+  // this clip (estimated by char proportion). Neutral seconds → /speed for docs.
+  let docPositionSec = 0;
+  if (offsets && durTable) {
+    const ai = anchorIndexRef.current;
+    if (ai >= 0 && ai < offsets.length) {
+      const canonical = chunks[ai];
+      const clip = currentRef.current;
+      let leadNeutral = 0;
+      if (canonical && clip && canonical.charEnd > canonical.charStart) {
+        const leadChars = Math.max(0, clip.charStart - canonical.charStart);
+        leadNeutral = durTable[ai] * Math.min(1, leadChars / (canonical.charEnd - canonical.charStart));
+      }
+      const curTime = status.isLoaded ? status.currentTime : 0;
+      docPositionSec = offsets[ai] + (leadNeutral + curTime) / speed;
+    }
+  }
+
   return {
     ready,
     playing: status.playing,
@@ -558,6 +658,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     total: chunks.length,
     positionSec: status.currentTime,
     durationSec: status.duration,
+    docPositionSec,
+    docDurationSec,
+    timelineReady: durTable != null,
     toggle,
     play,
     pause,
@@ -568,6 +671,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     playFrom,
     goTo,
     seek,
+    seekToTime,
     stop,
   };
 }

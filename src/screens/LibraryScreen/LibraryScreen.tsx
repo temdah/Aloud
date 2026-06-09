@@ -1,14 +1,14 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { File } from 'expo-file-system';
-import { ActionDialog, AppBar, BookRow, Chip, EmptyLibrary, FAB, Icon, IconButton, ManageCacheSheet } from '../../components';
+import { ActionDialog, AppBar, BookRow, Chip, EmptyLibrary, FAB, Icon, IconButton, ManageCacheSheet, Sheet } from '../../components';
 import { useImportDocument } from '../../hooks';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { usePlaybackContext } from '../../playback';
 import { useDocumentsStore } from '../../stores';
 import { clearDocumentCache, documentCacheStats } from '../../supertonic';
-import { ty, TYPE, useTheme } from '../../theme';
+import { COVER_PALETTE, ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
 import type { Book, ImportedDocument } from '../../types';
 import type { AppNavigation } from '../../navigation/navigationTypes';
@@ -36,6 +36,7 @@ export default function LibraryScreen() {
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
   const removeDocument = useDocumentsStore((s) => s.removeDocument);
   const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
+  const setCover = useDocumentsStore((s) => s.setCover);
   const { playback, activeDoc, clearActiveDoc } = usePlaybackContext();
   const { importDocument } = useImportDocument();
   const [filter, setFilter] = useState<Filter>('all');
@@ -45,6 +46,7 @@ export default function LibraryScreen() {
   const [sortMenu, setSortMenu] = useState(false);
   const [menuDoc, setMenuDoc] = useState<ImportedDocument | null>(null);
   const [manageDoc, setManageDoc] = useState<ImportedDocument | null>(null);
+  const [colorDoc, setColorDoc] = useState<ImportedDocument | null>(null);
 
   const books = useMemo(() => documents.map(documentToBook), [documents]);
 
@@ -171,6 +173,11 @@ export default function LibraryScreen() {
                   onPress: () => toggleFavourite(menuDoc.docHash),
                 },
                 {
+                  label: 'Change cover colour',
+                  variant: 'tonal',
+                  onPress: () => setColorDoc(menuDoc),
+                },
+                {
                   label: 'Make full audiobook',
                   variant: 'tonal',
                   onPress: () => navigation.navigate('Prerender', { docId: menuDoc.docHash }),
@@ -212,6 +219,29 @@ export default function LibraryScreen() {
         docHash={manageDoc?.docHash ?? null}
         title={manageDoc?.title}
       />
+
+      <Sheet open={!!colorDoc} onClose={() => setColorDoc(null)} title="Cover colour" heightRatio={0.34}>
+        <View style={styles.swatchRow}>
+          {COVER_PALETTE.map((hue, i) => {
+            const selected = colorDoc ? documentToBook(colorDoc).cover === i : false;
+            return (
+              <Pressable
+                key={i}
+                accessibilityRole="button"
+                accessibilityLabel={`Cover colour ${i + 1}`}
+                onPress={() => {
+                  if (colorDoc) setCover(colorDoc.docHash, i);
+                  setColorDoc(null);
+                }}
+                style={[
+                  styles.swatch,
+                  { backgroundColor: hue.bg, borderColor: selected ? p.primary : p.border, borderWidth: selected ? 3 : 1 },
+                ]}
+              />
+            );
+          })}
+        </View>
+      </Sheet>
     </View>
   );
 }

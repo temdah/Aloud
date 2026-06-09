@@ -7,6 +7,19 @@ export const makeStyles = (p: Palette) =>
       flex: 1,
       backgroundColor: p.background,
     },
+    swatchRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 16,
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      justifyContent: 'center',
+    },
+    swatch: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+    },
     emptyBody: {
       flex: 1,
       paddingHorizontal: 24,

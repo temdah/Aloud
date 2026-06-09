@@ -20,12 +20,15 @@ export function MiniPlayer({ hidden = false, onOpen }: MiniPlayerProps) {
   if (hidden || !activeDoc || !playback.started) return null;
 
   const book = documentToBook(activeDoc.doc);
+  const progress =
+    playback.timelineReady && playback.docDurationSec > 0 ? playback.docPositionSec / playback.docDurationSec : null;
   return (
     <NowPlayingPill
       book={book}
       playing={playback.playing}
       onPress={() => onOpen(activeDoc.doc.docHash)}
       onToggle={playback.toggle}
+      progress={progress}
     />
   );
 }

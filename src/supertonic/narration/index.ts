@@ -20,4 +20,12 @@ export {
 } from './audioCache';
 export type { CachedProfile, ProfileMeta } from './audioCache';
 export { readManifest, writeManifest, loadChunks } from './manifest';
+export {
+  ensureDurationTable,
+  loadDurationTable,
+  cumulativeOffsetsSec,
+  totalDurationSec,
+  locateTime,
+} from './durationTable';
+export type { DurationTable, TimeLocation, BuildDurationTableOptions } from './durationTable';
 export type { NarrationSettings } from './narrationTypes';

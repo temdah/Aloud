@@ -1,9 +1,9 @@
+import { COVER_COUNT } from '../theme';
 import type { Book, ImportedDocument } from '../types';
 
 // CoverThumb cycles through a fixed set of hues; pick one deterministically
-// from the content hash so a document keeps the same tint across launches.
-const COVER_COUNT = 5;
-
+// from the content hash so a document keeps the same tint across launches —
+// unless the user pinned a colour (doc.cover).
 function coverIndex(docHash: string): number {
   let sum = 0;
   for (let i = 0; i < docHash.length; i++) sum += docHash.charCodeAt(i);
@@ -20,7 +20,7 @@ export function documentToBook(doc: ImportedDocument): Book {
     author: '',
     pages: doc.pageCount ?? 0,
     page: 0,
-    cover: coverIndex(doc.docHash),
+    cover: doc.cover ?? coverIndex(doc.docHash),
     opened: '',
     progress: 0,
     eta: '',

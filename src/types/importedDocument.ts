@@ -22,6 +22,9 @@ export type ImportedDocument = {
   addedAt: number;
   /** Page count — known once the PDF text layer is parsed. */
   pageCount?: number;
+  /** User-chosen cover-palette index (the book's colour). Absent ⇒ derived from
+   *  the content hash. Drives the library thumbnail + media-notification tint. */
+  cover?: number;
   /** Playback resume cursor — index of the last chunk reached. */
   resumeChunkIdx?: number;
 };

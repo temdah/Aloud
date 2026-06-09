@@ -29,4 +29,19 @@ export const makeStyles = (p: Palette) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    progressTrack: {
+      position: 'absolute',
+      left: 12,
+      right: 12,
+      bottom: 5,
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: p.border,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: p.primary,
+    },
   });

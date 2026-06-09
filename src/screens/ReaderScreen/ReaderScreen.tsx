@@ -574,10 +574,27 @@ export default function ReaderScreen() {
         onStop={playback.stop}
         onSkipBack={playback.previous}
         onSkipFwd={playback.next}
-        progress={playback.durationSec > 0 ? playback.positionSec / playback.durationSec : 0}
-        onScrub={playback.seek}
-        position={formatTime(playback.positionSec)}
-        duration={formatTime(Math.max(0, playback.durationSec - playback.positionSec))}
+        progress={
+          playback.timelineReady && playback.docDurationSec > 0
+            ? playback.docPositionSec / playback.docDurationSec
+            : playback.durationSec > 0
+              ? playback.positionSec / playback.durationSec
+              : 0
+        }
+        onScrub={
+          playback.timelineReady && playback.docDurationSec > 0
+            ? (f) => playback.seekToTime(f * playback.docDurationSec)
+            : playback.seek
+        }
+        position={formatTime(playback.timelineReady ? playback.docPositionSec : playback.positionSec)}
+        duration={formatTime(
+          Math.max(
+            0,
+            playback.timelineReady
+              ? playback.docDurationSec - playback.docPositionSec
+              : playback.durationSec - playback.positionSec,
+          ),
+        )}
         speed={effSpeed}
         onSpeed={() => setSpeedSheet(true)}
         onSleep={() => setSleepMenu(true)}
