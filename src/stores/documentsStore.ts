@@ -21,8 +21,10 @@ type DocumentsState = {
   hintsSeen: string[];
   /** docHashes the user has starred. */
   favourites: string[];
-  /** docHash → last chunk index reached, so playback can resume where it left off. */
+  /** docHash → last char offset reached, so playback can resume where it left off. */
   cursor: Record<string, number>;
+  /** docHash → reading progress fraction (0..1), for the library row bar + filters. */
+  progress: Record<string, number>;
   /** docHash → the narration settings a full-audiobook render was made with.
    *  The reader uses this profile so tap-to-start hits the pre-rendered cache. */
   renderProfile: Record<string, NarrationSettings>;
@@ -40,8 +42,10 @@ type DocumentsState = {
   markHintSeen: (docHash: string) => void;
   /** Toggle a document's favourite (starred) state. */
   toggleFavourite: (docHash: string) => void;
-  /** Persist the last chunk index reached for a document. */
-  setCursor: (docHash: string, chunkIdx: number) => void;
+  /** Persist the last char offset reached for a document. */
+  setCursor: (docHash: string, charOffset: number) => void;
+  /** Persist a document's reading progress fraction (0..1). */
+  setProgress: (docHash: string, fraction: number) => void;
   /** Pin (or clear) the narration profile a full audiobook was rendered with. */
   setRenderProfile: (docHash: string, profile: NarrationSettings | null) => void;
   /** Record full-audiobook render progress/status for a document. */
@@ -59,6 +63,7 @@ export const useDocumentsStore = create<DocumentsState>()(
       hintsSeen: [],
       favourites: [],
       cursor: {},
+      progress: {},
       renderProfile: {},
       audiobook: {},
       addDocument: (doc) =>
@@ -89,8 +94,10 @@ export const useDocumentsStore = create<DocumentsState>()(
             ? state.favourites.filter((h) => h !== docHash)
             : [...state.favourites, docHash],
         })),
-      setCursor: (docHash, chunkIdx) =>
-        set((state) => ({ cursor: { ...state.cursor, [docHash]: chunkIdx } })),
+      setCursor: (docHash, charOffset) =>
+        set((state) => ({ cursor: { ...state.cursor, [docHash]: charOffset } })),
+      setProgress: (docHash, fraction) =>
+        set((state) => ({ progress: { ...state.progress, [docHash]: Math.max(0, Math.min(1, fraction)) } })),
       setRenderProfile: (docHash, profile) =>
         set((state) => {
           if (profile) return { renderProfile: { ...state.renderProfile, [docHash]: profile } };
@@ -107,11 +114,13 @@ export const useDocumentsStore = create<DocumentsState>()(
       removeDocument: (docHash) =>
         set((state) => {
           const { [docHash]: _cursor, ...cursor } = state.cursor;
+          const { [docHash]: _progress, ...progress } = state.progress;
           const { [docHash]: _profile, ...renderProfile } = state.renderProfile;
           const { [docHash]: _audiobook, ...audiobook } = state.audiobook;
           return {
             documents: state.documents.filter((d) => d.docHash !== docHash),
             cursor,
+            progress,
             renderProfile,
             audiobook,
             hintsSeen: state.hintsSeen.filter((h) => h !== docHash),

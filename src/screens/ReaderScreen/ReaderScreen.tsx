@@ -45,6 +45,7 @@ export default function ReaderScreen() {
   const doc = useDocumentsStore((s) => s.documents.find((d) => d.docHash === route.params.docId));
   const markHintSeen = useDocumentsStore((s) => s.markHintSeen);
   const setCursor = useDocumentsStore((s) => s.setCursor);
+  const setProgress = useDocumentsStore((s) => s.setProgress);
   const renderProfile = useDocumentsStore((s) => s.renderProfile[route.params.docId]);
   const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
   const favourites = useDocumentsStore((s) => s.favourites);
@@ -397,9 +398,13 @@ export default function ReaderScreen() {
   // Persist the reading position (char offset of the current chunk) so the
   // library's "Continue" can resume it.
   const currentCharStart = playback.currentChunk?.charStart ?? -1;
+  const totalChars = document?.text?.length ?? 0;
   useEffect(() => {
-    if (doc && playback.engaged && currentCharStart >= 0) setCursor(doc.docHash, currentCharStart);
-  }, [doc?.docHash, playback.engaged, currentCharStart, setCursor]);
+    if (doc && playback.engaged && currentCharStart >= 0) {
+      setCursor(doc.docHash, currentCharStart);
+      if (totalChars > 0) setProgress(doc.docHash, currentCharStart / totalChars);
+    }
+  }, [doc?.docHash, playback.engaged, currentCharStart, totalChars, setCursor, setProgress]);
 
   // Resume the saved position once, when the text is ready (highlight + follow,
   // no auto-play — the user presses play to continue). Wait until the engine has

@@ -19,9 +19,11 @@ export type BookRowProps = {
   audiobook?: BookRowAudiobook;
   onPress?: () => void;
   onLongPress?: () => void;
+  /** Tap the trailing play/pause indicator — resume/toggle without opening the reader. */
+  onPlay?: () => void;
 };
 
-export function BookRow({ book, favourite = false, last = false, audiobook, onPress, onLongPress }: BookRowProps) {
+export function BookRow({ book, favourite = false, last = false, audiobook, onPress, onLongPress, onPlay }: BookRowProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
   return (
@@ -61,13 +63,21 @@ export function BookRow({ book, favourite = false, last = false, audiobook, onPr
             </CircularProgress>
           )
         ) : book.state === 'playing' ? (
-          <PlayingPulse />
+          <Pressable onPress={onPlay} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Pause ${book.title}`}>
+            <PlayingPulse />
+          </Pressable>
         ) : book.state === 'done' ? (
           <Icon name="check" size={18} color={p.success} />
         ) : (
-          <View style={styles.playCircle}>
+          <Pressable
+            onPress={onPlay}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={`Play ${book.title}`}
+            style={styles.playCircle}
+          >
             <Icon name="play" size={14} color={p.text} />
-          </View>
+          </Pressable>
         )}
       </View>
     </Pressable>

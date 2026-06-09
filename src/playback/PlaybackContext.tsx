@@ -26,6 +26,9 @@ export type PlaybackContextValue = {
   activeDoc: ActiveDoc | null;
   /** Register/replace the document the engine plays. */
   setActiveDoc: (doc: ActiveDoc) => void;
+  /** Register a document AND start playing it from `fromOffset` once the engine
+   *  is ready (used by the Library play button for background playback). */
+  playDocument: (doc: ActiveDoc, fromOffset?: number) => void;
   /** Forget the active document (e.g. it was deleted) so the engine releases it. */
   clearActiveDoc: () => void;
   /** Sleep timer: pauses playback after a chosen number of minutes. */
@@ -75,9 +78,26 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
   const clearActiveDoc = useCallback(() => setActiveDoc(null), []);
 
+  // A queued "play from here" from the Library. setActiveDoc only takes effect on
+  // the next render, so we can't call playFrom synchronously — stash the intent
+  // and let the effect below fire it once the engine has registered this doc.
+  const pendingPlayRef = useRef<{ docHash: string; offset: number } | null>(null);
+  const playDocument = useCallback((doc: ActiveDoc, fromOffset = 0) => {
+    pendingPlayRef.current = { docHash: doc.doc.docHash, offset: fromOffset };
+    setActiveDoc(doc);
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingPlayRef.current;
+    if (!pending || activeDoc?.doc.docHash !== pending.docHash || !playback.ready) return;
+    pendingPlayRef.current = null;
+    if (pending.offset > 0) playback.playFrom(pending.offset);
+    else playback.play();
+  }, [activeDoc?.doc.docHash, playback.ready, playback]);
+
   const value = useMemo<PlaybackContextValue>(
-    () => ({ playback, activeDoc, setActiveDoc, clearActiveDoc, sleep }),
-    [playback, activeDoc, clearActiveDoc, sleep],
+    () => ({ playback, activeDoc, setActiveDoc, playDocument, clearActiveDoc, sleep }),
+    [playback, activeDoc, playDocument, clearActiveDoc, sleep],
   );
 
   return <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>;

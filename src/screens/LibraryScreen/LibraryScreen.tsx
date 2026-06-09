@@ -5,9 +5,11 @@ import { File } from 'expo-file-system';
 import { ActionDialog, AppBar, BookRow, Chip, EmptyLibrary, FAB, Icon, IconButton, ManageCacheSheet, Sheet } from '../../components';
 import { useImportDocument } from '../../hooks';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
+import { loadExtractedText } from '../../pdf';
 import { usePlaybackContext } from '../../playback';
-import { useDocumentsStore } from '../../stores';
-import { clearDocumentCache, documentCacheStats } from '../../supertonic';
+import type { ActiveDoc } from '../../playback';
+import { useDocumentsStore, useSettingsStore } from '../../stores';
+import { clearDocumentCache, documentCacheStats, loadChunks } from '../../supertonic';
 import { COVER_PALETTE, ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
 import type { Book, ImportedDocument } from '../../types';
@@ -31,13 +33,16 @@ export default function LibraryScreen() {
   const navigation = useNavigation<AppNavigation>();
   const documents = useDocumentsStore((s) => s.documents);
   const cursor = useDocumentsStore((s) => s.cursor);
+  const progress = useDocumentsStore((s) => s.progress);
   const favourites = useDocumentsStore((s) => s.favourites);
   const audiobook = useDocumentsStore((s) => s.audiobook);
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
   const removeDocument = useDocumentsStore((s) => s.removeDocument);
   const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
   const setCover = useDocumentsStore((s) => s.setCover);
-  const { playback, activeDoc, clearActiveDoc } = usePlaybackContext();
+  const { playback, activeDoc, clearActiveDoc, playDocument } = usePlaybackContext();
+  const renderProfile = useDocumentsStore((s) => s.renderProfile);
+  const settings = useSettingsStore();
   const { importDocument } = useImportDocument();
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<Sort>('recent');
@@ -48,7 +53,17 @@ export default function LibraryScreen() {
   const [manageDoc, setManageDoc] = useState<ImportedDocument | null>(null);
   const [colorDoc, setColorDoc] = useState<ImportedDocument | null>(null);
 
-  const books = useMemo(() => documents.map(documentToBook), [documents]);
+  const books = useMemo(
+    () =>
+      documents.map((d) => {
+        const b = documentToBook(d);
+        const frac = progress[d.docHash] ?? 0;
+        const isPlaying = activeDoc?.doc.docHash === d.docHash && playback.playing;
+        const state = isPlaying ? 'playing' : frac >= 0.999 ? 'done' : b.state;
+        return { ...b, progress: frac, state };
+      }),
+    [documents, progress, activeDoc?.doc.docHash, playback.playing],
+  );
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -68,6 +83,36 @@ export default function LibraryScreen() {
 
   const openBook = (docId: string) => navigation.navigate('Reader', { docId });
   const openSettings = () => navigation.navigate('Settings');
+
+  // Library play button: resume in the background (mini-player), staying on the
+  // list. If the document hasn't been text-extracted yet, fall back to opening
+  // the reader (which runs extraction). If it's already the active document,
+  // just toggle play/pause in place.
+  const playBook = (docId: string) => {
+    const doc = documents.find((d) => d.docHash === docId);
+    if (!doc) return;
+    if (activeDoc?.doc.docHash === docId) {
+      playback.toggle();
+      return;
+    }
+    const extracted = loadExtractedText(docId);
+    if (!extracted) {
+      openBook(docId); // not extracted yet — the reader will extract + resume
+      return;
+    }
+    const rp = renderProfile[docId];
+    const active: ActiveDoc = {
+      doc,
+      chunks: loadChunks(docId, extracted.text),
+      text: extracted.text,
+      modelId: rp?.modelId ?? settings.modelId,
+      voiceId: rp?.voiceId ?? settings.voiceId,
+      speed: rp?.speed ?? settings.speed,
+      steps: rp?.steps ?? settings.steps,
+      lang: rp?.lang ?? doc.lang ?? settings.lang ?? 'en',
+    };
+    playDocument(active, cursor[docId] ?? 0);
+  };
   const menuStats = menuDoc ? documentCacheStats(menuDoc.docHash) : null;
   // The floating mini-player is visible here whenever a document is engaged; lift
   // the FAB above it so they don't overlap.
@@ -134,6 +179,7 @@ export default function LibraryScreen() {
               last={i === visible.length - 1}
               audiobook={audiobookFor(b.id)}
               onPress={() => openBook(b.id)}
+              onPlay={() => playBook(b.id)}
               onLongPress={() => {
                 const doc = documents.find((d) => d.docHash === b.id);
                 if (doc) setMenuDoc(doc);
