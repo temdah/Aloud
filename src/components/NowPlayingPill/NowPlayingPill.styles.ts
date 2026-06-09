@@ -17,9 +17,23 @@ export const makeStyles = (p: Palette) =>
       borderWidth: 1,
       borderColor: p.border,
     },
+    tapZone: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
     body: {
       flex: 1,
       minWidth: 0,
+    },
+    stopButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     toggle: {
       width: 40,
@@ -28,20 +42,5 @@ export const makeStyles = (p: Palette) =>
       backgroundColor: p.primary,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    progressTrack: {
-      position: 'absolute',
-      left: 12,
-      right: 12,
-      bottom: 5,
-      height: 3,
-      borderRadius: 2,
-      backgroundColor: p.border,
-      overflow: 'hidden',
-    },
-    progressFill: {
-      height: 3,
-      borderRadius: 2,
-      backgroundColor: p.primary,
     },
   });

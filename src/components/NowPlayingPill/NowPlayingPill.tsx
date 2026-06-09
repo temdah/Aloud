@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useMemo, useRef } from 'react';
+import { Animated, PanResponder, Pressable, Text, View } from 'react-native';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { Book } from '../../types';
 import { CoverThumb } from '../CoverThumb';
@@ -11,33 +11,68 @@ export type NowPlayingPillProps = {
   playing?: boolean;
   onPress?: () => void;
   onToggle?: () => void;
-  /** Whole-document progress (0..1) for the thin bar; omit to hide it. */
-  progress?: number | null;
+  /** Square stop: halt audio but keep the pill (resumes from here on play). */
+  onStop?: () => void;
+  /** Swipe the pill away — fully dismiss it (stop + forget the active doc). */
+  onDismiss?: () => void;
 };
 
-// Floating "now playing" bar above the library list.
-export function NowPlayingPill({ book, playing = true, onPress, onToggle, progress = null }: NowPlayingPillProps) {
+// Distance (px) the pill must be dragged sideways before a release dismisses it.
+const DISMISS_THRESHOLD = 110;
+
+// Floating "now playing" bar above the library list. Swipe it horizontally to
+// dismiss; the square stops without dismissing (the bar stays so you can resume).
+export function NowPlayingPill({ book, playing = true, onPress, onToggle, onStop, onDismiss }: NowPlayingPillProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
-  const pct = progress == null ? null : Math.max(0, Math.min(1, progress)) * 100;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        // Only claim the gesture for a deliberate horizontal drag, so taps still
+        // reach the inner buttons (open / stop / play-pause).
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
+        onPanResponderMove: (_e, g) => {
+          translateX.setValue(g.dx);
+          opacity.setValue(Math.max(0.15, 1 - Math.abs(g.dx) / 280));
+        },
+        onPanResponderRelease: (_e, g) => {
+          if (Math.abs(g.dx) > DISMISS_THRESHOLD) {
+            Animated.timing(translateX, {
+              toValue: g.dx > 0 ? 600 : -600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => onDismiss?.());
+          } else {
+            Animated.parallel([
+              Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
+              Animated.spring(opacity, { toValue: 1, useNativeDriver: true }),
+            ]).start();
+          }
+        },
+      }),
+    [translateX, opacity, onDismiss],
+  );
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.pill, elevation(3)]}
-    >
-      <CoverThumb idx={book.cover} width={36} height={46} />
-      <View style={styles.body}>
-        <Text style={ty(TYPE.bodySmall, p.textMuted)}>Now playing</Text>
-        <Text numberOfLines={1} style={ty(TYPE.label, p.text)}>{book.title}</Text>
-      </View>
+    <Animated.View style={[styles.pill, elevation(3), { transform: [{ translateX }], opacity }]} {...responder.panHandlers}>
+      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${book.title}`} style={styles.tapZone}>
+        <CoverThumb idx={book.cover} width={36} height={46} />
+        <View style={styles.body}>
+          <Text style={ty(TYPE.bodySmall, p.textMuted)}>Now playing</Text>
+          <Text numberOfLines={1} style={ty(TYPE.label, p.text)}>{book.title}</Text>
+        </View>
+      </Pressable>
+      {onStop ? (
+        <Pressable onPress={onStop} accessibilityRole="button" accessibilityLabel="Stop" style={styles.stopButton} hitSlop={6}>
+          <Icon name="stop" size={20} color={p.textMuted} />
+        </Pressable>
+      ) : null}
       <Pressable onPress={onToggle} accessibilityRole="button" accessibilityLabel={playing ? 'Pause' : 'Play'} style={styles.toggle}>
         <Icon name={playing ? 'pause' : 'play'} size={18} color={p.onPrimary} />
       </Pressable>
-      {pct == null ? null : (
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${pct}%` }]} />
-        </View>
-      )}
-    </Pressable>
+    </Animated.View>
   );
 }

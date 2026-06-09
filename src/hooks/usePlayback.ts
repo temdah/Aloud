@@ -157,6 +157,9 @@ export type Playback = {
   seekToTime: (sec: number) => void;
   /** Fully halt playback: stop audio, drop the selection, release the OS controls. */
   stop: () => void;
+  /** Stop audio + release the OS controls but KEEP the selection/position (and the
+   *  mini-player visible), so pressing play resumes exactly where it left off. */
+  halt: () => void;
 };
 
 // Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
@@ -368,6 +371,18 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     } catch {}
   }, [status.isLoaded, status.duration, player]);
 
+  // Claim the OS lock-screen / media notification (idempotent). Called on first
+  // audio and again when resuming after a halt (which released it).
+  const claimLockScreen = useCallback(() => {
+    if (lockScreenActiveRef.current) return;
+    try {
+      player.setActiveForLockScreen(true, lockMetadataRef.current, LOCK_OPTIONS);
+      lockScreenActiveRef.current = true;
+    } catch (e) {
+      console.warn('[usePlayback] failed to activate lock-screen controls:', e);
+    }
+  }, [player]);
+
   const playChunkObject = useCallback(
     async (chunk: Chunk, anchorIdx: number, resumeIdx: number, opts?: { lead?: boolean; next?: Lead | null }) => {
       const lead = opts?.lead ?? false;
@@ -418,14 +433,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         player.play();
         // Claim the lock-screen / media notification on first audio so transport
         // controls appear and background playback is sustained past ~3 min.
-        if (!lockScreenActiveRef.current) {
-          try {
-            player.setActiveForLockScreen(true, lockMetadataRef.current, LOCK_OPTIONS);
-            lockScreenActiveRef.current = true;
-          } catch (e) {
-            console.warn('[usePlayback] failed to activate lock-screen controls:', e);
-          }
-        }
+        claimLockScreen();
         setLoading(false);
         // Generate-ahead so boundaries don't stall. A queued remainder is the
         // most urgent (it plays next), then the upcoming canonical chunks.
@@ -456,7 +464,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         console.warn('[usePlayback] failed to play chunk at', chunk.charStart, e);
       }
     },
-    [chunks, docHash, player, settings, speed, ensureEngine],
+    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen],
   );
 
   const playCanonical = useCallback(
@@ -508,12 +516,13 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     const cur = currentRef.current;
     if (cur && status.isLoaded && loadedKeyRef.current === cur.charStart && !status.playing) {
       player.play(); // resume the current chunk in place
+      claimLockScreen(); // a prior halt released the OS controls — bring them back
     } else if (cur) {
       if (!startFast(cur.charStart)) void playChunkObject(cur, anchorIndexRef.current, resumeIndexRef.current);
     } else if (chunks.length) {
       if (!startFast(chunks[0].charStart)) playCanonical(0); // nothing selected → start from the top
     }
-  }, [playChunkObject, playCanonical, startFast, player, status.isLoaded, status.playing, chunks]);
+  }, [playChunkObject, playCanonical, startFast, player, status.isLoaded, status.playing, chunks, claimLockScreen]);
 
   const pause = useCallback(() => {
     activeRef.current = false;
@@ -603,6 +612,20 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     lockScreenActiveRef.current = false;
   }, [player]);
 
+  // Soft stop: halt audio and release the OS notification, but KEEP the selection,
+  // position, and `started` (so the mini-player stays). Pressing play resumes in
+  // place. Used by the mini-player's square stop — dismiss is a separate gesture.
+  const halt = useCallback(() => {
+    playTokenRef.current++; // cancel any in-flight load so it can't auto-start
+    activeRef.current = false;
+    setLoading(false);
+    player.pause();
+    try {
+      playerRef.current?.clearLockScreenControls?.();
+    } catch {}
+    lockScreenActiveRef.current = false;
+  }, [player]);
+
   const seek = useCallback(
     (fraction: number) => {
       if (status.isLoaded && status.duration > 0) {
@@ -673,6 +696,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     seek,
     seekToTime,
     stop,
+    halt,
   };
 }
 

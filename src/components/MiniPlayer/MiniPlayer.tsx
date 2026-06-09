@@ -13,22 +13,26 @@ export type MiniPlayerProps = {
 // floats above whatever screen is showing so the user keeps transport control
 // after leaving the Reader. Driven entirely by the global playback context.
 export function MiniPlayer({ hidden = false, onOpen }: MiniPlayerProps) {
-  const { playback, activeDoc } = usePlaybackContext();
+  const { playback, activeDoc, clearActiveDoc } = usePlaybackContext();
 
   // Gate on `started` (audio has actually played), not `engaged` (which is also
   // true for a mere text selection) — otherwise the bar shows with no audio.
+  // `halt` keeps `started` true, so the square stop leaves the bar in place; only
+  // a swipe-dismiss (full stop + clearActiveDoc) removes it.
   if (hidden || !activeDoc || !playback.started) return null;
 
   const book = documentToBook(activeDoc.doc);
-  const progress =
-    playback.timelineReady && playback.docDurationSec > 0 ? playback.docPositionSec / playback.docDurationSec : null;
   return (
     <NowPlayingPill
       book={book}
       playing={playback.playing}
       onPress={() => onOpen(activeDoc.doc.docHash)}
       onToggle={playback.toggle}
-      progress={progress}
+      onStop={playback.halt}
+      onDismiss={() => {
+        playback.stop();
+        clearActiveDoc();
+      }}
     />
   );
 }
