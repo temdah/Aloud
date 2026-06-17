@@ -2,6 +2,7 @@ import { requireNativeModule } from 'expo-modules-core';
 
 type AacCodecNativeModule = {
   encodeWavsToM4a(srcWavPaths: string[], dstPath: string, bitrate: number): Promise<string>;
+  concatM4a(srcM4aPaths: string[], dstPath: string): Promise<string>;
 };
 
 // Backed by the native AacCodecModule (Kotlin + MediaCodec). Android-only.

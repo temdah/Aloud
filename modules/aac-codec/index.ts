@@ -21,3 +21,13 @@ function toPath(uri: string): string {
 export function encodeWavsToM4a(srcWavUris: string[], dstUri: string, bitrate = 64000): Promise<string> {
   return AacCodecModule.encodeWavsToM4a(srcWavUris.map(toPath), toPath(dstUri), bitrate);
 }
+
+/**
+ * Losslessly stitch several AAC `.m4a` files into one continuous `.m4a` — no
+ * re-encode (compressed samples are copied and re-muxed). Used to merge a
+ * fully-rendered book's per-chunk cache into a single audiobook file so the OS
+ * media notification can show a real whole-book timeline. Resolves with `dstUri`.
+ */
+export function concatM4a(srcM4aUris: string[], dstUri: string): Promise<string> {
+  return AacCodecModule.concatM4a(srcM4aUris.map(toPath), toPath(dstUri));
+}

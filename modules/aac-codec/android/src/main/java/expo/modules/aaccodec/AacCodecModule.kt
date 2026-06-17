@@ -17,5 +17,12 @@ class AacCodecModule : Module() {
       if (rc != 0) throw AacEncodeException(rc)
       dstPath
     }
+
+    // Losslessly stitch AAC .m4a files into one continuous .m4a (no re-encode).
+    AsyncFunction("concatM4a") { srcM4aPaths: List<String>, dstPath: String ->
+      val rc = AacEncoder.concat(srcM4aPaths, dstPath)
+      if (rc != 0) throw AacEncodeException(rc)
+      dstPath
+    }
   }
 }

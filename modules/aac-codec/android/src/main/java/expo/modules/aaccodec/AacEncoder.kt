@@ -2,6 +2,7 @@ package expo.modules.aaccodec
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.util.Log
@@ -206,4 +207,77 @@ internal object AacEncoder {
 
   private fun ptsUs(framesPerChannel: Long, sampleRate: Int): Long =
     framesPerChannel * 1_000_000L / sampleRate
+
+  // Losslessly stitch several AAC .m4a files (the per-chunk cache) into one
+  // continuous .m4a — no re-encode. Copies each file's compressed samples with
+  // MediaExtractor and re-muxes them back to back, offsetting timestamps so the
+  // result is one gapless track. Returns 0 on success, a negative ERR_ otherwise.
+  fun concat(srcPaths: List<String>, dstPath: String): Int {
+    if (srcPaths.isEmpty()) return ERR_NO_INPUT
+
+    var muxer: MediaMuxer? = null
+    var trackIndex = -1
+    var muxerStarted = false
+    var result = ERR_ENCODE
+    try {
+      muxer = MediaMuxer(dstPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+      val buffer = java.nio.ByteBuffer.allocate(256 * 1024)
+      val info = MediaCodec.BufferInfo()
+      var ptsOffsetUs = 0L
+
+      for (path in srcPaths) {
+        val extractor = MediaExtractor()
+        try {
+          extractor.setDataSource(path)
+          var track = -1
+          for (i in 0 until extractor.trackCount) {
+            val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
+            if (mime?.startsWith("audio/") == true) { track = i; break }
+          }
+          if (track < 0) return ERR_BAD_WAV
+          extractor.selectTrack(track)
+          val format = extractor.getTrackFormat(track)
+          if (!muxerStarted) {
+            trackIndex = muxer.addTrack(format)
+            muxer.start()
+            muxerStarted = true
+          }
+          val frameUs = frameDurationUs(format)
+          var lastPtsUs = ptsOffsetUs
+          while (true) {
+            val size = extractor.readSampleData(buffer, 0)
+            if (size < 0) break
+            info.offset = 0
+            info.size = size
+            info.presentationTimeUs = ptsOffsetUs + extractor.sampleTime
+            info.flags = if ((extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
+              MediaCodec.BUFFER_FLAG_KEY_FRAME
+            } else 0
+            muxer.writeSampleData(trackIndex, buffer, info)
+            lastPtsUs = info.presentationTimeUs
+            extractor.advance()
+          }
+          // Start the next file one frame after the last sample so they don't overlap.
+          ptsOffsetUs = lastPtsUs + frameUs
+        } finally {
+          extractor.release()
+        }
+      }
+      result = if (muxerStarted) 0 else ERR_NO_INPUT
+    } catch (e: Exception) {
+      Log.e(TAG, "AAC concat failed", e)
+      result = ERR_ENCODE
+    } finally {
+      try { muxer?.stop() } catch (_: Exception) {}
+      try { muxer?.release() } catch (_: Exception) {}
+      if (result != 0) try { File(dstPath).delete() } catch (_: Exception) {}
+    }
+    return result
+  }
+
+  // Duration of one AAC access unit (1024 samples) in microseconds.
+  private fun frameDurationUs(format: MediaFormat): Long {
+    val rate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else 44100
+    return 1024L * 1_000_000L / rate
+  }
 }
