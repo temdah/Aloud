@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isChunkCached, isLeadCached, leadWavFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { useDocumentsStore } from '../stores';
+import { useTheme } from '../theme';
 import type { Chunk } from '../types';
 import { stableHash } from '../utils';
 
@@ -176,6 +177,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }
   const player = playerRef.current;
   const status = useAudioPlayerStatus(player);
+  // App accent for the OS media notification background (themed, not default grey).
+  const { palette } = useTheme();
+  const accentColor = palette.primary;
 
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -376,12 +380,12 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const claimLockScreen = useCallback(() => {
     if (lockScreenActiveRef.current) return;
     try {
-      player.setActiveForLockScreen(true, lockMetadataRef.current, LOCK_OPTIONS);
+      player.setActiveForLockScreen(true, lockMetadataRef.current, { ...LOCK_OPTIONS, accentColor });
       lockScreenActiveRef.current = true;
     } catch (e) {
       console.warn('[usePlayback] failed to activate lock-screen controls:', e);
     }
-  }, [player]);
+  }, [player, accentColor]);
 
   const playChunkObject = useCallback(
     async (chunk: Chunk, anchorIdx: number, resumeIdx: number, opts?: { lead?: boolean; next?: Lead | null }) => {

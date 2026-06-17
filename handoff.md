@@ -101,8 +101,9 @@ pre-render path renders the whole document up front.
   the media notification.
 
 ### D. Deferred (need a native dep / rebuild — get approval first)
-- **Compress cached audio (WAV→Opus)** — no pure-JS encoder; needs a native
-  MediaCodec/libopus bridge. ~10× smaller cache + faster IO.
+- **Compress cached audio (WAV→Ogg Vorbis)** — no pure-JS encoder; needs a
+  native libvorbis JNI bridge (local Expo module). Vorbis over Opus because the
+  model is 44.1 kHz (Opus would need a resampler). ~10× smaller cache + faster IO.
 - **Per-word karaoke** — Supertonic emits no per-word timestamps; needs forced
   alignment (likely native). Crude char-weighted fallback is the only no-dep path.
 - **True OS Stop button / cross-clip −10s seek** — would require swapping
