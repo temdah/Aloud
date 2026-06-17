@@ -60,6 +60,26 @@ export function chunkAudioUri(docHash: string, charStart: number, s: NarrationSe
   return chunkAudioFile(docHash, charStart, s).uri;
 }
 
+// --- Concatenated audiobook (one file per fully-rendered profile) -------------
+// A fully-rendered book is stitched into a single `book-<hash>.m4a` so it plays
+// as one continuous track (real OS-notification timeline) and the per-chunk clips
+// can be deleted. `book-` can't collide with a chunk name (chunks start with a
+// numeric charStart), and hashFromFileName still recovers the profile hash, so
+// the manage-cache UI groups it under its voice like any other clip.
+export function audiobookFile(docHash: string, s: NarrationSettings): File {
+  return new File(documentCacheDir(docHash), `book-${settingsHash(s)}.m4a`);
+}
+
+export function isAudiobookCached(docHash: string, s: NarrationSettings): boolean {
+  const file = audiobookFile(docHash, s);
+  return file.exists && file.size > MIN_CACHED_BYTES;
+}
+
+/** The file:// uri of the concatenated audiobook (caller must ensure it exists). */
+export function audiobookAudioUri(docHash: string, s: NarrationSettings): string {
+  return audiobookFile(docHash, s).uri;
+}
+
 // --- Ephemeral "fast lead" clips ----------------------------------------------
 // A fast lead is a short first-sentence clip synthesized so audio starts within
 // ~1 s instead of waiting for a whole chunk. It lives in the OS cache dir (NOT

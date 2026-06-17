@@ -10,6 +10,8 @@ export {
   isLeadCached,
   leadAudioFile,
   chunkAudioUri,
+  isAudiobookCached,
+  audiobookAudioUri,
   clearDocumentCache,
   documentCacheStats,
   documentCacheDir,

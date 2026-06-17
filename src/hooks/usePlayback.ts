@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
+import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import { useTheme } from '../theme';
@@ -23,6 +23,9 @@ const MIN_FAST_REMAINDER = 40;
 // Lock-screen transport extras. Android renders an OS Media3 notification (it
 // can't be themed to match the app); these add seek buttons beside play/pause.
 const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true } as const;
+// loadedKeyRef sentinel meaning "the single concatenated audiobook file is loaded"
+// (vs a per-chunk charStart >= 0). -1 means "nothing loaded".
+const AUDIOBOOK_KEY = -2;
 
 function chunkIndexForOffset(chunks: Chunk[], charOffset: number): number {
   const hit = chunks.findIndex((c) => charOffset >= c.charStart && charOffset < c.charEnd);
@@ -241,6 +244,21 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     [modelId, audiobook?.status, audiobook?.profileHash, settings],
   );
 
+  // Once a full render is stitched into one file (prerenderDocument concats the
+  // per-chunk clips and deletes them), we play it as ONE media item: the OS
+  // notification then gets a real whole-book timeline + scrubber, and tap/seek map
+  // through the duration table. If the file isn't there (concat failed, or still
+  // per-chunk), this is null and the normal per-chunk path runs.
+  const audiobookUri = useMemo(
+    () => (fullyRendered && isAudiobookCached(docHash, settings) ? audiobookAudioUri(docHash, settings) : null),
+    [fullyRendered, docHash, settings],
+  );
+  const singleItem = audiobookUri != null;
+  const audiobookLoadedRef = useRef(false);
+  useEffect(() => {
+    audiobookLoadedRef.current = false; // a new/absent audiobook file must be (re)loaded
+  }, [audiobookUri]);
+
   // Configure the audio session once for sustained background playback.
   // `shouldPlayInBackground` keeps audio alive when the screen is off, and
   // `doNotMix` is required for the OS to bind the lock-screen controls to us.
@@ -282,6 +300,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     resumeIndexRef.current = 0;
     pendingLeadRef.current = null;
     pendingSeekRef.current = null;
+    audiobookLoadedRef.current = false;
     try {
       playerRef.current?.clearLockScreenControls?.();
     } catch {}
@@ -387,6 +406,73 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     }
   }, [player, accentColor]);
 
+  // --- Single concatenated-audiobook playback (one media item) ----------------
+  // Cumulative NEUTRAL-rate start time (s) of each chunk, used to map a char
+  // offset / chunk index to an absolute position in the single audiobook file.
+  const neutralStarts = useMemo(() => {
+    if (!durTable) return null;
+    const arr = new Array<number>(durTable.length + 1);
+    arr[0] = 0;
+    for (let i = 0; i < durTable.length; i++) arr[i + 1] = arr[i] + durTable[i];
+    return arr;
+  }, [durTable]);
+
+  const neutralForOffset = useCallback(
+    (charOffset: number): number => {
+      if (!neutralStarts) return 0;
+      const i = chunkIndexForOffset(chunks, charOffset);
+      if (i < 0) return 0;
+      const c = chunks[i];
+      const span = c.charEnd - c.charStart;
+      const frac = span > 0 ? Math.min(1, Math.max(0, (charOffset - c.charStart) / span)) : 0;
+      return neutralStarts[i] + frac * (durTable?.[i] ?? 0);
+    },
+    [neutralStarts, chunks, durTable],
+  );
+
+  const ensureAudiobookLoaded = useCallback(() => {
+    if (!audiobookUri) return;
+    if (!audiobookLoadedRef.current || loadedKeyRef.current !== AUDIOBOOK_KEY) {
+      player.replace(audiobookUri);
+      try {
+        player.setPlaybackRate(speed, 'high');
+      } catch {}
+      audiobookLoadedRef.current = true;
+      loadedKeyRef.current = AUDIOBOOK_KEY;
+    }
+  }, [audiobookUri, player, speed]);
+
+  // Seek the single audiobook file to a neutral-rate absolute time. If it isn't
+  // loaded/measured yet, defer via pendingSeekRef (applied by the effect above).
+  const seekNeutralAbs = useCallback(
+    (neutralSec: number) => {
+      if (status.isLoaded && status.duration > 0 && loadedKeyRef.current === AUDIOBOOK_KEY) {
+        try {
+          void player.seekTo(Math.max(0, Math.min(status.duration, neutralSec)));
+        } catch {}
+        pendingSeekRef.current = null;
+      } else {
+        pendingSeekRef.current = neutralSec;
+      }
+    },
+    [player, status.isLoaded, status.duration],
+  );
+
+  // Start the single file playing at a chunk boundary (next/previous/seek-to-chunk).
+  const seekToChunkSingle = useCallback(
+    (i: number) => {
+      if (i < 0 || i >= chunks.length || !neutralStarts) return;
+      activeRef.current = true;
+      ensureAudiobookLoaded();
+      seekNeutralAbs(neutralStarts[i]);
+      player.play();
+      claimLockScreen();
+      setStarted(true);
+      setEngaged(true);
+    },
+    [chunks, neutralStarts, ensureAudiobookLoaded, seekNeutralAbs, player, claimLockScreen],
+  );
+
   const playChunkObject = useCallback(
     async (chunk: Chunk, anchorIdx: number, resumeIdx: number, opts?: { lead?: boolean; next?: Lead | null }) => {
       const lead = opts?.lead ?? false;
@@ -480,6 +566,15 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   );
 
   useEffect(() => {
+    if (singleItem) {
+      // The one file plays straight through — "finish" means end of the book.
+      if (status.didJustFinish && !finishedHandledRef.current) {
+        finishedHandledRef.current = true;
+        activeRef.current = false;
+      }
+      if (!status.didJustFinish) finishedHandledRef.current = false;
+      return;
+    }
     if (status.didJustFinish && !finishedHandledRef.current) {
       finishedHandledRef.current = true;
       if (!activeRef.current) return;
@@ -495,7 +590,31 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       }
     }
     if (!status.didJustFinish) finishedHandledRef.current = false;
-  }, [status.didJustFinish, chunks.length, playCanonical, playChunkObject]);
+  }, [singleItem, status.didJustFinish, chunks.length, playCanonical, playChunkObject]);
+
+  // Single-item highlight: derive the current chunk from the file's play position
+  // (neutral time) via the duration table, so the reader highlight tracks playback.
+  useEffect(() => {
+    if (!singleItem || !neutralStarts || !status.isLoaded) return;
+    const t = status.currentTime;
+    let lo = 0;
+    let hi = chunks.length - 1;
+    let idx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (neutralStarts[mid] <= t) {
+        idx = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    if (chunks[idx] && currentRef.current !== chunks[idx]) {
+      currentRef.current = chunks[idx];
+      anchorIndexRef.current = idx;
+      setCurrent(chunks[idx]);
+    }
+  }, [singleItem, neutralStarts, status.currentTime, status.isLoaded, chunks]);
 
   // Try to begin a fresh start with a fast first-sentence lead so audio starts in
   // ~1 s. Returns false (caller falls back to the normal path) when a lead won't
@@ -517,6 +636,14 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const play = useCallback(() => {
     activeRef.current = true;
     setEngaged(true);
+    if (singleItem) {
+      // One media item: load it (once), resume in place, reclaim the notification.
+      ensureAudiobookLoaded();
+      player.play();
+      claimLockScreen();
+      setStarted(true);
+      return;
+    }
     const cur = currentRef.current;
     if (cur && status.isLoaded && loadedKeyRef.current === cur.charStart && !status.playing) {
       player.play(); // resume the current chunk in place
@@ -526,7 +653,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     } else if (chunks.length) {
       if (!startFast(chunks[0].charStart)) playCanonical(0); // nothing selected → start from the top
     }
-  }, [playChunkObject, playCanonical, startFast, player, status.isLoaded, status.playing, chunks, claimLockScreen]);
+  }, [singleItem, ensureAudiobookLoaded, playChunkObject, playCanonical, startFast, player, status.isLoaded, status.playing, chunks, claimLockScreen]);
 
   const pause = useCallback(() => {
     activeRef.current = false;
@@ -540,9 +667,21 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     else play();
   }, [status.playing, play, pause]);
 
-  const next = useCallback(() => playCanonical(resumeIndexRef.current), [playCanonical]);
-  const previous = useCallback(() => playCanonical(Math.max(0, anchorIndexRef.current - 1)), [playCanonical]);
-  const seekToChunk = useCallback((i: number) => playCanonical(i), [playCanonical]);
+  const next = useCallback(() => {
+    if (singleItem) return seekToChunkSingle(anchorIndexRef.current + 1);
+    playCanonical(resumeIndexRef.current);
+  }, [singleItem, seekToChunkSingle, playCanonical]);
+  const previous = useCallback(() => {
+    if (singleItem) return seekToChunkSingle(Math.max(0, anchorIndexRef.current - 1));
+    playCanonical(Math.max(0, anchorIndexRef.current - 1));
+  }, [singleItem, seekToChunkSingle, playCanonical]);
+  const seekToChunk = useCallback(
+    (i: number) => {
+      if (singleItem) return seekToChunkSingle(i);
+      playCanonical(i);
+    },
+    [singleItem, seekToChunkSingle, playCanonical],
+  );
 
   // Where to actually start for a tapped/resumed offset. A fully-cached audiobook
   // snaps to the enclosing canonical chunk (always a cache hit, no synthesis);
@@ -561,6 +700,23 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
 
   const setSelection = useCallback(
     (charOffset: number, stopCurrent: boolean) => {
+      if (singleItem) {
+        // Seek the one file to the tapped position; reflect the chunk as selected.
+        if (stopCurrent) {
+          activeRef.current = false;
+          player.pause();
+        }
+        ensureAudiobookLoaded();
+        seekNeutralAbs(neutralForOffset(charOffset));
+        const i = chunkIndexForOffset(chunks, charOffset);
+        if (i >= 0) {
+          currentRef.current = chunks[i];
+          anchorIndexRef.current = i;
+          setCurrent(chunks[i]);
+        }
+        setEngaged(true);
+        return;
+      }
       const lead = resolveStart(charOffset);
       if (!lead) return;
       if (stopCurrent) {
@@ -577,7 +733,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       setCurrent(lead.chunk);
       setEngaged(true);
     },
-    [resolveStart, player],
+    [singleItem, resolveStart, player, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, chunks],
   );
 
   const select = useCallback((charOffset: number) => setSelection(charOffset, true), [setSelection]);
@@ -585,11 +741,21 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
 
   const playFrom = useCallback(
     (charOffset: number) => {
+      if (singleItem) {
+        activeRef.current = true;
+        ensureAudiobookLoaded();
+        seekNeutralAbs(neutralForOffset(charOffset));
+        player.play();
+        claimLockScreen();
+        setStarted(true);
+        setEngaged(true);
+        return;
+      }
       if (startFast(charOffset)) return;
       const lead = resolveStart(charOffset);
       if (lead) void playChunkObject(lead.chunk, lead.anchorIdx, lead.resumeIdx);
     },
-    [startFast, resolveStart, playChunkObject],
+    [singleItem, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, player, claimLockScreen, startFast, resolveStart, playChunkObject],
   );
 
   // Hard stop: halt audio, drop the selection, and release the OS media controls
@@ -645,6 +811,17 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const seekToTime = useCallback(
     (sec: number) => {
       if (!durTable) return;
+      if (singleItem) {
+        // `sec` is at-speed timeline; the file is neutral-rate, so scale back up.
+        activeRef.current = true;
+        ensureAudiobookLoaded();
+        seekNeutralAbs(sec * speed);
+        player.play();
+        claimLockScreen();
+        setStarted(true);
+        setEngaged(true);
+        return;
+      }
       const loc = locateTime(durTable, speed, sec);
       if (!loc) return;
       activeRef.current = true;
@@ -652,7 +829,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       pendingSeekRef.current = loc.withinNeutralSec;
       playCanonical(loc.index);
     },
-    [durTable, speed, playCanonical],
+    [durTable, singleItem, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical],
   );
 
   // Map the current clip's position onto the whole-document timeline. The clip
@@ -660,7 +837,10 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // the canonical chunk's start time plus the lead portion already played before
   // this clip (estimated by char proportion). Neutral seconds → /speed for docs.
   let docPositionSec = 0;
-  if (offsets && durTable) {
+  if (singleItem && status.isLoaded) {
+    // The file IS the whole book: media time is neutral, /speed → at-speed timeline.
+    docPositionSec = status.currentTime / speed;
+  } else if (offsets && durTable) {
     const ai = anchorIndexRef.current;
     if (ai >= 0 && ai < offsets.length) {
       const canonical = chunks[ai];
