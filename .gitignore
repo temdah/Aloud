@@ -51,6 +51,3 @@ CLAUDE.md
 
 # logs
 *.log
-
-# Vendored native codec sources (fetched at install by scripts/vendor-vorbis.js)
-modules/*/android/src/main/cpp/third_party/

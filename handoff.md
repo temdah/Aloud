@@ -101,9 +101,10 @@ pre-render path renders the whole document up front.
   the media notification.
 
 ### D. Deferred (need a native dep / rebuild — get approval first)
-- **Compress cached audio (WAV→Ogg Vorbis)** — no pure-JS encoder; needs a
-  native libvorbis JNI bridge (local Expo module). Vorbis over Opus because the
-  model is 44.1 kHz (Opus would need a resampler). ~10× smaller cache + faster IO.
+- **Compress cached audio (WAV→AAC `.m4a`)** — no pure-JS encoder; uses Android's
+  built-in MediaCodec AAC encoder in a small Kotlin Expo module (`modules/aac-codec`,
+  no bundled codec lib). AAC chosen because the model is 44.1 kHz (Opus needs a
+  resampler) and MediaCodec avoids vendoring/compiling C. ~10× smaller cache.
 - **Per-word karaoke** — Supertonic emits no per-word timestamps; needs forced
   alignment (likely native). Crude char-weighted fallback is the only no-dep path.
 - **True OS Stop button / cross-clip −10s seek** — would require swapping
