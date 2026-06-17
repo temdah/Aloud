@@ -10,7 +10,7 @@ export { VoiceStyle } from './synthesis/voiceStyle';
 export { encodeWav } from './synthesis/wavEncoder';
 export { AVAILABLE_LANGUAGES, isLanguageSupported, languageLabel, LANGUAGE_LABELS } from './text/languages';
 export type { SupportedLanguage } from './text/languages';
-export { chunkText, buildChunks, ensureChunkAudio, ensureLeadAudio, isChunkCached, isLeadCached, leadWavFile, chunkAudioUri, settingsHash, clearDocumentCache, documentCacheStats, listCachedProfiles, clearProfileCache, loadChunks, readManifest, prerenderDocument, ensureDurationTable, loadDurationTable, cumulativeOffsetsSec, totalDurationSec, locateTime } from './narration';
+export { chunkText, buildChunks, ensureChunkAudio, ensureLeadAudio, isChunkCached, isLeadCached, leadAudioFile, chunkAudioUri, settingsHash, clearDocumentCache, documentCacheStats, listCachedProfiles, clearProfileCache, loadChunks, readManifest, prerenderDocument, ensureDurationTable, loadDurationTable, cumulativeOffsetsSec, totalDurationSec, locateTime } from './narration';
 export type { NarrationSettings, PrerenderProgress, PrerenderResult, CachedProfile, ProfileMeta, DurationTable, TimeLocation } from './narration';
 export type { ModelDownloadProgress } from './models/modelTypes';
 export type { SupertonicConfig, SynthesisProgress, SynthesisResult, SynthesisStage, SynthesisStageReporter } from './synthesis/synthesisTypes';

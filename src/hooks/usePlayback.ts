@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isChunkCached, isLeadCached, leadWavFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
+import { chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import { useTheme } from '../theme';
@@ -414,7 +414,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         if (cached) {
           // Cache hit — play instantly, no engine and no "loading" spinner.
           uri = lead
-            ? leadWavFile(docHash, chunk.charStart, chunk.text.length, settings).uri
+            ? leadAudioFile(docHash, chunk.charStart, chunk.text.length, settings).uri
             : chunkAudioUri(docHash, chunk.charStart, settings);
         } else {
           setLoading(true);

@@ -4,11 +4,11 @@ export { ensureChunkAudio, ensureLeadAudio } from './narrator';
 export { prerenderDocument } from './prerender';
 export type { PrerenderOptions, PrerenderProgress, PrerenderResult } from './prerender';
 export {
-  chunkWavFile,
+  chunkAudioFile,
   chunkTimingFile,
   isChunkCached,
   isLeadCached,
-  leadWavFile,
+  leadAudioFile,
   chunkAudioUri,
   clearDocumentCache,
   documentCacheStats,
