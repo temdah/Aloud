@@ -112,8 +112,8 @@ export default function ReaderScreen() {
   const { playback, activeDoc, setActiveDoc, clearActiveDoc, sleep } = usePlaybackContext();
   useEffect(() => {
     if (status !== 'ready' || !doc || !document?.text) return;
-    setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang });
-  }, [status, doc, document?.text, chunks, effModelId, effVoiceId, effSpeed, effSteps, effLang, setActiveDoc]);
+    setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, onSpeedChange: setEffSpeed });
+  }, [status, doc, document?.text, chunks, effModelId, effVoiceId, effSpeed, effSteps, effLang, setActiveDoc, setEffSpeed]);
 
   // Highlight the selected/playing chunk once the user has engaged (tapped a
   // sentence or pressed play); nothing is highlighted before that.

@@ -106,6 +106,146 @@ function patchTsType() {
   console.log('[patch-expo-audio] Added accentColor to the TS type.');
 }
 
+// --- Patch 4: a speed-cycle button on the media notification ------------------
+// Adds an `accentColor`-style `showSpeed` option and, when set, a playback-speed
+// CommandButton (Android 13+ custom layout). Pressing it cycles the player's rate
+// 1.0 -> 1.25 -> 1.5 -> 1.0; JS observes status.playbackRate and mirrors it into
+// settings, so the in-app speed + neutral-rate cache stay the single source.
+function patchSpeedOption() {
+  const file = path.join(androidDir, 'AudioRecords.kt');
+  if (!fs.existsSync(file)) return;
+  const source = fs.readFileSync(file, 'utf8');
+  if (source.includes('val showSpeed')) {
+    console.log('[patch-expo-audio] showSpeed option already present.');
+    return;
+  }
+  const ANCHOR = '  @Field val accentColor: String? = null\n) : Record';
+  const REPLACEMENT = '  @Field val accentColor: String? = null,\n  @Field val showSpeed: Boolean? = null\n) : Record';
+  if (!source.includes(ANCHOR)) {
+    console.warn('[patch-expo-audio] accentColor anchor missing — run the color patch first; skipping showSpeed.');
+    return;
+  }
+  fs.writeFileSync(file, source.replace(ANCHOR, REPLACEMENT), 'utf8');
+  console.log('[patch-expo-audio] Added showSpeed to AudioLockScreenOptions.');
+}
+
+function patchSpeedButton() {
+  const file = path.join(androidDir, 'service', 'AudioControlsService.kt');
+  if (!fs.existsSync(file)) return;
+  let source = fs.readFileSync(file, 'utf8');
+
+  // 4a. ACTION_SPEED constant.
+  if (!source.includes('ACTION_SPEED')) {
+    const ANCHOR = '    const val ACTION_SEEK_BACKWARD = "expo.modules.audio.action.SEEK_BACKWARD"';
+    if (!source.includes(ANCHOR)) {
+      console.warn('[patch-expo-audio] seek-action const anchor missing — skipping speed button.');
+      return;
+    }
+    source = source.replace(ANCHOR, ANCHOR + '\n    const val ACTION_SPEED = "expo.modules.audio.action.SPEED"');
+  }
+
+  // 4b. Speed CommandButton in the Android 13+ custom layout (overflow slot).
+  const BTN_INJECT =
+    '    if (currentOptions?.showSpeed == true) {\n' +
+    '      mediaButtons.add(\n' +
+    '        CommandButton.Builder(CommandButton.ICON_PLAYBACK_SPEED)\n' +
+    '          .setDisplayName("Speed")\n' +
+    '          .setEnabled(true)\n' +
+    '          .setSessionCommand(SessionCommand(ACTION_SPEED, Bundle.EMPTY))\n' +
+    '          .setSlots(CommandButton.SLOT_OVERFLOW)\n' +
+    '          .build()\n' +
+    '      )\n' +
+    '    }\n\n';
+  const BTN_ANCHOR = '    session.setCustomLayout(mediaButtons)';
+  source = source.split(BTN_INJECT).join(''); // self-heal
+  if (!source.includes(BTN_ANCHOR)) {
+    console.warn('[patch-expo-audio] setCustomLayout anchor missing — skipping speed button.');
+    return;
+  }
+  source = source.replace(BTN_ANCHOR, BTN_INJECT + BTN_ANCHOR);
+
+  fs.writeFileSync(file, source, 'utf8');
+  console.log('[patch-expo-audio] Applied speed button to the custom layout.');
+}
+
+function patchSpeedCommand() {
+  const file = path.join(androidDir, 'service', 'AudioMediaSessionCallback.kt');
+  if (!fs.existsSync(file)) return;
+  let source = fs.readFileSync(file, 'utf8');
+
+  // 4c. Make ACTION_SPEED an available session command.
+  if (!source.includes('ACTION_SPEED, Bundle.EMPTY')) {
+    const ANCHOR =
+      '            .add(SessionCommand(AudioControlsService.ACTION_SEEK_FORWARD, Bundle.EMPTY))\n' +
+      '            .build()';
+    if (!source.includes(ANCHOR)) {
+      console.warn('[patch-expo-audio] session-commands anchor missing — skipping speed command.');
+      return;
+    }
+    source = source.replace(
+      ANCHOR,
+      '            .add(SessionCommand(AudioControlsService.ACTION_SEEK_FORWARD, Bundle.EMPTY))\n' +
+        '            .add(SessionCommand(AudioControlsService.ACTION_SPEED, Bundle.EMPTY))\n' +
+        '            .build()',
+    );
+  }
+
+  // 4d. Handle ACTION_SPEED: cycle 1.0 -> 1.25 -> 1.5 -> 1.0, preserving pitch.
+  if (!source.includes('AudioControlsService.ACTION_SPEED ->')) {
+    const ANCHOR =
+      '      AudioControlsService.ACTION_SEEK_BACKWARD -> {\n' +
+      '        session.player.seekTo(session.player.currentPosition - AudioControlsService.SEEK_INTERVAL_MS)\n' +
+      '      }\n' +
+      '    }';
+    if (!source.includes(ANCHOR)) {
+      console.warn('[patch-expo-audio] onCustomCommand anchor missing — skipping speed handler.');
+      return;
+    }
+    source = source.replace(
+      ANCHOR,
+      '      AudioControlsService.ACTION_SEEK_BACKWARD -> {\n' +
+        '        session.player.seekTo(session.player.currentPosition - AudioControlsService.SEEK_INTERVAL_MS)\n' +
+        '      }\n' +
+        '      AudioControlsService.ACTION_SPEED -> {\n' +
+        '        val cur = session.player.playbackParameters.speed\n' +
+        '        val next = when {\n' +
+        '          cur < 1.13f -> 1.25f\n' +
+        '          cur < 1.38f -> 1.5f\n' +
+        '          else -> 1.0f\n' +
+        '        }\n' +
+        '        session.player.playbackParameters = androidx.media3.common.PlaybackParameters(next, 1f)\n' +
+        '      }\n' +
+        '    }',
+    );
+  }
+
+  fs.writeFileSync(file, source, 'utf8');
+  console.log('[patch-expo-audio] Applied speed command handler.');
+}
+
+function patchSpeedTsType() {
+  const file = path.join(buildDir, 'AudioConstants.d.ts');
+  if (!fs.existsSync(file)) return;
+  const source = fs.readFileSync(file, 'utf8');
+  if (source.includes('showSpeed')) return;
+  const ANCHOR = '    accentColor?: string;';
+  if (!source.includes(ANCHOR)) return;
+  fs.writeFileSync(
+    file,
+    source.replace(
+      ANCHOR,
+      ANCHOR +
+        '\n    /** Show a playback-speed cycle button on the media notification (Android). Patched in by scripts/patch-expo-audio.js. */\n    showSpeed?: boolean;',
+    ),
+    'utf8',
+  );
+  console.log('[patch-expo-audio] Added showSpeed to the TS type.');
+}
+
 patchOptionsRecord();
 patchNotificationColor();
 patchTsType();
+patchSpeedOption();
+patchSpeedButton();
+patchSpeedCommand();
+patchSpeedTsType();

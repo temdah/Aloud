@@ -17,6 +17,9 @@ export type ActiveDoc = {
   speed: number;
   steps: number;
   lang: string;
+  /** Apply a speed change from the OS notification's speed button to the right
+   *  source (per-doc pin or global). Omit to fall back to the global setting. */
+  onSpeedChange?: (speed: number) => void;
 };
 
 export type PlaybackContextValue = {
@@ -64,6 +67,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     steps: activeDoc?.steps ?? 1,
     lang: activeDoc?.lang ?? 'en',
     title: activeDoc?.doc.title,
+    onSpeedChange: activeDoc?.onSpeedChange,
   });
 
   useEffect(() => {

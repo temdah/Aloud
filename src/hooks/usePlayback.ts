@@ -2,7 +2,7 @@ import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioP
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
-import { useDocumentsStore } from '../stores';
+import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
 import { stableHash } from '../utils';
@@ -22,7 +22,7 @@ const MIN_FAST_LEAD = 60;
 const MIN_FAST_REMAINDER = 40;
 // Lock-screen transport extras. Android renders an OS Media3 notification (it
 // can't be themed to match the app); these add seek buttons beside play/pause.
-const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true } as const;
+const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed: true } as const;
 // loadedKeyRef sentinel meaning "the single concatenated audiobook file is loaded"
 // (vs a per-chunk charStart >= 0). -1 means "nothing loaded".
 const AUDIOBOOK_KEY = -2;
@@ -114,6 +114,10 @@ export type UsePlaybackOptions = {
   title?: string;
   /** Secondary line on the lock-screen (defaults to the app name). */
   artist?: string;
+  /** Apply a speed change driven by the OS notification's speed button, routed to
+   *  the same setter the in-app control uses (per-doc pin or global). Omit to fall
+   *  back to the global setting. */
+  onSpeedChange?: (speed: number) => void;
 };
 
 export type Playback = {
@@ -169,7 +173,7 @@ export type Playback = {
 // Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
 // tapping starts at the exact tapped sentence via a one-off "lead" chunk, then
 // continues with the canonical chunks after it. Highlight is chunk-level.
-export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en', title, artist }: UsePlaybackOptions): Playback {
+export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en', title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
   // A player we own for the hook's lifetime (created once, released on unmount):
   // useAudioPlayer() released the native player mid-session (replace() failed
   // with ERR_USING_RELEASED_SHARED_OBJECT).
@@ -382,6 +386,22 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       player.setPlaybackRate(speed, 'high');
     } catch {}
   }, [speed, player]);
+
+  // Mirror a notification-driven speed change (the OS speed button cycles the
+  // player's rate directly) back into app state, so the in-app speed and the
+  // neutral-rate cache stay the single source of truth. Only fires on a real
+  // divergence; the effect above then re-applies the now-matching rate.
+  useEffect(() => {
+    // Only while actually playing: at load the player can briefly report the
+    // default rate before our rate is applied, which must not overwrite `speed`.
+    if (!status.isLoaded || !status.playing) return;
+    const r = status.playbackRate;
+    if (r > 0 && Math.abs(r - speed) > 0.02) {
+      const rounded = Math.round(r * 100) / 100;
+      if (onSpeedChange) onSpeedChange(rounded);
+      else useSettingsStore.getState().setSpeed(rounded);
+    }
+  }, [status.playbackRate, status.isLoaded, status.playing, speed, onSpeedChange]);
 
   // Apply a queued timeline seek once the freshly-loaded clip reports a duration.
   useEffect(() => {

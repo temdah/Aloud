@@ -42,6 +42,7 @@ export default function LibraryScreen() {
   const setCover = useDocumentsStore((s) => s.setCover);
   const { playback, activeDoc, clearActiveDoc, playDocument } = usePlaybackContext();
   const renderProfile = useDocumentsStore((s) => s.renderProfile);
+  const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
   const settings = useSettingsStore();
   const { importDocument } = useImportDocument();
   const [filter, setFilter] = useState<Filter>('all');
@@ -110,6 +111,7 @@ export default function LibraryScreen() {
       speed: rp?.speed ?? settings.speed,
       steps: rp?.steps ?? settings.steps,
       lang: rp?.lang ?? doc.lang ?? settings.lang ?? 'en',
+      onSpeedChange: (v: number) => (rp ? setRenderProfile(docId, { ...rp, speed: v }) : settings.setSpeed(v)),
     };
     playDocument(active, cursor[docId] ?? 0);
   };
