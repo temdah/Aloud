@@ -296,6 +296,119 @@ function detectBoilerplate(pageLines) {
   return set;
 }
 
+// --- Image extraction --------------------------------------------------------
+// Concatenate two affine matrices [a,b,c,d,e,f] (PDF.js Util.transform order).
+function mtxMul(a, b) {
+  return [
+    a[0] * b[0] + a[2] * b[1],
+    a[1] * b[0] + a[3] * b[1],
+    a[0] * b[2] + a[2] * b[3],
+    a[1] * b[2] + a[3] * b[3],
+    a[0] * b[4] + a[2] * b[5] + a[4],
+    a[1] * b[4] + a[3] * b[5] + a[5],
+  ];
+}
+function mtxApply(m, x, y) {
+  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+// Walk the operator list, tracking the CTM (seeded with the viewport transform so
+// results are in canvas pixels), and return each painted image's bounding box.
+function imagePlacements(opList, base, OPS) {
+  const fns = opList.fnArray;
+  const args = opList.argsArray;
+  let ctm = base.slice();
+  const stack = [];
+  const out = [];
+  for (let i = 0; i < fns.length; i++) {
+    const fn = fns[i];
+    if (fn === OPS.save) {
+      stack.push(ctm.slice());
+    } else if (fn === OPS.restore) {
+      if (stack.length) ctm = stack.pop();
+    } else if (fn === OPS.transform) {
+      ctm = mtxMul(ctm, args[i]);
+    } else if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject || fn === OPS.paintImageMaskXObject) {
+      const c0 = mtxApply(ctm, 0, 0), c1 = mtxApply(ctm, 1, 0), c2 = mtxApply(ctm, 1, 1), c3 = mtxApply(ctm, 0, 1);
+      const xs = [c0[0], c1[0], c2[0], c3[0]];
+      const ys = [c0[1], c1[1], c2[1], c3[1]];
+      const minX = Math.min(xs[0], xs[1], xs[2], xs[3]);
+      const maxX = Math.max(xs[0], xs[1], xs[2], xs[3]);
+      const minY = Math.min(ys[0], ys[1], ys[2], ys[3]);
+      const maxY = Math.max(ys[0], ys[1], ys[2], ys[3]);
+      out.push({ x: minX, y: minY, w: maxX - minX, h: maxY - minY });
+    }
+  }
+  return out;
+}
+
+// Find raster images on a page and return them top-to-bottom as JPEG data URIs.
+// Strategy: locate placements from the op list, render the page once to a canvas,
+// then crop each placement (downscaled). Pages with no image ops cost only the
+// op-list parse (no render). Best-effort: any failure yields fewer/no images.
+async function extractImages(page, OPS) {
+  const RENDER_SCALE = 1.5;
+  const MIN_PX = 40; // skip icons/bullets/rules
+  const MAX_DIM = 1000; // cap output dimension
+  const MAX_PER_PAGE = 12;
+
+  let opList;
+  try {
+    opList = await page.getOperatorList();
+  } catch (e) {
+    return [];
+  }
+  const fns = opList.fnArray;
+  let hasImage = false;
+  for (let i = 0; i < fns.length; i++) {
+    const f = fns[i];
+    if (f === OPS.paintImageXObject || f === OPS.paintInlineImageXObject || f === OPS.paintImageMaskXObject) {
+      hasImage = true;
+      break;
+    }
+  }
+  if (!hasImage) return [];
+
+  const viewport = page.getViewport({ scale: RENDER_SCALE });
+  const rects = imagePlacements(opList, viewport.transform, OPS).filter(function (r) {
+    return r.w >= MIN_PX && r.h >= MIN_PX;
+  });
+  if (!rects.length) return [];
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(viewport.width));
+  canvas.height = Math.max(1, Math.ceil(viewport.height));
+  try {
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+  } catch (e) {
+    return [];
+  }
+
+  rects.sort(function (a, b) { return a.y - b.y; }); // reading order (top-to-bottom)
+  const out = [];
+  for (const r of rects) {
+    if (out.length >= MAX_PER_PAGE) break;
+    const x = Math.max(0, Math.floor(r.x));
+    const y = Math.max(0, Math.floor(r.y));
+    const w = Math.min(canvas.width - x, Math.ceil(r.w));
+    const h = Math.min(canvas.height - y, Math.ceil(r.h));
+    if (w < 8 || h < 8) continue;
+    const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * scale));
+    const ch = Math.max(1, Math.round(h * scale));
+    const crop = document.createElement('canvas');
+    crop.width = cw;
+    crop.height = ch;
+    try {
+      crop.getContext('2d').drawImage(canvas, x, y, w, h, 0, 0, cw, ch);
+      out.push({ dataUri: crop.toDataURL('image/jpeg', 0.82), w: cw, h: ch });
+    } catch (e) {
+      // tainted/oversized — skip this one
+    }
+  }
+  return out;
+}
+
 async function main() {
   try {
     status('loading-library');
@@ -339,7 +452,8 @@ async function main() {
     // kept out of the spoken text.
     const boilerplate = detectBoilerplate(pageLines);
 
-    // Pass 2: reflow + emit each page in order (no re-parse).
+    // Pass 2: reflow + emit each page in order. Text reflow reuses pass-1 lines;
+    // images need the page object again (op list + render), fetched lazily here.
     let inToc = false;
     let base = 0;
     for (let p = 1; p <= pageCount; p++) {
@@ -347,7 +461,22 @@ async function main() {
       inToc = res.inToc;
       const canon = canonicalizePage(res.blocks, base);
       base += canon.text.length;
-      post({ type: 'page', page: p, blocks: canon.blocks, textSegment: canon.text });
+      let blocks = canon.blocks;
+      // Append any images on the page (after its text, in top-to-bottom order).
+      // Zero-length char range at the page boundary → shown but never spoken.
+      try {
+        const page = await pdf.getPage(p);
+        const imgs = await extractImages(page, lib.OPS);
+        if (imgs.length) {
+          const imageBlocks = imgs.map(function (im) {
+            return { kind: 'image', dataUri: im.dataUri, width: im.w, height: im.h, charStart: base, charEnd: base, page: p, indent: 0 };
+          });
+          blocks = blocks.concat(imageBlocks);
+        }
+      } catch (e) {
+        // Image extraction is best-effort; never block text on it.
+      }
+      post({ type: 'page', page: p, blocks: blocks, textSegment: canon.text });
     }
 
     post({ type: 'done' });

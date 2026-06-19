@@ -6,7 +6,8 @@ import type { ExtractedDocument } from './pdfExtractionTypes';
 const TEXT_DIR = 'text';
 
 // Bump when the extraction/reflow logic changes so stale caches are re-extracted.
-const EXTRACTOR_VERSION = 9;
+// v10: images extracted + rendered inline.
+const EXTRACTOR_VERSION = 10;
 
 type CacheEnvelope = { version: number; doc: ExtractedDocument };
 

@@ -1,11 +1,11 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, Text, View, type ViewToken } from 'react-native';
+import { FlatList, Image, Pressable, Text, View, type ViewToken } from 'react-native';
 import { ActionDialog, AppBar, Chip, Icon, IconButton, LanguagePicker, ManageCacheSheet, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, VoicePicker, voiceLabel, type DialogAction } from '../../components';
 import { usePageGeometry, usePdfText } from '../../hooks';
 import { File } from 'expo-file-system';
 import { usePlaybackContext } from '../../playback';
-import type { ExtractedBlock } from '../../pdf';
+import { clearExtractedImages, type ExtractedBlock } from '../../pdf';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { clearDocumentCache, findModel, isChunkCached, languageLabel, loadChunks } from '../../supertonic';
@@ -274,6 +274,7 @@ export default function ReaderScreen() {
     clearDocumentCache(doc.docHash);
     clearAudiobook(doc.docHash);
     deleteExtractedText(doc.docHash);
+    clearExtractedImages(doc.docHash);
     try {
       new File(doc.fileUri).delete();
     } catch {}
@@ -441,6 +442,11 @@ export default function ReaderScreen() {
           <Text numberOfLines={1} style={ty(TYPE.caption, p.textDim)}>{b.text}</Text>
         </View>
       );
+    }
+    if (b.kind === 'image') {
+      if (!b.uri) return null;
+      const aspect = b.width > 0 && b.height > 0 ? b.width / b.height : 1;
+      return <Image key={gbi} source={{ uri: b.uri }} style={[styles.image, { aspectRatio: aspect }]} resizeMode="contain" />;
     }
     if (b.kind === 'h2') {
       return <Text key={gbi} style={[ty(TYPE.titleSerif, p.text), styles.heading, pad]}>{b.text}</Text>;

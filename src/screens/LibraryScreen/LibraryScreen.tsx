@@ -5,6 +5,7 @@ import { File } from 'expo-file-system';
 import { ActionDialog, AppBar, BookRow, Chip, EmptyLibrary, FAB, Icon, IconButton, ManageCacheSheet, Sheet } from '../../components';
 import { useImportDocument } from '../../hooks';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
+import { clearExtractedImages } from '../../pdf';
 import { loadExtractedText } from '../../pdf';
 import { usePlaybackContext } from '../../playback';
 import type { ActiveDoc } from '../../playback';
@@ -249,6 +250,7 @@ export default function LibraryScreen() {
                     clearDocumentCache(menuDoc.docHash);
                     clearAudiobook(menuDoc.docHash);
                     deleteExtractedText(menuDoc.docHash);
+                    clearExtractedImages(menuDoc.docHash);
                     try {
                       new File(menuDoc.fileUri).delete();
                     } catch {}

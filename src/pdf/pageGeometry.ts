@@ -16,6 +16,8 @@ const READER_CPL = 34; // approx chars per line at the reader font + card width
 const HEADING_CPL = 26;
 const PAGE_CHROME = 120; // "Page N" divider + card padding + section margins
 const DEFAULT_PAGE = 560; // a page we have no content for yet (matches the placeholder card)
+const IMAGE_WIDTH_EST = 300; // approx card content width an image renders across
+const IMAGE_MARGIN = 28; // the image's top + bottom margin
 
 function estimateBlockHeight(b: ExtractedBlock): number {
   if (b.kind === 'h2') {
@@ -27,6 +29,11 @@ function estimateBlockHeight(b: ExtractedBlock): number {
   }
   if (b.kind === 'pageHeader') {
     return READER_LINE + PARA_MARGIN; // one greyed line + its separating rule
+  }
+  if (b.kind === 'image') {
+    // Renders full content-width with the image's aspect ratio (+ vertical margin).
+    const ratio = b.width > 0 && b.height > 0 ? b.height / b.width : 0.75;
+    return Math.round(IMAGE_WIDTH_EST * ratio) + IMAGE_MARGIN;
   }
   const len = b.sentences.reduce((s, x) => s + x.text.length + 1, 0);
   return Math.max(1, Math.ceil(len / READER_CPL)) * READER_LINE + PARA_MARGIN;

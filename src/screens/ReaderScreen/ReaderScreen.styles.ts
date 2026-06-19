@@ -76,6 +76,12 @@ export const makeStyles = (p: Palette) =>
       fontSize: 19,
       marginBottom: 18,
     },
+    image: {
+      width: '100%',
+      borderRadius: RADIUS.sm,
+      backgroundColor: p.surfaceAlt,
+      marginVertical: 14,
+    },
     paragraph: {
       marginBottom: 14,
     },

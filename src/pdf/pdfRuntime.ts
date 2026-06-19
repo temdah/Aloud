@@ -5,7 +5,8 @@ import pdfWorkerAsset from '../../assets/pdfjs/pdf.worker.min.pdfjsbundle';
 import viewerAsset from '../../assets/pdfjs/viewer.html';
 
 // Bump to invalidate the on-device copies when the bundled assets change.
-const RUNTIME_DIR = 'pdfjs-runtime-v10';
+// v11: viewer.html gained image extraction (render + crop).
+const RUNTIME_DIR = 'pdfjs-runtime-v11';
 
 let viewerUriPromise: Promise<string> | null = null;
 

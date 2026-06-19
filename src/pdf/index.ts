@@ -2,6 +2,7 @@
 export { PdfTextExtractor } from './PdfTextExtractor';
 export { ensurePdfRuntime, stagePdf } from './pdfRuntime';
 export { loadExtractedText, saveExtractedText } from './extractedTextCache';
+export { saveExtractedImage, clearExtractedImages } from './imageStore';
 export { estimatePageHeights, loadGeometry, saveGeometry } from './pageGeometry';
 export type {
   ExtractedDocument,

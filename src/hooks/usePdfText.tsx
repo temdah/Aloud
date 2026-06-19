@@ -1,7 +1,7 @@
 import { File } from 'expo-file-system';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { extractDocx, extractMarkdown } from '../extractors';
-import { PdfTextExtractor, loadExtractedText, saveExtractedText } from '../pdf';
+import { PdfTextExtractor, clearExtractedImages, loadExtractedText, saveExtractedImage, saveExtractedText } from '../pdf';
 import type { ExtractedBlock, ExtractedDocument } from '../pdf';
 import { useDocumentsStore } from '../stores';
 import { loadChunks } from '../supertonic';
@@ -68,6 +68,8 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
     blocksRef.current = [];
     textRef.current = '';
     pageCountRef.current = 0;
+    // Re-extracting → drop any images from a previous extraction of this doc.
+    clearExtractedImages(doc.docHash);
 
     // Markdown/docx are parsed directly in JS (no WebView), so they resolve
     // synchronously here. PDF falls through to the streaming extractor below.
@@ -93,7 +95,23 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   }, []);
 
   const onPage = useCallback((page: number, blocks: ExtractedBlock[], textSegment: string) => {
-    blocksRef.current = blocksRef.current.concat(blocks);
+    // Persist any image blocks (sent as base64) to files, keeping only the uri so
+    // the cached document stays small. Drop an image if it can't be written.
+    const docHash = doc?.docHash;
+    const processed = docHash
+      ? blocks
+          .map((b, i) => {
+            if (b.kind !== 'image' || !b.dataUri) return b;
+            try {
+              const uri = saveExtractedImage(docHash, `${page}-${i}`, b.dataUri);
+              return { ...b, uri, dataUri: undefined };
+            } catch {
+              return null;
+            }
+          })
+          .filter((b): b is ExtractedBlock => b !== null)
+      : blocks;
+    blocksRef.current = blocksRef.current.concat(processed);
     textRef.current += textSegment;
     setState((s) => ({
       ...s,
@@ -101,7 +119,7 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
       loadedPages: page,
       document: { text: textRef.current, blocks: blocksRef.current, pageCount: pageCountRef.current },
     }));
-  }, []);
+  }, [doc?.docHash]);
 
   const onDone = useCallback(() => {
     if (!doc) return;

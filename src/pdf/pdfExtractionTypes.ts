@@ -14,7 +14,22 @@ export type ExtractedBlock =
   | { kind: 'p'; sentences: ExtractedSentence[]; charStart: number; charEnd: number; page: number; indent: number }
   | { kind: 'toc'; title: string; target: string; charStart: number; charEnd: number; page: number; indent: number }
   // Running header/footer (recurs across pages). Shown greyed + set apart, never spoken.
-  | { kind: 'pageHeader'; text: string; charStart: number; charEnd: number; page: number; indent: number };
+  | { kind: 'pageHeader'; text: string; charStart: number; charEnd: number; page: number; indent: number }
+  // A raster image (figure/photo) lifted off the page. Carries no spoken text
+  // (zero-length char range) so it renders inline but is never narrated. During
+  // extraction it arrives as `dataUri` (base64); the RN side writes it to a file
+  // and swaps in `uri`.
+  | {
+      kind: 'image';
+      uri?: string;
+      dataUri?: string;
+      width: number;
+      height: number;
+      charStart: number;
+      charEnd: number;
+      page: number;
+      indent: number;
+    };
 
 export type ExtractedDocument = {
   /** Canonical reading-order text. Chunk/sentence offsets index into this. */
