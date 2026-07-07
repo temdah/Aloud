@@ -41,6 +41,10 @@ yarn-error.*
 /ios
 /android
 
+# Gradle build output for local Expo modules (modules/*/android)
+modules/*/android/build/
+modules/*/android/.cxx/
+
 # IDE
 .idea/
 .vscode/

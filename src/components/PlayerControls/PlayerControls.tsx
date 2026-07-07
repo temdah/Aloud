@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import { Icon } from '../Icon';
@@ -17,7 +17,10 @@ export type PlayerControlsProps = {
   onSkipBack: () => void;
   onSkipFwd: () => void;
   progress: number;
+  /** Commit a scrub — fired only on release (fraction 0..1). */
   onScrub: (value: number) => void;
+  /** Whole-timeline seconds, for the live preview label while dragging. */
+  totalSec: number;
   position: string;
   duration: string;
   speed: number;
@@ -28,18 +31,38 @@ export type PlayerControlsProps = {
   sleepMinutesLeft?: number | null;
 };
 
+function fmtTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export function PlayerControls({
   playing, loading = false, onTogglePlay, onStop, onSkipBack, onSkipFwd,
-  progress, onScrub, position, duration, speed, onSpeed, onSleep, sleepMinutesLeft = null,
+  progress, onScrub, totalSec, position, duration, speed, onSpeed, onSleep, sleepMinutesLeft = null,
 }: PlayerControlsProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
+  // While dragging, show where the thumb WILL land (fraction 0..1); commit the
+  // seek only on release so playback never processes a half-finished drag.
+  const [preview, setPreview] = useState<number | null>(null);
+  const posLabel = preview != null ? fmtTime(preview * totalSec) : position;
+  const remLabel = preview != null ? fmtTime(Math.max(0, totalSec - preview * totalSec)) : duration;
   return (
     <View style={[styles.container, elevation(2)]}>
-      <Slider value={progress} onChange={onScrub} height={20} />
+      <Slider
+        value={progress}
+        onChange={(f) => setPreview(f)}
+        onCommit={(f) => {
+          setPreview(null);
+          onScrub(f);
+        }}
+        height={20}
+      />
       <View style={styles.timeRow}>
-        <Text style={ty(TYPE.mono, p.textMuted)}>{position}</Text>
-        <Text style={ty(TYPE.mono, p.textMuted)}>-{duration}</Text>
+        <Text style={ty(TYPE.mono, p.textMuted)}>{posLabel}</Text>
+        <Text style={ty(TYPE.mono, p.textMuted)}>-{remLabel}</Text>
       </View>
       <View style={styles.controlRow}>
         <View style={styles.leftCluster}>

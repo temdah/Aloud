@@ -597,6 +597,7 @@ export default function ReaderScreen() {
             ? (f) => playback.seekToTime(f * playback.docDurationSec)
             : playback.seek
         }
+        totalSec={playback.timelineReady ? playback.docDurationSec : playback.durationSec}
         position={formatTime(playback.timelineReady ? playback.docPositionSec : playback.positionSec)}
         duration={formatTime(
           Math.max(

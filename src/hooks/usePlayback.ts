@@ -419,12 +419,16 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const claimLockScreen = useCallback(() => {
     if (lockScreenActiveRef.current) return;
     try {
-      player.setActiveForLockScreen(true, lockMetadataRef.current, { ...LOCK_OPTIONS, accentColor });
+      // Only a fully-rendered book plays as one file with a real whole-book
+      // duration → show the OS scrubber + squiggle. Live per-chunk playback is a
+      // rolling series of ~seconds-long clips that would reset the bar constantly,
+      // so mark it a live stream and the OS hides the (meaningless) timeline.
+      player.setActiveForLockScreen(true, lockMetadataRef.current, { ...LOCK_OPTIONS, accentColor, isLiveStream: !singleItem });
       lockScreenActiveRef.current = true;
     } catch (e) {
       console.warn('[usePlayback] failed to activate lock-screen controls:', e);
     }
-  }, [player, accentColor]);
+  }, [player, accentColor, singleItem]);
 
   // --- Single concatenated-audiobook playback (one media item) ----------------
   // Cumulative NEUTRAL-rate start time (s) of each chunk, used to map a char
@@ -845,11 +849,21 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       const loc = locateTime(durTable, speed, sec);
       if (!loc) return;
       activeRef.current = true;
-      pendingLeadRef.current = null;
-      pendingSeekRef.current = loc.withinNeutralSec;
-      playCanonical(loc.index);
+      // Fast-start at the dropped position: synthesize just the first sentence so
+      // audio begins in ~1 s instead of waiting for the whole chunk to render.
+      // (startFast declines when the chunk is already cached — then we play it
+      //  whole from cache, which is instant — or when the text can't be split.)
+      const c = chunks[loc.index];
+      const span = c ? c.charEnd - c.charStart : 0;
+      const frac = durTable[loc.index] > 0 ? Math.min(1, Math.max(0, loc.withinNeutralSec / durTable[loc.index])) : 0;
+      const charOffset = c ? c.charStart + Math.floor(frac * span) : 0;
+      if (!c || !startFast(charOffset)) {
+        pendingLeadRef.current = null;
+        pendingSeekRef.current = loc.withinNeutralSec;
+        playCanonical(loc.index);
+      }
     },
-    [durTable, singleItem, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical],
+    [durTable, singleItem, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical, startFast, chunks],
   );
 
   // Map the current clip's position onto the whole-document timeline. The clip
