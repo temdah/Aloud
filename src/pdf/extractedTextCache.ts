@@ -7,7 +7,8 @@ const TEXT_DIR = 'text';
 
 // Bump when the extraction/reflow logic changes so stale caches are re-extracted.
 // v10: images extracted + rendered inline.
-const EXTRACTOR_VERSION = 10;
+// v11: paragraphs continue across page breaks + smarter dehyphenation.
+const EXTRACTOR_VERSION = 11;
 
 type CacheEnvelope = { version: number; doc: ExtractedDocument };
 

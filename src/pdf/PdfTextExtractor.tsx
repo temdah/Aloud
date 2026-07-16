@@ -64,6 +64,10 @@ export function PdfTextExtractor({ fileUri, docHash, onMeta, onPage, onDone, onE
         allowUniversalAccessFromFileURLs
         injectedJavaScriptBeforeContentLoaded={`window.PDF_FILE=${JSON.stringify(setup.pdfFile)};true;`}
         onMessage={handleMessage}
+        // Untrusted PDF: allow only local navigations (the viewer + its file://
+        // siblings). Block any http(s)/other navigation a malicious PDF triggers.
+        // XHR/blob module loads aren't navigations, so extraction is unaffected.
+        onShouldStartLoadWithRequest={(req) => req.url.startsWith('file://') || req.url === 'about:blank'}
         onError={(e) => onError(e.nativeEvent.description || 'WebView failed to load')}
         style={{ width: 1, height: 1 }}
       />

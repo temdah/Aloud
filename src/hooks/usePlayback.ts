@@ -2,6 +2,7 @@ import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioP
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
+import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
@@ -57,17 +58,19 @@ function buildLead(text: string, chunks: Chunk[], charOffset: number): Lead | nu
 
 // End (exclusive) of the first sentence within [start, end), or `end` if no
 // sentence break is found at least MIN_FAST_LEAD in. Mirrors the chunker's
-// boundary rule: a `.?!` followed by whitespace, ignoring common abbreviations.
+// boundary rule (shared sentenceRules): ASCII `.?!` followed by whitespace
+// (skipping abbreviations), or a CJK fullwidth terminator unconditionally.
 function firstSentenceEnd(text: string, start: number, end: number): number {
-  const re = /[.!?]+/g;
+  const re = /[.!?。！？]+/g;
   re.lastIndex = start;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) && m.index < end) {
     const stop = m.index + m[0].length;
     if (stop - start < MIN_FAST_LEAD) continue; // too short — keep extending
-    if (stop < text.length && !/\s/.test(text[stop])) continue; // mid-token dot
-    if (/\b(?:mr|mrs|ms|dr|prof|sr|jr|vs|inc|ltd|co|corp|st|ave|blvd|e\.g|i\.e|etc)\.$/i.test(text.slice(Math.max(start, m.index - 6), m.index + 1)))
-      continue;
+    if (!/[。！？]/.test(m[0])) {
+      if (stop < text.length && !/\s/.test(text[stop])) continue; // mid-token dot
+      if (ABBREVIATION.test(text.slice(Math.max(start, m.index - 6), m.index + 1))) continue;
+    }
     return Math.min(stop, end);
   }
   return end;

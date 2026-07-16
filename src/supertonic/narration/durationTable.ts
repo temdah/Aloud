@@ -81,11 +81,21 @@ export async function ensureDurationTable(
     opts.onProgress?.(chunks.length, chunks.length);
     return cached;
   }
+  // Batch the predictor: one run per BATCH chunks instead of one per chunk. The
+  // model is tiny, so a fixed batch with padding waste beats per-chunk JSI
+  // round-trips. Cancellation is honored between batches.
+  const BATCH = 16;
   const seconds: number[] = [];
-  for (let i = 0; i < chunks.length; i++) {
+  for (let i = 0; i < chunks.length; i += BATCH) {
     if (opts.shouldCancel?.()) return null;
-    seconds.push(await tts.predictDurationSec(chunks[i].text, s.lang, voice));
-    opts.onProgress?.(i + 1, chunks.length);
+    const slice = chunks.slice(i, i + BATCH);
+    const durs = await tts.predictDurationsSec(
+      slice.map((c) => c.text),
+      s.lang,
+      voice,
+    );
+    for (const d of durs) seconds.push(d);
+    opts.onProgress?.(Math.min(i + BATCH, chunks.length), chunks.length);
   }
   writeDurationTable(docHash, seconds, s);
   return seconds;

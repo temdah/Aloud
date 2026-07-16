@@ -48,6 +48,9 @@ function normalizeLine(s) {
 
 // Split a paragraph into sentences, keeping each sentence's offset relative to
 // the canonical stream (base = paragraph start in canonical text).
+// Boundary rules mirror src/supertonic/text/sentenceRules.ts (kept in sync by
+// hand — this file can't import TS): ASCII `.?!` need a following space; CJK
+// fullwidth `。！？` terminate unconditionally.
 function splitSentences(text, base) {
   const out = [];
   const closers = '")]’”';
@@ -65,6 +68,15 @@ function splitSentences(text, base) {
   };
   while (i < n) {
     const c = text[i];
+    // CJK fullwidth terminator: sentence-final immediately (no space convention).
+    if (c === '。' || c === '！' || c === '？') {
+      push(start, i + 1);
+      let k = i + 1;
+      while (k < n && /\s/.test(text[k])) k++;
+      start = k;
+      i = k;
+      continue;
+    }
     if (c === '.' || c === '!' || c === '?') {
       let j = i + 1;
       while (j < n && closers.indexOf(text[j]) >= 0) j++;
@@ -229,10 +241,8 @@ function blocksForPage(rawLines, bodyH, stops, pageNo, inToc, boilerplate) {
       flush();
       para = t;
       paraIndent = lvl;
-    } else if (para.charAt(para.length - 1) === '-') {
-      para = para.slice(0, -1) + t;
     } else {
-      para = para + ' ' + t;
+      para = joinFragments(para, t);
     }
     prevShort = ln.right !== null && pageRight - ln.right > shortGap;
     prevY = ln.y;
@@ -294,6 +304,25 @@ function detectBoilerplate(pageLines) {
   const threshold = Math.max(3, Math.ceil(total * 0.5));
   for (const [k, c] of counts) if (c >= threshold) set.add(k);
   return set;
+}
+
+// Terminal punctuation: a paragraph ending in one is a finished sentence and is
+// NOT continued across a page break.
+function endsTerminal(t) {
+  return /[.!?:;…。！？'")\]]$/.test(t);
+}
+
+// Join a fragment onto an open paragraph, dehyphenating a line-break hyphen only
+// when the halves form ONE word: next fragment starts lowercase, a letter sits
+// before the hyphen, and the tail isn't already hyphenated. So "hyphen-"+"ation"
+// glues to "hyphenation" while "state-of-"+"the-art" keeps its hyphens. When the
+// paragraph doesn't end in a hyphen, join with a single space.
+function joinFragments(aText, bText) {
+  if (!aText.endsWith('-')) return aText + ' ' + bText;
+  const stem = aText.slice(0, -1);
+  const lastToken = (stem.match(/\S+$/) || [''])[0];
+  const oneWord = /^\p{Ll}/u.test(bText) && /\p{L}/u.test(stem.slice(-1)) && !lastToken.includes('-');
+  return oneWord ? stem + bText : aText + bText;
 }
 
 // --- Image extraction --------------------------------------------------------
@@ -422,7 +451,9 @@ async function main() {
     const bytes = new Uint8Array(await xhrLoad('./' + pdfFile, 'arraybuffer'));
 
     status('parsing');
-    const pdf = await lib.getDocument({ data: bytes }).promise;
+    // isEvalSupported:false disables the PostScript/font eval path (the class of
+    // bug CVE-2024-4367 abused) — untrusted PDFs, defence in depth.
+    const pdf = await lib.getDocument({ data: bytes, isEvalSupported: false }).promise;
     const pageCount = pdf.numPages;
     post({ type: 'meta', pageCount: pageCount });
 
@@ -452,14 +483,46 @@ async function main() {
     // kept out of the spoken text.
     const boilerplate = detectBoilerplate(pageLines);
 
-    // Pass 2: reflow + emit each page in order. Text reflow reuses pass-1 lines;
-    // images need the page object again (op list + render), fetched lazily here.
+    // Pass 2a: reflow every page's lines into blocks, buffered (cheap — text
+    // only). blocksForPage threads `inToc` across pages, so this runs in order.
     let inToc = false;
-    let base = 0;
+    const pageBlocks = new Array(pageCount);
     for (let p = 1; p <= pageCount; p++) {
       const res = blocksForPage(pageLines[p - 1], bodyH, stops, p, inToc, boilerplate);
       inToc = res.inToc;
-      const canon = canonicalizePage(res.blocks, base);
+      pageBlocks[p - 1] = res.blocks;
+    }
+
+    // Pass 2b: continue a paragraph across a page break when its last sentence
+    // didn't end. A = last block of page p; B = first non-header block after it
+    // (may be several pages down). Merge while A stays "open" — a paragraph can
+    // span 3+ pages. Intervening running headers don't break continuity.
+    for (let p = 0; p < pageCount - 1; p++) {
+      const cur = pageBlocks[p];
+      if (!cur || cur.length === 0) continue;
+      const A = cur[cur.length - 1];
+      if (A.kind !== 'p') continue;
+      let q = p + 1;
+      while (q < pageCount && !endsTerminal(A.text)) {
+        const nextArr = pageBlocks[q];
+        if (!nextArr || nextArr.length === 0) { q++; continue; }
+        let bi = 0;
+        while (bi < nextArr.length && nextArr[bi].kind === 'pageHeader') bi++;
+        if (bi >= nextArr.length) { q++; continue; }
+        const B = nextArr[bi];
+        // Only merge prose that reads as a continuation: B is a paragraph AND
+        // (starts lowercase OR A ended on a line-break hyphen).
+        if (B.kind !== 'p' || !(/^\p{Ll}/u.test(B.text) || A.text.endsWith('-'))) break;
+        A.text = joinFragments(A.text, B.text);
+        nextArr.splice(bi, 1); // consumed — its text now lives in A on page p
+      }
+    }
+
+    // Pass 2c: canonicalize + post each page in order (base accounting unchanged).
+    // A merged paragraph lives entirely in its starting page's segment.
+    let base = 0;
+    for (let p = 1; p <= pageCount; p++) {
+      const canon = canonicalizePage(pageBlocks[p - 1], base);
       base += canon.text.length;
       let blocks = canon.blocks;
       // Append any images on the page (after its text, in top-to-bottom order).

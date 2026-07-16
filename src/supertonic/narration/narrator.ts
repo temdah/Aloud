@@ -6,6 +6,7 @@ import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
 import { Directory, File, Paths } from 'expo-file-system';
 import { encodeWavsToM4a } from '../../../modules/aac-codec';
+import { stageTimer } from '../../utils/perf';
 import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
 
@@ -29,8 +30,10 @@ async function synthesizeToFile(
 ): Promise<string> {
   // Render at the engine's neutral rate (1.0); the desired playback speed is
   // applied live via the player's playback rate, so the cache is speed-agnostic.
-  const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0);
+  const timer = stageTimer('synth');
+  const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0, undefined, timer.mark);
   const bytes = encodeWav(waveform, tts.sampleRate);
+  timer.mark('wav-encode');
 
   const baseName = file.uri.split('/').pop() ?? 'clip';
   const tmp = encodeTempFile(`${baseName}.wav`);
@@ -38,13 +41,21 @@ async function synthesizeToFile(
     if (tmp.exists) tmp.delete();
     tmp.create();
     tmp.write(bytes);
+    timer.mark('tmp-write');
     if (file.exists) file.delete();
     await encodeWavsToM4a([tmp.uri], file.uri);
+    timer.mark('aac-encode');
   } finally {
     try {
       if (tmp.exists) tmp.delete();
     } catch {}
   }
+  if (__DEV__) {
+    const audioSec = waveform.length / tts.sampleRate;
+    const wallSec = timer.elapsedMs() / 1000;
+    console.log(`[perf:synth] audio ${audioSec.toFixed(2)}s / wall ${wallSec.toFixed(2)}s = ${(audioSec / wallSec).toFixed(2)}x realtime`);
+  }
+  timer.done();
   return file.uri;
 }
 

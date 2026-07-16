@@ -1,4 +1,5 @@
 import type { ExtractedBlock, ExtractedDocument, ExtractedSentence } from '../pdf';
+import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 
 // A format-agnostic logical block. Markdown/docx extractors emit these; the
 // builder turns them into the canonical ExtractedDocument the reader + chunker
@@ -12,19 +13,20 @@ export type SourceBlock =
 // without real pages still need pagination for scroll/geometry to work.
 const PAGE_CHAR_BUDGET = 1800;
 
-const ABBREVIATION = /\b(?:mr|mrs|ms|dr|prof|sr|jr|vs|inc|ltd|co|corp|st|ave|blvd|e\.g|i\.e|etc)\.$/i;
-
 // Splits a paragraph into sentences, returning offsets relative to the
-// paragraph start. Mirrors the chunker's boundary rules so highlight ranges and
-// playback chunks stay visually consistent.
+// paragraph start. Mirrors the chunker's boundary rules (shared sentenceRules)
+// so highlight ranges and playback chunks stay visually consistent.
 function splitSentences(text: string, base: number): ExtractedSentence[] {
   const ends: number[] = [];
-  const re = /[.!?]+/g;
+  const re = /[.!?。！？]+/g; // ASCII (guarded below) + CJK fullwidth terminators
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const end = m.index + m[0].length;
-    if (end < text.length && !/\s/.test(text[end])) continue;
-    if (ABBREVIATION.test(text.slice(Math.max(0, m.index - 6), m.index + 1))) continue;
+    if (!/[。！？]/.test(m[0])) {
+      // ASCII: require following whitespace/EOF and skip abbreviations.
+      if (end < text.length && !/\s/.test(text[end])) continue;
+      if (ABBREVIATION.test(text.slice(Math.max(0, m.index - 6), m.index + 1))) continue;
+    }
     ends.push(end);
   }
   if (ends.length === 0 || ends[ends.length - 1] < text.length) ends.push(text.length);

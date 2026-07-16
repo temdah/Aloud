@@ -4,7 +4,7 @@ export { DEFAULT_VOICE, AVAILABLE_VOICES, MODELS, findModel, getModel } from './
 export type { ModelInfo } from './models/modelCatalog';
 export { ensureModelsDownloaded, areModelsDownloaded } from './models/modelDownloader';
 export { deleteModel } from './models/modelStorage';
-export { loadTextToSpeech, loadVoiceStyle } from './textToSpeechLoader';
+export { loadTextToSpeech, loadVoiceStyle, ModelLoadError } from './textToSpeechLoader';
 export { TextToSpeech } from './synthesis/textToSpeech';
 export { VoiceStyle } from './synthesis/voiceStyle';
 export { encodeWav } from './synthesis/wavEncoder';

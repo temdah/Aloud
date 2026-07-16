@@ -97,23 +97,68 @@ export class TextToSpeech {
     return { waveform: vocoderOut.wav_tts.data as Float32Array, durationsSec };
   }
 
-  // Runs ONLY stage 1 (tokenize + duration predictor) to get a text's spoken
-  // length in seconds at the engine's neutral rate (~9 ms, no synthesis). Used to
-  // build a whole-document timeline cheaply; callers apply playback speed live by
-  // dividing. Returns 0 for empty text.
-  async predictDurationSec(text: string, lang: string, voice: VoiceStyle): Promise<number> {
+  // Batched stage 1 (tokenize + duration predictor): each text's spoken length in
+  // seconds at the engine's neutral rate, in ONE run (no synthesis). Empty texts
+  // return 0 without inference. Falls back to sequential single runs if the
+  // batched run throws (e.g. a style/shape mismatch) or the output isn't one
+  // value per batch item — we never guess a reshape.
+  async predictDurationsSec(texts: string[], lang: string, voice: VoiceStyle): Promise<number[]> {
+    const result = new Array<number>(texts.length).fill(0);
+    const srcIndex: number[] = [];
+    const batch: string[] = [];
+    texts.forEach((t, i) => {
+      if (t.trim()) {
+        srcIndex.push(i);
+        batch.push(t);
+      }
+    });
+    if (batch.length === 0) return result;
+
+    try {
+      const B = batch.length;
+      const { textIds, textMask } = this.textProcessor.tokenize(
+        batch,
+        batch.map(() => lang),
+      );
+      const textIdsTensor = new Tensor(
+        'int64',
+        BigInt64Array.from(textIds.flat().map((x) => BigInt(x))),
+        [B, textIds[0].length],
+      );
+      const textMaskTensor = new Tensor(
+        'float32',
+        Float32Array.from(textMask.flat(2)),
+        [B, 1, textMask[0][0].length],
+      );
+      const durationOut = await this.sessions.durationPredictor.run({
+        text_ids: textIdsTensor,
+        style_dp: voice.dp,
+        text_mask: textMaskTensor,
+      });
+      const data = durationOut.duration.data as Float32Array;
+      if (data.length !== B) throw new Error(`duration output length ${data.length} != batch ${B}`);
+      for (let k = 0; k < B; k++) result[srcIndex[k]] = Number(data[k]);
+      return result;
+    } catch (e) {
+      console.warn('[tts] batched duration failed; falling back to sequential:', e);
+      for (let k = 0; k < batch.length; k++) result[srcIndex[k]] = await this.predictOneDurationSec(batch[k], lang, voice);
+      return result;
+    }
+  }
+
+  // Single-text stage 1 — the sequential fallback and the public one-shot helper.
+  private async predictOneDurationSec(text: string, lang: string, voice: VoiceStyle): Promise<number> {
     if (!text.trim()) return 0;
     const { textIds, textMask } = this.textProcessor.tokenize([text], [lang]);
-    const batchSize = 1;
     const textIdsTensor = new Tensor(
       'int64',
       BigInt64Array.from(textIds.flat().map((x) => BigInt(x))),
-      [batchSize, textIds[0].length],
+      [1, textIds[0].length],
     );
     const textMaskTensor = new Tensor(
       'float32',
       Float32Array.from(textMask.flat(2)),
-      [batchSize, 1, textMask[0][0].length],
+      [1, 1, textMask[0][0].length],
     );
     const durationOut = await this.sessions.durationPredictor.run({
       text_ids: textIdsTensor,
@@ -122,6 +167,11 @@ export class TextToSpeech {
     });
     const durs = Array.from(durationOut.duration.data as Float32Array, Number);
     return durs.reduce((sum, d) => sum + d, 0);
+  }
+
+  /** Spoken length (neutral-rate seconds) of one text. 0 for empty text. */
+  async predictDurationSec(text: string, lang: string, voice: VoiceStyle): Promise<number> {
+    return this.predictOneDurationSec(text, lang, voice);
   }
 
   private initLatent(durationsSec: number[]) {

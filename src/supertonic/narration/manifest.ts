@@ -8,7 +8,8 @@ const MANIFEST = 'manifest.json';
 
 // Bump when buildChunks/chunkText changes shape or granularity so stored
 // manifests (and their now-stale cached audio) are rebuilt on next open.
-const CHUNKER_VERSION = 3;
+// v4: CJK sentence boundaries + language-aware (120/300) chunk length.
+const CHUNKER_VERSION = 4;
 
 export function readManifest(docHash: string): DocumentManifest | null {
   const file = new File(documentCacheDir(docHash), MANIFEST);

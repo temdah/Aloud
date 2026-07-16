@@ -6,7 +6,9 @@ import viewerAsset from '../../assets/pdfjs/viewer.html';
 
 // Bump to invalidate the on-device copies when the bundled assets change.
 // v11: viewer.html gained image extraction (render + crop).
-const RUNTIME_DIR = 'pdfjs-runtime-v11';
+// v12: viewer.html — cross-page paragraph merge + CJK sentence splitting.
+// v13: viewer.html — pdf.js eval disabled (isEvalSupported:false).
+const RUNTIME_DIR = 'pdfjs-runtime-v13';
 
 let viewerUriPromise: Promise<string> | null = null;
 
