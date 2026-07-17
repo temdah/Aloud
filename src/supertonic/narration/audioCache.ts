@@ -80,6 +80,42 @@ export function audiobookAudioUri(docHash: string, s: NarrationSettings): string
   return audiobookFile(docHash, s).uri;
 }
 
+// Sidecar recording each chunk's REAL start offset (seconds) in the stitched
+// file — the muxer's actual clock, which drifts from predicted durations. Named
+// `book-<hash>.index.json` so hashFromFileName groups/clears it with its profile
+// (and the `.m4a` filter keeps it out of size/count stats).
+const AUDIOBOOK_INDEX_VERSION = 1;
+type AudiobookIndex = { version: number; startsSec: number[] };
+
+export function audiobookIndexFile(docHash: string, s: NarrationSettings): File {
+  return new File(documentCacheDir(docHash), `book-${settingsHash(s)}.index.json`);
+}
+
+/** Real per-chunk start offsets (seconds) in the stitched audiobook, or null if
+ *  absent (a book stitched before this existed → fall back to predicted starts). */
+export function readAudiobookIndex(docHash: string, s: NarrationSettings): number[] | null {
+  const file = audiobookIndexFile(docHash, s);
+  if (!file.exists) return null;
+  try {
+    const parsed = JSON.parse(file.textSync()) as AudiobookIndex;
+    if (parsed.version !== AUDIOBOOK_INDEX_VERSION || !Array.isArray(parsed.startsSec)) return null;
+    return parsed.startsSec;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAudiobookIndex(docHash: string, s: NarrationSettings, startsSec: number[]): void {
+  const file = audiobookIndexFile(docHash, s);
+  try {
+    if (file.exists) file.delete();
+    file.create();
+    file.write(JSON.stringify({ version: AUDIOBOOK_INDEX_VERSION, startsSec } satisfies AudiobookIndex));
+  } catch {
+    // Non-fatal: playback falls back to predicted starts.
+  }
+}
+
 // --- Ephemeral "fast lead" clips ----------------------------------------------
 // A fast lead is a short first-sentence clip synthesized so audio starts within
 // ~1 s instead of waiting for a whole chunk. It lives in the OS cache dir (NOT
@@ -155,7 +191,10 @@ export function recordCachedProfile(docHash: string, s: NarrationSettings): void
 // (and `.timing.json`). charStart is a non-negative int and settingsHash is
 // base36 (no dashes), so the FIRST dash always separates the two.
 function hashFromFileName(name: string): string | null {
-  const stem = name.replace(/\.timing\.json$/, '').replace(/\.m4a$/, '');
+  const stem = name
+    .replace(/\.timing\.json$/, '')
+    .replace(/\.index\.json$/, '')
+    .replace(/\.m4a$/, '');
   const dash = stem.indexOf('-');
   return dash < 0 ? null : stem.slice(dash + 1);
 }

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
-import { loadTextToSpeech, loadVoiceStyle, prerenderDocument, settingsHash } from '../supertonic';
+import { getEngine, getVoice, prerenderDocument, settingsHash, withEngine } from '../supertonic';
 import type { NarrationSettings } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
@@ -37,17 +37,21 @@ export function PrerenderProvider({ children }: { children: ReactNode }) {
       setAudiobook(docHash, { done: 0, total, status: 'running', profileHash });
       void (async () => {
         try {
-          const tts = await loadTextToSpeech(settings.modelId);
-          const voice = await loadVoiceStyle(settings.modelId, settings.voiceId);
-          const result = await prerenderDocument({
-            tts,
-            voice,
-            docHash,
-            chunks,
-            settings,
-            onProgress: ({ done }) => setAudiobook(docHash, { done, total, status: 'running', profileHash }),
-            shouldCancel: () => cancelRef.current,
-          });
+          const tts = await getEngine(settings.modelId);
+          const voice = await getVoice(settings.modelId, settings.voiceId);
+          // Wrap the whole render so a model swap waits for it (shares sessions
+          // with live playback — no second resident engine).
+          const result = await withEngine(settings.modelId, () =>
+            prerenderDocument({
+              tts,
+              voice,
+              docHash,
+              chunks,
+              settings,
+              onProgress: ({ done }) => setAudiobook(docHash, { done, total, status: 'running', profileHash }),
+              shouldCancel: () => cancelRef.current,
+            }),
+          );
           setAudiobook(docHash, {
             done: result.done,
             total,

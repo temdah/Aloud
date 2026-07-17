@@ -17,6 +17,17 @@ export class TextToSpeech {
     this.sampleRate = config.ae.sample_rate;
   }
 
+  // Free the four native ONNX sessions. Hermes can't see the ~300–400 MB of
+  // native memory behind these small JS wrappers, so it must be released
+  // explicitly (the engine manager calls this before dropping an engine).
+  async releaseSessions(): Promise<void> {
+    for (const session of Object.values(this.sessions)) {
+      try {
+        await session.release();
+      } catch {}
+    }
+  }
+
   async synthesize(
     text: string,
     lang: string,

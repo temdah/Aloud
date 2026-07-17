@@ -23,11 +23,20 @@ export function encodeWavsToM4a(srcWavUris: string[], dstUri: string, bitrate = 
 }
 
 /**
+ * Encode raw 16-bit mono PCM straight to an AAC `.m4a` — no temp WAV round-trip.
+ * `pcm16` is little-endian 16-bit samples (no header). Resolves with `dstUri`.
+ */
+export function encodePcmToM4a(pcm16: Uint8Array, sampleRate: number, dstUri: string, bitrate = 64000): Promise<string> {
+  return AacCodecModule.encodePcmToM4a(pcm16, sampleRate, 1, toPath(dstUri), bitrate);
+}
+
+/**
  * Losslessly stitch several AAC `.m4a` files into one continuous `.m4a` — no
  * re-encode (compressed samples are copied and re-muxed). Used to merge a
  * fully-rendered book's per-chunk cache into a single audiobook file so the OS
- * media notification can show a real whole-book timeline. Resolves with `dstUri`.
+ * media notification can show a real whole-book timeline. Resolves with each
+ * source clip's start offset (ms) in the stitched file, aligned with the inputs.
  */
-export function concatM4a(srcM4aUris: string[], dstUri: string): Promise<string> {
+export function concatM4a(srcM4aUris: string[], dstUri: string): Promise<number[]> {
   return AacCodecModule.concatM4a(srcM4aUris.map(toPath), toPath(dstUri));
 }

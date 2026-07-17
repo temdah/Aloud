@@ -24,10 +24,35 @@ private const val ERR_ENCODE = -6
 
 private data class WavInfo(val rate: Int, val channels: Int, val dataLen: Long)
 
+// Result of a concat: an error code plus each source clip's start offset (ms) in
+// the stitched file — the file's REAL clock, which drifts from predicted durations
+// by AAC priming/padding + the inter-clip spacer.
+private data class ConcatResult(val rc: Int, val startsMs: List<Double>)
+
+// 16-bit PCM byte source for the shared encode loop (WAV files or an in-memory
+// buffer). `read` returns bytes written to dst (up to max), or 0 when exhausted.
+private interface PcmSource {
+  fun read(dst: ByteArray, max: Int): Int
+  fun close()
+}
+
+// Feeds raw headerless 16-bit PCM straight from memory (the narrator's samples).
+private class ByteArrayPcmSource(private val data: ByteArray) : PcmSource {
+  private var pos = 0
+  override fun read(dst: ByteArray, max: Int): Int {
+    if (pos >= data.size) return 0
+    val n = minOf(max, data.size - pos)
+    System.arraycopy(data, pos, dst, 0, n)
+    pos += n
+    return n
+  }
+  override fun close() {}
+}
+
 // Streams 16-bit PCM out of a sequence of canonical WAV files (as written by the
 // JS wavEncoder). Reads them back-to-back so multiple chunks concatenate into one
 // continuous AAC stream. Exposes the first file's rate/channels.
-private class WavPcmSource(private val paths: List<String>) {
+private class WavPcmSource(private val paths: List<String>) : PcmSource {
   var sampleRate = 0
     private set
   var channels = 0
@@ -61,7 +86,7 @@ private class WavPcmSource(private val paths: List<String>) {
   }
 
   // Bytes read into dst (up to max), or 0 once all inputs are exhausted.
-  fun read(dst: ByteArray, max: Int): Int {
+  override fun read(dst: ByteArray, max: Int): Int {
     while (true) {
       val s = stream ?: return 0
       if (remaining <= 0L) {
@@ -78,7 +103,7 @@ private class WavPcmSource(private val paths: List<String>) {
     }
   }
 
-  fun close() = closeStream()
+  override fun close() = closeStream()
 
   private fun closeStream() {
     try { stream?.close() } catch (_: Exception) {}
@@ -113,15 +138,24 @@ private class WavPcmSource(private val paths: List<String>) {
 }
 
 internal object AacEncoder {
-  // Returns 0 on success, a negative ERR_ code otherwise. Deletes a partial file
-  // on failure. Heavy/synchronous — call from a background thread (AsyncFunction).
+  // Encode WAV file(s) -> one .m4a. 0 on success, a negative ERR_ otherwise.
+  // Heavy/synchronous — call from a background thread (AsyncFunction).
   fun encode(srcPaths: List<String>, dstPath: String, bitrate: Int): Int {
     if (srcPaths.isEmpty()) return ERR_NO_INPUT
     val source = WavPcmSource(srcPaths)
     if (!source.open()) return ERR_BAD_WAV
+    return encodeFromSource(source, source.sampleRate, source.channels, dstPath, bitrate)
+  }
 
-    val sampleRate = source.sampleRate
-    val channels = source.channels
+  // Encode raw 16-bit mono/interleaved PCM bytes -> one .m4a, no temp WAV.
+  fun encodePcm(pcm16: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int): Int {
+    if (pcm16.isEmpty()) return ERR_NO_INPUT
+    return encodeFromSource(ByteArrayPcmSource(pcm16), sampleRate, channels, dstPath, bitrate)
+  }
+
+  // Shared MediaCodec + MediaMuxer encode loop, fed by any PcmSource. Deletes a
+  // partial file on failure.
+  private fun encodeFromSource(source: PcmSource, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int): Int {
     val bytesPerFrame = 2 * channels
 
     val format = MediaFormat.createAudioFormat(MIME, sampleRate, channels).apply {
@@ -212,13 +246,14 @@ internal object AacEncoder {
   // continuous .m4a — no re-encode. Copies each file's compressed samples with
   // MediaExtractor and re-muxes them back to back, offsetting timestamps so the
   // result is one gapless track. Returns 0 on success, a negative ERR_ otherwise.
-  fun concat(srcPaths: List<String>, dstPath: String): Int {
-    if (srcPaths.isEmpty()) return ERR_NO_INPUT
+  fun concat(srcPaths: List<String>, dstPath: String): ConcatResult {
+    if (srcPaths.isEmpty()) return ConcatResult(ERR_NO_INPUT, emptyList())
 
     var muxer: MediaMuxer? = null
     var trackIndex = -1
     var muxerStarted = false
     var result = ERR_ENCODE
+    val startsMs = ArrayList<Double>(srcPaths.size)
     try {
       muxer = MediaMuxer(dstPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
       val buffer = java.nio.ByteBuffer.allocate(256 * 1024)
@@ -226,6 +261,8 @@ internal object AacEncoder {
       var ptsOffsetUs = 0L
 
       for (path in srcPaths) {
+        // Start of THIS clip in the output = current running offset.
+        startsMs.add(ptsOffsetUs / 1000.0)
         val extractor = MediaExtractor()
         try {
           extractor.setDataSource(path)
@@ -234,7 +271,7 @@ internal object AacEncoder {
             val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
             if (mime?.startsWith("audio/") == true) { track = i; break }
           }
-          if (track < 0) return ERR_BAD_WAV
+          if (track < 0) return ConcatResult(ERR_BAD_WAV, emptyList())
           extractor.selectTrack(track)
           val format = extractor.getTrackFormat(track)
           if (!muxerStarted) {
@@ -272,7 +309,7 @@ internal object AacEncoder {
       try { muxer?.release() } catch (_: Exception) {}
       if (result != 0) try { File(dstPath).delete() } catch (_: Exception) {}
     }
-    return result
+    return ConcatResult(result, if (result == 0) startsMs else emptyList())
   }
 
   // Duration of one AAC access unit (1024 samples) in microseconds.

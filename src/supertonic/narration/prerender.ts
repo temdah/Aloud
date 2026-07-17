@@ -4,7 +4,7 @@ import type { Chunk } from '../../types';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
 import { concatM4a } from '../../../modules/aac-codec';
-import { audiobookFile, chunkAudioFile, isAudiobookCached, isChunkCached } from './audioCache';
+import { audiobookFile, chunkAudioFile, isAudiobookCached, isChunkCached, writeAudiobookIndex } from './audioCache';
 import { ensureChunkAudio } from './narrator';
 import type { NarrationSettings } from './narrationTypes';
 
@@ -64,8 +64,13 @@ export async function prerenderDocument({
     try {
       const parts = chunks.map((c) => chunkAudioFile(docHash, c.charStart, settings));
       if (parts.every((f) => f.exists)) {
-        await concatM4a(parts.map((f) => f.uri), audiobookFile(docHash, settings).uri);
+        const startsMs = await concatM4a(parts.map((f) => f.uri), audiobookFile(docHash, settings).uri);
         if (isAudiobookCached(docHash, settings)) {
+          // Persist the file's real chunk offsets (aligned with the chunk list)
+          // so the timeline maps through actual clock, not predicted durations.
+          if (startsMs.length === chunks.length) {
+            writeAudiobookIndex(docHash, settings, startsMs.map((ms) => ms / 1000));
+          }
           for (const f of parts) {
             try {
               f.delete();

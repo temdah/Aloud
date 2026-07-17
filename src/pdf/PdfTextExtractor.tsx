@@ -61,7 +61,9 @@ export function PdfTextExtractor({ fileUri, docHash, onMeta, onPage, onDone, onE
         javaScriptEnabled
         allowFileAccess
         allowFileAccessFromFileURLs
-        allowUniversalAccessFromFileURLs
+        // NOTE: allowUniversalAccessFromFileURLs deliberately dropped (P10) — the
+        // viewer only reads same-scheme file:// siblings, so same-file-URL access
+        // suffices. VERIFY extraction still completes on device; if not, restore it.
         injectedJavaScriptBeforeContentLoaded={`window.PDF_FILE=${JSON.stringify(setup.pdfFile)};true;`}
         onMessage={handleMessage}
         // Untrusted PDF: allow only local navigations (the viewer + its file://

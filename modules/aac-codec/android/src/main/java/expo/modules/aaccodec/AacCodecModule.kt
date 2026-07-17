@@ -18,11 +18,19 @@ class AacCodecModule : Module() {
       dstPath
     }
 
-    // Losslessly stitch AAC .m4a files into one continuous .m4a (no re-encode).
-    AsyncFunction("concatM4a") { srcM4aPaths: List<String>, dstPath: String ->
-      val rc = AacEncoder.concat(srcM4aPaths, dstPath)
+    // Encode raw 16-bit PCM bytes straight to one AAC .m4a (no temp WAV round-trip).
+    AsyncFunction("encodePcmToM4a") { pcm16: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int ->
+      val rc = AacEncoder.encodePcm(pcm16, sampleRate, channels, dstPath, bitrate)
       if (rc != 0) throw AacEncodeException(rc)
       dstPath
+    }
+
+    // Losslessly stitch AAC .m4a files into one continuous .m4a (no re-encode).
+    // Resolves each source clip's start offset (ms) in the stitched file.
+    AsyncFunction("concatM4a") { srcM4aPaths: List<String>, dstPath: String ->
+      val res = AacEncoder.concat(srcM4aPaths, dstPath)
+      if (res.rc != 0) throw AacEncodeException(res.rc)
+      res.startsMs
     }
   }
 }

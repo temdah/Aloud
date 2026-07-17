@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, ensureModelsDownloaded, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, loadTextToSpeech, loadVoiceStyle, locateTime, settingsHash, totalDurationSec } from '../supertonic';
+import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, locateTime, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
@@ -199,7 +199,6 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // Per-chunk neutral-rate durations for the whole document → the timeline.
   const [durTable, setDurTable] = useState<DurationTable | null>(null);
 
-  const engineRef = useRef<{ tts: TextToSpeech; voice: VoiceStyle } | null>(null);
   const activeRef = useRef(false);
   const finishedHandledRef = useRef(false);
   // Bumped by every new play/select/pause so a slow in-flight synthesis can tell
@@ -262,9 +261,13 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   );
   const singleItem = audiobookUri != null;
   const audiobookLoadedRef = useRef(false);
+  // Real per-chunk offsets (seconds) in the stitched file, if the index sidecar
+  // exists — the file's actual clock (see P5). Null → fall back to predicted starts.
+  const [fileStarts, setFileStarts] = useState<number[] | null>(null);
   useEffect(() => {
     audiobookLoadedRef.current = false; // a new/absent audiobook file must be (re)loaded
-  }, [audiobookUri]);
+    setFileStarts(audiobookUri ? readAudiobookIndex(docHash, settings) : null);
+  }, [audiobookUri, docHash, settings]);
 
   // Configure the audio session once for sustained background playback.
   // `shouldPlayInBackground` keeps audio alive when the screen is off, and
@@ -314,40 +317,40 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     lockScreenActiveRef.current = false;
   }, [docHash, player]);
 
+  // Warm the shared engine when a model is picked. Keyed on modelId only — a
+  // VOICE change no longer reloads sessions (the manager caches voices per model
+  // and reuses the resident engine). Model swaps release the old sessions.
   useEffect(() => {
     let cancelled = false;
-    engineRef.current = null;
     if (!modelId) {
       setReady(false);
       return; // no model picked yet — leave the engine unloaded
     }
     if (fullyRendered) {
-      // Cached audiobook: don't pay the ONNX cold-load — playback reads WAVs
-      // directly. The engine lazy-loads only if some clip is unexpectedly missing.
+      // Cached audiobook: don't pay the ONNX cold-load — playback reads clips
+      // directly. The engine lazy-loads only if one is unexpectedly missing.
       setReady(true);
       return;
     }
     setReady(false);
-    loadEngine(modelId, voiceId)
-      .then((engine) => {
-        if (cancelled) return;
-        engineRef.current = engine;
-        setReady(true);
+    getEngine(modelId)
+      .then(() => {
+        if (!cancelled) setReady(true);
       })
-      .catch((e) => console.warn('[usePlayback] failed to load engine/voice:', e));
+      .catch((e) => console.warn('[usePlayback] failed to load engine:', e));
     return () => {
       cancelled = true;
     };
-  }, [modelId, voiceId, fullyRendered]);
+  }, [modelId, fullyRendered]);
 
-  // Lazily load the engine on demand (cache miss while otherwise running from
-  // cache). Returns null if no model is selected.
+  // Resolve the shared engine's tts + the current voice on demand. Returns null
+  // if no model is selected. The engine is module-level (see engineManager), so
+  // this is cheap once warm; inference runs go through `withEngine` for swap safety.
   const ensureEngine = useCallback(async (): Promise<{ tts: TextToSpeech; voice: VoiceStyle } | null> => {
-    if (engineRef.current) return engineRef.current;
     if (!modelId) return null;
-    const engine = await loadEngine(modelId, voiceId);
-    engineRef.current = engine;
-    return engine;
+    const tts = await getEngine(modelId);
+    const voice = await getVoice(modelId, voiceId);
+    return { tts, voice };
   }, [modelId, voiceId]);
 
   // Build the whole-document duration table for the timeline. Reads instantly
@@ -367,9 +370,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       const engine = await ensureEngine();
       if (!engine || cancelled) return;
       try {
-        const table = await ensureDurationTable(engine.tts, engine.voice, docHash, chunks, settings, {
-          shouldCancel: () => cancelled,
-        });
+        const table = await withEngine(modelId!, (tts) =>
+          ensureDurationTable(tts, engine.voice, docHash, chunks, settings, {
+            shouldCancel: () => cancelled,
+          }),
+        );
         if (table && !cancelled) setDurTable(table);
       } catch (e) {
         console.warn('[usePlayback] failed to build duration table:', e);
@@ -381,7 +386,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }, [docHash, chunks, modelId, settings, ensureEngine]);
 
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
-  const docDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
+  const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
 
   // Apply the requested playback speed live (cache is rendered at neutral rate).
   useEffect(() => {
@@ -437,12 +442,19 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // Cumulative NEUTRAL-rate start time (s) of each chunk, used to map a char
   // offset / chunk index to an absolute position in the single audiobook file.
   const neutralStarts = useMemo(() => {
+    // Prefer the stitched file's REAL per-chunk offsets (no cumulative drift);
+    // append a synthetic total (last real start + its predicted duration).
+    if (fileStarts && durTable && fileStarts.length === durTable.length) {
+      const arr = fileStarts.slice();
+      arr.push(fileStarts[fileStarts.length - 1] + (durTable[durTable.length - 1] ?? 0));
+      return arr;
+    }
     if (!durTable) return null;
     const arr = new Array<number>(durTable.length + 1);
     arr[0] = 0;
     for (let i = 0; i < durTable.length; i++) arr[i + 1] = arr[i] + durTable[i];
     return arr;
-  }, [durTable]);
+  }, [fileStarts, durTable]);
 
   const neutralForOffset = useCallback(
     (charOffset: number): number => {
@@ -452,9 +464,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       const c = chunks[i];
       const span = c.charEnd - c.charStart;
       const frac = span > 0 ? Math.min(1, Math.max(0, (charOffset - c.charStart) / span)) : 0;
-      return neutralStarts[i] + frac * (durTable?.[i] ?? 0);
+      // Use the chunk's REAL span (neutralStarts prefers file offsets) not the
+      // predicted duration, so a mid-chunk tap lands accurately in a long book.
+      return neutralStarts[i] + frac * (neutralStarts[i + 1] - neutralStarts[i]);
     },
-    [neutralStarts, chunks, durTable],
+    [neutralStarts, chunks],
   );
 
   const ensureAudiobookLoaded = useCallback(() => {
@@ -538,8 +552,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
           }
           if (token !== playTokenRef.current) return; // superseded while loading
           uri = lead
-            ? await ensureLeadAudio(engine.tts, engine.voice, docHash, chunk, settings)
-            : await ensureChunkAudio(engine.tts, engine.voice, docHash, chunk, settings);
+            ? await withEngine(modelId!, (tts) => ensureLeadAudio(tts, engine.voice, docHash, chunk, settings))
+            : await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, chunk, settings));
         }
         if (token !== playTokenRef.current) return; // superseded
         player.replace(uri);
@@ -561,7 +575,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
             const engine = await ensureEngine();
             if (!engine) return;
             try {
-              await ensureChunkAudio(engine.tts, engine.voice, docHash, next.chunk, settings);
+              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, next.chunk, settings));
             } catch {}
           }
           for (let k = 0; k < PREFETCH_AHEAD; k++) {
@@ -572,7 +586,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
             const engine = await ensureEngine();
             if (!engine) return;
             try {
-              await ensureChunkAudio(engine.tts, engine.voice, docHash, ahead, settings);
+              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, ahead, settings));
             } catch {}
           }
         })();
@@ -581,7 +595,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         console.warn('[usePlayback] failed to play chunk at', chunk.charStart, e);
       }
     },
-    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen],
+    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen, modelId],
   );
 
   const playCanonical = useCallback(
@@ -874,9 +888,12 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // the canonical chunk's start time plus the lead portion already played before
   // this clip (estimated by char proportion). Neutral seconds → /speed for docs.
   let docPositionSec = 0;
+  let docDurationSec = tableDurationSec;
   if (singleItem && status.isLoaded) {
     // The file IS the whole book: media time is neutral, /speed → at-speed timeline.
+    // Use the file's real clock for both, so the scrubber matches the OS notification.
     docPositionSec = status.currentTime / speed;
+    if (status.duration > 0) docDurationSec = status.duration / speed;
   } else if (offsets && durTable) {
     const ai = anchorIndexRef.current;
     if (ai >= 0 && ai < offsets.length) {
@@ -919,15 +936,4 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     stop,
     halt,
   };
-}
-
-async function loadEngine(modelId: string, voiceId: string): Promise<{ tts: TextToSpeech; voice: VoiceStyle }> {
-  // Safety-net: only the model's *download-time* voice style JSON is fetched up
-  // front, so switching to any other voice would otherwise leave its ~150 KB
-  // style file missing and loadVoiceStyle would throw (silent no-audio). This
-  // fetches the selected voice's file if absent (model files are skipped).
-  await ensureModelsDownloaded(modelId, voiceId);
-  const tts = await loadTextToSpeech(modelId);
-  const voice = await loadVoiceStyle(modelId, voiceId);
-  return { tts, voice };
 }

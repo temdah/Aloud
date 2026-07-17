@@ -6,8 +6,9 @@ import {
   buildChunks,
   DEFAULT_VOICE,
   encodeWav,
-  loadTextToSpeech,
-  loadVoiceStyle,
+  getEngine,
+  getVoice,
+  isEngineResident,
   TextToSpeech,
   VoiceStyle,
   type SynthesisStage,
@@ -84,16 +85,18 @@ export default function TextToSpeechDemoScreen() {
   // Loads the sessions + the selected voice on first use. The first load of a
   // screen visit is the genuine cold-load cost; later runs reuse it (warm).
   const ensureLoaded = async () => {
-    if (ttsRef.current && voiceRef.current) {
+    if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
+    const v = voiceId || DEFAULT_VOICE;
+    if (isEngineResident(modelId) && ttsRef.current && voiceRef.current) {
       append('Sessions already loaded (warm) — skipping cold load.');
       return;
     }
-    if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
-    const v = voiceId || DEFAULT_VOICE;
     append(`Cold-loading ONNX sessions (${modelId}, voice ${v})...`);
     const start = Date.now();
-    ttsRef.current = await loadTextToSpeech(modelId);
-    voiceRef.current = await loadVoiceStyle(modelId, v);
+    // Shared engine (engineManager) — reuses the resident sessions if playback
+    // already loaded them, and won't leave a second copy behind.
+    ttsRef.current = await getEngine(modelId);
+    voiceRef.current = await getVoice(modelId, v);
     append(`  sessions loaded in ${seconds(Date.now() - start)} s  (sampleRate=${ttsRef.current.sampleRate}).`);
   };
 

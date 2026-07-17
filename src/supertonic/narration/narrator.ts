@@ -1,26 +1,18 @@
 // Imports engine pieces directly (NOT the src/supertonic barrel) so narration
 // can be re-exported from that barrel without a circular dependency.
 import type { Chunk } from '../../types';
-import { encodeWav } from '../synthesis/wavEncoder';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
-import { Directory, File, Paths } from 'expo-file-system';
-import { encodeWavsToM4a } from '../../../modules/aac-codec';
+import type { File } from 'expo-file-system';
+import { encodePcmToM4a } from '../../../modules/aac-codec';
 import { stageTimer } from '../../utils/perf';
 import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
 
-// Scratch dir for the transient WAV handed to the AAC encoder (OS cache, evictable).
-function encodeTempFile(name: string): File {
-  const dir = new Directory(Paths.cache, 'tts-enc');
-  if (!dir.exists) dir.create({ intermediates: true });
-  return new File(dir, name);
-}
-
 // Synthesize `chunk`, encode it to AAC (.m4a) at `file`, and return the file uri.
 // Shared by the persistent per-chunk cache and the ephemeral fast-lead cache.
-// The model emits float PCM; we write a throwaway WAV and let Android's MediaCodec
-// (the native aac-codec module) compress it — there is no pure-JS AAC encoder.
+// The model emits float PCM; we convert to 16-bit and hand the bytes straight to
+// Android's MediaCodec (native aac-codec) — no temp WAV, no disk round-trip.
 async function synthesizeToFile(
   tts: TextToSpeech,
   voice: VoiceStyle,
@@ -32,24 +24,17 @@ async function synthesizeToFile(
   // applied live via the player's playback rate, so the cache is speed-agnostic.
   const timer = stageTimer('synth');
   const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0, undefined, timer.mark);
-  const bytes = encodeWav(waveform, tts.sampleRate);
-  timer.mark('wav-encode');
-
-  const baseName = file.uri.split('/').pop() ?? 'clip';
-  const tmp = encodeTempFile(`${baseName}.wav`);
-  try {
-    if (tmp.exists) tmp.delete();
-    tmp.create();
-    tmp.write(bytes);
-    timer.mark('tmp-write');
-    if (file.exists) file.delete();
-    await encodeWavsToM4a([tmp.uri], file.uri);
-    timer.mark('aac-encode');
-  } finally {
-    try {
-      if (tmp.exists) tmp.delete();
-    } catch {}
+  // Float [-1,1] -> 16-bit LE PCM, byte-identical to the old WAV path (same
+  // clamp/floor), so the encoder input — and cache — is unchanged.
+  const pcm = new Int16Array(waveform.length);
+  for (let i = 0; i < waveform.length; i++) {
+    const clamped = Math.max(-1, Math.min(1, waveform[i]));
+    pcm[i] = Math.floor(clamped * 32767);
   }
+  timer.mark('pcm-convert');
+  if (file.exists) file.delete();
+  await encodePcmToM4a(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), tts.sampleRate, file.uri);
+  timer.mark('aac-encode');
   if (__DEV__) {
     const audioSec = waveform.length / tts.sampleRate;
     const wallSec = timer.elapsedMs() / 1000;

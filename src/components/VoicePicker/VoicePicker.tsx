@@ -2,13 +2,7 @@ import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-aud
 import { File, Paths } from 'expo-file-system';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import {
-  ensureModelsDownloaded,
-  encodeWav,
-  loadTextToSpeech,
-  loadVoiceStyle,
-  type TextToSpeech,
-} from '../../supertonic';
+import { encodeWav, ensureModelsDownloaded, getEngine, getVoice, withEngine } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import { Chip } from '../Chip';
 import { Icon } from '../Icon';
@@ -44,8 +38,6 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
   // Voice id whose preview clip is currently playing.
   const [playing, setPlaying] = useState<string | null>(null);
 
-  // Loaded ONNX engine, kept across previews so we don't re-load it per tap.
-  const ttsRef = useRef<{ modelId: string; tts: TextToSpeech } | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
   const tokenRef = useRef(0);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,16 +71,11 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
     setPlaying(null);
     setBusy(voiceId);
     try {
-      await ensureModelsDownloaded(modelId, voiceId);
+      const tts = await getEngine(modelId); // shared resident engine
       if (token !== tokenRef.current) return;
-      if (!ttsRef.current || ttsRef.current.modelId !== modelId) {
-        ttsRef.current = { modelId, tts: await loadTextToSpeech(modelId) };
-      }
+      const voice = await getVoice(modelId, voiceId); // fetches the style file if missing
       if (token !== tokenRef.current) return;
-      const tts = ttsRef.current.tts;
-      const voice = await loadVoiceStyle(modelId, voiceId);
-      if (token !== tokenRef.current) return;
-      const { waveform } = await tts.synthesize(PREVIEW_SENTENCE, lang, voice, PREVIEW_STEPS, 1.05);
+      const { waveform } = await withEngine(modelId, (t) => t.synthesize(PREVIEW_SENTENCE, lang, voice, PREVIEW_STEPS, 1.05));
       if (token !== tokenRef.current) return;
 
       const out = new File(Paths.cache, PREVIEW_FILE);
