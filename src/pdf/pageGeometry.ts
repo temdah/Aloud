@@ -1,11 +1,9 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import type { ExtractedBlock } from './pdfExtractionTypes';
 
-// Per-page rendered-height geometry. We can't know exact heights without
-// rendering, but a content-derived ESTIMATE is enough to give FlatList an
-// offset table (getItemLayout) so it jumps straight to a page instead of
-// rendering through every page in between. Real heights from onLayout refine
-// the table and are cached per document, so reopening is exact.
+// Per-page rendered-height estimates, giving FlatList a getItemLayout offset
+// table so it jumps straight to a page. Real onLayout heights refine and cache
+// the table per document, so reopening is exact.
 
 const READER_LINE = 28;
 const HEADING_LINE = 26;
@@ -39,8 +37,8 @@ function estimateBlockHeight(b: ExtractedBlock): number {
   return Math.max(1, Math.ceil(len / READER_CPL)) * READER_LINE + PARA_MARGIN;
 }
 
-// Estimated height for every page (index 0 = page 1). Pages with no blocks yet
-// get a neutral default so far jumps don't land wildly short during streaming.
+// Pages with no blocks yet get a neutral default, so far jumps don't land wildly
+// short while pages are still streaming in.
 export function estimatePageHeights(blocks: ExtractedBlock[], pageCount: number): number[] {
   const sums = new Array(pageCount).fill(0);
   const has = new Array(pageCount).fill(false);

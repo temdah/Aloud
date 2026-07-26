@@ -1,5 +1,4 @@
-// Pure-JS extractors for non-PDF formats. Each emits the same ExtractedDocument
-// shape the reader + chunker consume (PDF gets that from headless PDF.js).
+// Pure-JS extractors for non-PDF formats (same ExtractedDocument shape as PDF).
 export { buildDocument } from './documentBuilder';
 export { extractMarkdown } from './markdownExtractor';
 export { extractDocx } from './docxExtractor';

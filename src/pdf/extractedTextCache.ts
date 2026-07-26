@@ -1,13 +1,12 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import type { ExtractedDocument } from './pdfExtractionTypes';
 
-// Extracted text is expensive to produce, so cache it per document
-// (documentDirectory/text/<docHash>.json) and reuse it on reopen.
+// Per-document cache of the extracted text (documentDirectory/text/<docHash>.json),
+// reused on reopen unless the extractor version changed.
 const TEXT_DIR = 'text';
 
-// Bump when the extraction/reflow logic changes so stale caches are re-extracted.
-// v10: images extracted + rendered inline.
-// v11: paragraphs continue across page breaks + smarter dehyphenation.
+// Bump when extraction/reflow changes so stale caches are re-extracted.
+// v10: inline images. v11: cross-page paragraph merge + smarter dehyphenation.
 const EXTRACTOR_VERSION = 11;
 
 type CacheEnvelope = { version: number; doc: ExtractedDocument };

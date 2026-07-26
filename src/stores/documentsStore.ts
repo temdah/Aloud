@@ -4,55 +4,38 @@ import type { NarrationSettings } from '../supertonic';
 import type { ImportedDocument } from '../types';
 import { fileStorage } from './fileStorage';
 
-/** Persisted full-audiobook ("prerender") progress so it survives leaving the
- *  screen — drives the Library circular progress and "always reuse cache". */
+// Persisted per-document state: library entries, reading cursor + progress,
+// favourites, and full-audiobook render status.
+
 export type AudiobookState = {
   done: number;
   total: number;
   status: 'running' | 'done' | 'cancelled' | 'error';
-  /** settingsHash of the profile the render was made with (cache reuse guard). */
+  // settingsHash the render was made with — guards cache reuse across profiles.
   profileHash: string;
   error?: string;
 };
 
 type DocumentsState = {
   documents: ImportedDocument[];
-  /** docHashes whose first-open reader hint has already been shown. */
   hintsSeen: string[];
-  /** docHashes the user has starred. */
   favourites: string[];
-  /** docHash → last char offset reached, so playback can resume where it left off. */
   cursor: Record<string, number>;
-  /** docHash → reading progress fraction (0..1), for the library row bar + filters. */
   progress: Record<string, number>;
-  /** docHash → the narration settings a full-audiobook render was made with.
-   *  The reader uses this profile so tap-to-start hits the pre-rendered cache. */
+  // The reader pins this profile so tap-to-start hits the pre-rendered cache.
   renderProfile: Record<string, NarrationSettings>;
-  /** docHash → full-audiobook render progress/status (persisted). */
   audiobook: Record<string, AudiobookState>;
-  /** Add an imported PDF, or replace an existing one with the same docHash. */
   addDocument: (doc: ImportedDocument) => void;
-  /** Record a document's page count once its text layer has been parsed. */
   setPageCount: (docHash: string, pageCount: number) => void;
-  /** Set a document's narration language override (null clears it → global). */
   setDocLang: (docHash: string, lang: string | null) => void;
-  /** Pin a document's cover-palette index (its colour); null reverts to derived. */
   setCover: (docHash: string, cover: number | null) => void;
-  /** Mark a document's first-open hint as shown (so it never shows again). */
   markHintSeen: (docHash: string) => void;
-  /** Toggle a document's favourite (starred) state. */
   toggleFavourite: (docHash: string) => void;
-  /** Persist the last char offset reached for a document. */
   setCursor: (docHash: string, charOffset: number) => void;
-  /** Persist a document's reading progress fraction (0..1). */
   setProgress: (docHash: string, fraction: number) => void;
-  /** Pin (or clear) the narration profile a full audiobook was rendered with. */
   setRenderProfile: (docHash: string, profile: NarrationSettings | null) => void;
-  /** Record full-audiobook render progress/status for a document. */
   setAudiobook: (docHash: string, state: AudiobookState) => void;
-  /** Forget a document's full-audiobook state (e.g. after clearing its cache). */
   clearAudiobook: (docHash: string) => void;
-  /** Remove a document and all of its associated bookkeeping (cursor, hint). */
   removeDocument: (docHash: string) => void;
 };
 

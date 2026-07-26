@@ -4,8 +4,10 @@ import { Newsreader_400Regular, Newsreader_500Medium } from '@expo-google-fonts/
 import type { TextStyle } from 'react-native';
 import type { TypeName, TypeToken } from './themeTypes';
 
-// Pass to `useFonts` at app start. With custom fonts, weight is encoded in the
-// family name (e.g. DMSans_600SemiBold), not via fontWeight.
+// App type scale and font loading (design tokens).
+
+// With custom fonts, weight is encoded in the family name (e.g. _600SemiBold),
+// not via fontWeight.
 export const fontsToLoad = {
   DMSans_400Regular,
   DMSans_500Medium,
@@ -15,7 +17,7 @@ export const fontsToLoad = {
   JetBrainsMono_500Medium,
 };
 
-// Type scale from the design. letterSpacing is the design's em value × size (dp).
+// letterSpacing is the design's em value × size (dp).
 export const TYPE: Record<TypeName, TypeToken> = {
   display: { fontFamily: 'Newsreader_500Medium', fontSize: 32, lineHeight: 38, letterSpacing: -0.32 },
   titleLarge: { fontFamily: 'Newsreader_500Medium', fontSize: 22, lineHeight: 28, letterSpacing: -0.11 },
@@ -31,7 +33,6 @@ export const TYPE: Record<TypeName, TypeToken> = {
   reader: { fontFamily: 'Newsreader_400Regular', fontSize: 17, lineHeight: 28, letterSpacing: 0 },
 };
 
-// Builds a text style from a type token + color. RN equivalent of the design's `ty()`.
 export function ty(token: TypeToken, color: string): TextStyle {
   return { ...token, color };
 }

@@ -1,30 +1,19 @@
-// A document the user has imported into their library. The copied file lives in
-// the app's document directory; docHash namespaces its TTS cache + manifest.
+// A document the user imported. The copied file lives in the app's document
+// directory; docHash namespaces its TTS cache + manifest.
 export type DocumentKind = 'pdf' | 'markdown' | 'docx';
 
 export type ImportedDocument = {
-  /** Stable identifier — equal to docHash. */
-  id: string;
-  /** Display title (source file name without extension). */
+  id: string; // equal to docHash
   title: string;
-  /** file:// URI of the copied file inside the document directory. */
   fileUri: string;
-  /** Source format. Drives which extractor runs. Absent ⇒ treat as 'pdf'. */
-  kind?: DocumentKind;
-  /** Per-document narration language override (a SupportedLanguage code).
-   *  Absent ⇒ fall back to the global default in settings. */
-  lang?: string;
-  /** Content signature — cache namespace and dedupe key. */
+  kind?: DocumentKind; // absent ⇒ treated as 'pdf'
+  lang?: string; // absent ⇒ the global default in settings
   docHash: string;
-  /** Size of the copied file in bytes. */
   sizeBytes: number;
-  /** Import time (epoch ms). */
   addedAt: number;
-  /** Page count — known once the PDF text layer is parsed. */
   pageCount?: number;
-  /** User-chosen cover-palette index (the book's colour). Absent ⇒ derived from
-   *  the content hash. Drives the library thumbnail + media-notification tint. */
+  // Cover-palette index; absent ⇒ derived from the hash. Drives the thumbnail
+  // and the media-notification tint.
   cover?: number;
-  /** Playback resume cursor — index of the last chunk reached. */
   resumeChunkIdx?: number;
 };

@@ -1,13 +1,17 @@
 import { buildDocument, type SourceBlock } from './documentBuilder';
 import type { ExtractedDocument } from '../pdf';
 
-// Strips inline markdown emphasis/links/code so the spoken + displayed text is
-// clean prose. We keep link text, drop the URL.
+// Lightweight markdown → logical blocks (no full parser): headings become h2,
+// consecutive non-blank lines coalesce into paragraphs, list items stand alone,
+// and fenced code / tables flatten to plain text.
+
+// Strips inline emphasis/links/code so the text reads cleanly; keeps link text,
+// drops the URL.
 function stripInline(s: string): string {
   return s
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '') // images
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → text
-    .replace(/`([^`]+)`/g, '$1') // inline code
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
@@ -16,9 +20,6 @@ function stripInline(s: string): string {
     .trim();
 }
 
-// Lightweight markdown → logical blocks. Headings become h2; consecutive
-// non-blank lines coalesce into a paragraph; list items become their own short
-// paragraphs. Fenced code blocks and tables are flattened to plain text.
 export function extractMarkdown(raw: string): ExtractedDocument {
   const lines = raw.replace(/\r\n?/g, '\n').split('\n');
   const source: SourceBlock[] = [];
@@ -57,13 +58,13 @@ export function extractMarkdown(raw: string): ExtractedDocument {
       continue;
     }
 
-    // Horizontal rule — treat as a paragraph break.
+    // Horizontal rule → paragraph break.
     if (/^([-*_])\1{2,}$/.test(trimmed)) {
       flush();
       continue;
     }
 
-    // List item or blockquote → its own paragraph line.
+    // List item or blockquote → its own paragraph.
     const listItem = /^(?:[-*+]\s+|\d+\.\s+|>\s?)(.*)$/.exec(trimmed);
     if (listItem) {
       flush();

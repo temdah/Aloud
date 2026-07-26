@@ -1,14 +1,10 @@
-// Canonical library cover palette. Shared by the cover thumbnail AND (via the
-// native media-notification patch) the lock-screen accent colour, so a book
-// looks the same in the library and on the lock screen. The chosen index is
-// stored per-document; absent an override it's derived from the content hash.
+// Library cover palette, shared by the cover thumbnail and (via the native
+// notification patch) the lock-screen accent — so a book looks the same in both.
+// The index is stored per-document; absent an override it's derived from the hash.
 export type CoverHue = {
-  /** Thumbnail fill. */
   bg: string;
-  /** Thumbnail stripes. */
   stripe: string;
-  /** Saturated accent used to tint the media notification. */
-  accent: string;
+  accent: string; // tints the media notification
 };
 
 export const COVER_PALETTE: CoverHue[] = [
@@ -21,7 +17,7 @@ export const COVER_PALETTE: CoverHue[] = [
 
 export const COVER_COUNT = COVER_PALETTE.length;
 
-/** Wrap any (possibly out-of-range or negative) index into a palette entry. */
+// Wraps any index (incl. negative / out-of-range) into a palette entry.
 export function coverHue(idx: number): CoverHue {
   return COVER_PALETTE[((idx % COVER_COUNT) + COVER_COUNT) % COVER_COUNT];
 }

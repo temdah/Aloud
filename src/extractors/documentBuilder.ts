@@ -1,21 +1,19 @@
 import type { ExtractedBlock, ExtractedDocument, ExtractedSentence } from '../pdf';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 
-// A format-agnostic logical block. Markdown/docx extractors emit these; the
-// builder turns them into the canonical ExtractedDocument the reader + chunker
-// consume (PDF produces that shape directly from PDF.js).
+// Assembles format-agnostic blocks (from the markdown/docx extractors) into the
+// canonical ExtractedDocument the reader + chunker consume, with exact char
+// offsets, sentence-split paragraphs, and synthetic pagination.
+
 export type SourceBlock =
   | { kind: 'h2'; text: string }
   | { kind: 'p'; text: string };
 
-// Roughly how many characters fill one synthetic "page". The reader virtualizes
-// by page (FlatList of pages 1..N) and PageScrubber jumps by page, so formats
-// without real pages still need pagination for scroll/geometry to work.
+// Formats without real pages still need pages for the reader's virtualization and
+// PageScrubber, so we break every ~this-many chars.
 const PAGE_CHAR_BUDGET = 1800;
 
-// Splits a paragraph into sentences, returning offsets relative to the
-// paragraph start. Mirrors the chunker's boundary rules (shared sentenceRules)
-// so highlight ranges and playback chunks stay visually consistent.
+// Sentence split mirroring the chunker's rules (shared sentenceRules).
 function splitSentences(text: string, base: number): ExtractedSentence[] {
   const ends: number[] = [];
   const re = /[.!?。！？]+/g; // ASCII (guarded below) + CJK fullwidth terminators
@@ -44,8 +42,6 @@ function splitSentences(text: string, base: number): ExtractedSentence[] {
   return sentences;
 }
 
-// Assembles logical blocks into a canonical text stream with exact char offsets,
-// sentence-split paragraphs, and synthetic pagination.
 export function buildDocument(source: SourceBlock[]): ExtractedDocument {
   const blocks: ExtractedBlock[] = [];
   let text = '';
@@ -56,7 +52,7 @@ export function buildDocument(source: SourceBlock[]): ExtractedDocument {
     const body = sb.text.trim();
     if (!body) continue;
 
-    // A heading starting a new page that already has content rolls to the next.
+    // A heading with content already above it rolls to the next page.
     if (sb.kind === 'h2' && pageChars > 0 && pageChars >= PAGE_CHAR_BUDGET * 0.6) {
       page += 1;
       pageChars = 0;
@@ -81,8 +77,7 @@ export function buildDocument(source: SourceBlock[]): ExtractedDocument {
     }
   }
 
-  // If the final page ended exactly on the budget, page was already advanced
-  // past the last real content — clamp pageCount to the highest used page.
+  // page may have advanced past the last real content — clamp to the highest used.
   const pageCount = blocks.length > 0 ? blocks[blocks.length - 1].page : 0;
   return { text, blocks, pageCount };
 }

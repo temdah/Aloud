@@ -4,6 +4,9 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { ExtractedBlock, ExtractionMessage } from './pdfExtractionTypes';
 import { ensurePdfRuntime, stagePdf } from './pdfRuntime';
 
+// Headless WebView running PDF.js purely to extract text — mounted offscreen but
+// still executes JS. Streams pages back (meta → page… → done).
+
 type PdfTextExtractorProps = {
   fileUri: string;
   docHash: string;
@@ -14,9 +17,6 @@ type PdfTextExtractorProps = {
   onStatus?: (stage: string) => void;
 };
 
-// Headless WebView that runs PDF.js purely to extract text. Rendered offscreen;
-// it executes JS regardless of being invisible. Mount it only while extracting.
-// Pages stream back one message at a time (meta → page… → done).
 export function PdfTextExtractor({ fileUri, docHash, onMeta, onPage, onDone, onError, onStatus }: PdfTextExtractorProps) {
   const [setup, setSetup] = useState<{ viewerUri: string; pdfFile: string } | null>(null);
 
@@ -61,14 +61,12 @@ export function PdfTextExtractor({ fileUri, docHash, onMeta, onPage, onDone, onE
         javaScriptEnabled
         allowFileAccess
         allowFileAccessFromFileURLs
-        // NOTE: allowUniversalAccessFromFileURLs deliberately dropped (P10) — the
-        // viewer only reads same-scheme file:// siblings, so same-file-URL access
-        // suffices. VERIFY extraction still completes on device; if not, restore it.
+        // allowUniversalAccessFromFileURLs dropped (untrusted PDFs); same-file-URL
+        // access is enough. If device extraction breaks, restore it.
         injectedJavaScriptBeforeContentLoaded={`window.PDF_FILE=${JSON.stringify(setup.pdfFile)};true;`}
         onMessage={handleMessage}
-        // Untrusted PDF: allow only local navigations (the viewer + its file://
-        // siblings). Block any http(s)/other navigation a malicious PDF triggers.
-        // XHR/blob module loads aren't navigations, so extraction is unaffected.
+        // Block any navigation a malicious PDF triggers; only local file:// loads.
+        // (XHR/blob module loads aren't navigations, so extraction is unaffected.)
         onShouldStartLoadWithRequest={(req) => req.url.startsWith('file://') || req.url === 'about:blank'}
         onError={(e) => onError(e.nativeEvent.description || 'WebView failed to load')}
         style={{ width: 1, height: 1 }}

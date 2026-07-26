@@ -1,18 +1,16 @@
 import { COVER_COUNT } from '../theme';
 import type { Book, ImportedDocument } from '../types';
 
-// CoverThumb cycles through a fixed set of hues; pick one deterministically
-// from the content hash so a document keeps the same tint across launches —
-// unless the user pinned a colour (doc.cover).
+// Maps an imported document to the library list view-model.
+
+// Deterministic tint from the content hash, so a doc keeps its colour across
+// launches unless the user pinned one (doc.cover).
 function coverIndex(docHash: string): number {
   let sum = 0;
   for (let i = 0; i < docHash.length; i++) sum += docHash.charCodeAt(i);
   return sum % COVER_COUNT;
 }
 
-// Maps an imported PDF to the library view-model. Fields the PDF can't supply
-// yet (author, page count, progress) stay empty/zero until later stages fill
-// them — no invented values.
 export function documentToBook(doc: ImportedDocument): Book {
   return {
     id: doc.docHash,

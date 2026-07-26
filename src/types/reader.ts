@@ -1,5 +1,4 @@
-// Shape of reader page content. Real instances come from the PDF.js -> RN
-// sentence bridge; the app ships with no sample content.
+// Logical reader page content (heading / sentence-split paragraph).
 
 export type PageBlock =
   | { kind: 'h2'; text: string }

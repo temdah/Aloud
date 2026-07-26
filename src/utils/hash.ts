@@ -1,5 +1,4 @@
-// Small stable string hash (FNV-1a, 32-bit). Pure JS, no native dep. Used for
-// cache keys (settings) and the per-chunk text-drift guard.
+// Small stable string hash (FNV-1a, 32-bit) for cache keys and text-drift guards.
 export function stableHash(input: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {

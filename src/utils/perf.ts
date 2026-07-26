@@ -1,13 +1,7 @@
-// Dev-only per-stage timing for the synthesis hot path. Every method is a no-op
-// in release builds, so there is zero overhead in production. Use it to profile
-// where a chunk's wall time goes (tokenize / duration / denoise / vocoder /
-// wav-encode / aac-encode) and to record the realtime factor.
+// Dev-only per-stage timing for the synthesis hot path; a no-op in release builds.
 export type StageTimer = {
-  /** Log the time since the previous mark, tagged with `stage`. */
   mark: (stage: string) => void;
-  /** Log the total elapsed time since the timer was created. */
   done: () => void;
-  /** Wall time (ms) since creation — for computing a realtime factor. */
   elapsedMs: () => number;
 };
 

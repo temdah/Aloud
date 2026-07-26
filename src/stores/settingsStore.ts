@@ -3,17 +3,14 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { DEFAULT_VOICE } from '../supertonic';
 import { fileStorage } from './fileStorage';
 
+// Global narration settings (model, voice, language, speed, steps), persisted.
+
 type SettingsState = {
-  /** Active model build id (e.g. 'supertonic-2'); null until the user picks one. */
   modelId: string | null;
-  /** Voice id, e.g. 'M1' / 'F2'. */
   voiceId: string;
-  /** Global default narration language (a SupportedLanguage code, e.g. 'en').
-   *  A document may override this; absent override falls back here. */
+  // A document may override this; absent an override, narration falls back here.
   lang: string;
-  /** Speech speed factor (~0.9–1.5). */
   speed: number;
-  /** Denoising/inference steps (quality vs. latency). */
   steps: number;
   setModelId: (modelId: string | null) => void;
   setVoice: (voiceId: string) => void;

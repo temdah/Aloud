@@ -4,10 +4,11 @@ import pdfLibAsset from '../../assets/pdfjs/pdf.min.pdfjsbundle';
 import pdfWorkerAsset from '../../assets/pdfjs/pdf.worker.min.pdfjsbundle';
 import viewerAsset from '../../assets/pdfjs/viewer.html';
 
+// Stages the bundled pdf.js runtime + viewer.html + the PDF into a file:// dir on
+// device (same-origin), so the headless extraction WebView can load them.
+
 // Bump to invalidate the on-device copies when the bundled assets change.
-// v11: viewer.html gained image extraction (render + crop).
-// v12: viewer.html — cross-page paragraph merge + CJK sentence splitting.
-// v13: viewer.html — pdf.js eval disabled (isEvalSupported:false).
+// v11: image extraction. v12: cross-page merge + CJK. v13: pdf.js eval disabled.
 const RUNTIME_DIR = 'pdfjs-runtime-v13';
 
 let viewerUriPromise: Promise<string> | null = null;
@@ -26,8 +27,7 @@ async function copyAssetIfMissing(mod: number, name: string, dir: Directory): Pr
   new File(asset.localUri ?? asset.uri).copySync(dest);
 }
 
-// Copies pdf.min.mjs + pdf.worker.min.mjs + viewer.html into a runtime dir once,
-// returning the viewer.html file:// URI. Cached for the session.
+// Copies the runtime + viewer into the dir once; returns the viewer's file:// URI.
 export function ensurePdfRuntime(): Promise<string> {
   if (!viewerUriPromise) {
     viewerUriPromise = (async () => {
@@ -44,8 +44,8 @@ export function ensurePdfRuntime(): Promise<string> {
   return viewerUriPromise;
 }
 
-// Stages the PDF as a sibling of viewer.html so the page can fetch it
-// same-origin; returns the file name to inject as window.PDF_FILE.
+// Stages the PDF as a sibling of viewer.html (same-origin fetch); returns the
+// name to inject as window.PDF_FILE.
 export function stagePdf(fileUri: string, docHash: string): string {
   const dir = runtimeDirectory();
   const name = `${docHash}.pdf`;

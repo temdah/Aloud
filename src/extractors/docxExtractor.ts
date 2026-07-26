@@ -2,6 +2,9 @@ import { strFromU8, unzipSync } from 'fflate';
 import { buildDocument, type SourceBlock } from './documentBuilder';
 import type { ExtractedDocument } from '../pdf';
 
+// docx (a zip of XML) → logical blocks: read each <w:p> in word/document.xml,
+// treating heading-styled paragraphs as h2.
+
 function decodeEntities(s: string): string {
   return s
     .replace(/&lt;/g, '<')
@@ -13,8 +16,7 @@ function decodeEntities(s: string): string {
     .replace(/&amp;/g, '&');
 }
 
-// Pulls the readable text out of one <w:p> paragraph: every <w:t> run, with
-// <w:tab/> and <w:br/> rendered as spaces.
+// Readable text of one <w:p>: each <w:t> run, with tabs/breaks as spaces.
 function paragraphText(xml: string): string {
   const out: string[] = [];
   const re = /<w:(t|tab|br)\b([^>]*)>(?:([\s\S]*?)<\/w:\1>)?/g;
@@ -26,8 +28,6 @@ function paragraphText(xml: string): string {
   return out.join('').replace(/\s+/g, ' ').trim();
 }
 
-// docx is a zip; word/document.xml holds the body. We read each <w:p>, mark it a
-// heading when its pStyle references a heading style, otherwise a paragraph.
 export function extractDocx(bytes: Uint8Array): ExtractedDocument {
   const files = unzipSync(bytes);
   const docXml = files['word/document.xml'];

@@ -1,4 +1,3 @@
-// Shared/domain types.
 export type { IconName } from './icon';
 export type { Book, BookState } from './library';
 export type { ImportedDocument, DocumentKind } from './importedDocument';
