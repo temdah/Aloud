@@ -2,32 +2,22 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { stableHash } from '../../utils';
 import type { NarrationSettings } from './narrationTypes';
 
-// Per-document TTS cache: documentDirectory/tts/<docHash>/.
-// Files are keyed on (charStart, settingsHash) — NOT array index — so the cache
-// stays valid even if a future version re-chunks differently (§7.3/§7.4).
-// Changing voice/speed/steps flips settingsHash → clean miss, old audio kept.
+// Per-document TTS cache (documentDirectory/tts/<docHash>/). Files are keyed on
+// (charStart, settingsHash), NOT array index, so re-chunking doesn't invalidate
+// them. speed is deliberately excluded from the key (applied live at playback).
 
 const ROOT = 'tts';
-// A valid cached clip is at least this many bytes (a real .m4a is far larger);
-// anything smaller is treated as a failed/empty write.
-export const MIN_CACHED_BYTES = 256;
-// Registry mapping each settingsHash present in a doc's cache → the human-
-// readable profile it was rendered with. settingsHash is one-way, so without
-// this we couldn't label cached voices in the "manage cached audio" UI.
+export const MIN_CACHED_BYTES = 256; // smaller than this = a failed/empty write
+
+// settingsHash is one-way, so this registry maps it back to a readable profile
+// for the "manage cached audio" UI.
 const PROFILES_FILE = 'profiles.json';
 
-// Bump when text preprocessing / synthesis changes the produced audio for the
-// same settings, so stale cached clips are regenerated instead of replayed.
-// v3: speed is no longer baked into the audio — clips are rendered at the engine's
-// neutral rate and the desired speed is applied live via the player's playback
-// rate, so changing speed never invalidates the cache (old speed-keyed clips from
-// v2 simply orphan until the cache is cleared).
-// v4: cache is AAC (.m4a via MediaCodec) instead of raw WAV (~10× smaller). Old
-// v3 .wav clips orphan until the cache is cleared.
+// Bump when synthesis changes the audio for the same settings. v3: speed no
+// longer baked in (applied live). v4: AAC (.m4a) instead of WAV (~10× smaller).
 const SYNTH_VERSION = 4;
 
 export function settingsHash(s: NarrationSettings): string {
-  // NOTE: speed deliberately excluded — see SYNTH_VERSION note above.
   return stableHash(`v${SYNTH_VERSION}|${s.modelId}|${s.voiceId}|${s.steps}|${s.lang}`);
 }
 
@@ -45,7 +35,6 @@ export function chunkAudioFile(docHash: string, charStart: number, s: NarrationS
   return new File(documentCacheDir(docHash), `${baseName(charStart, s)}.m4a`);
 }
 
-/** Map B timing sidecar (time -> text) for this chunk; written when available. */
 export function chunkTimingFile(docHash: string, charStart: number, s: NarrationSettings): File {
   return new File(documentCacheDir(docHash), `${baseName(charStart, s)}.timing.json`);
 }
@@ -55,17 +44,13 @@ export function isChunkCached(docHash: string, charStart: number, s: NarrationSe
   return file.exists && file.size > MIN_CACHED_BYTES;
 }
 
-/** The file:// uri of a chunk's cached audio (caller must ensure it's cached). */
 export function chunkAudioUri(docHash: string, charStart: number, s: NarrationSettings): string {
   return chunkAudioFile(docHash, charStart, s).uri;
 }
 
-// --- Concatenated audiobook (one file per fully-rendered profile) -------------
-// A fully-rendered book is stitched into a single `book-<hash>.m4a` so it plays
-// as one continuous track (real OS-notification timeline) and the per-chunk clips
-// can be deleted. `book-` can't collide with a chunk name (chunks start with a
-// numeric charStart), and hashFromFileName still recovers the profile hash, so
-// the manage-cache UI groups it under its voice like any other clip.
+// A fully-rendered book is stitched into one `book-<hash>.m4a`. `book-` can't
+// collide with a chunk name (chunks start with a numeric charStart), and
+// hashFromFileName still recovers the profile, so manage-cache groups it normally.
 export function audiobookFile(docHash: string, s: NarrationSettings): File {
   return new File(documentCacheDir(docHash), `book-${settingsHash(s)}.m4a`);
 }
@@ -75,15 +60,12 @@ export function isAudiobookCached(docHash: string, s: NarrationSettings): boolea
   return file.exists && file.size > MIN_CACHED_BYTES;
 }
 
-/** The file:// uri of the concatenated audiobook (caller must ensure it exists). */
 export function audiobookAudioUri(docHash: string, s: NarrationSettings): string {
   return audiobookFile(docHash, s).uri;
 }
 
-// Sidecar recording each chunk's REAL start offset (seconds) in the stitched
-// file — the muxer's actual clock, which drifts from predicted durations. Named
-// `book-<hash>.index.json` so hashFromFileName groups/clears it with its profile
-// (and the `.m4a` filter keeps it out of size/count stats).
+// Real per-chunk start offsets in the stitched file (the muxer's clock, which
+// drifts from predicted durations). `.index.json` name groups it with its profile.
 const AUDIOBOOK_INDEX_VERSION = 1;
 type AudiobookIndex = { version: number; startsSec: number[] };
 
@@ -91,8 +73,6 @@ export function audiobookIndexFile(docHash: string, s: NarrationSettings): File 
   return new File(documentCacheDir(docHash), `book-${settingsHash(s)}.index.json`);
 }
 
-/** Real per-chunk start offsets (seconds) in the stitched audiobook, or null if
- *  absent (a book stitched before this existed → fall back to predicted starts). */
 export function readAudiobookIndex(docHash: string, s: NarrationSettings): number[] | null {
   const file = audiobookIndexFile(docHash, s);
   if (!file.exists) return null;
@@ -116,14 +96,9 @@ export function writeAudiobookIndex(docHash: string, s: NarrationSettings, start
   }
 }
 
-// --- Ephemeral "fast lead" clips ----------------------------------------------
-// A fast lead is a short first-sentence clip synthesized so audio starts within
-// ~1 s instead of waiting for a whole chunk. It lives in the OS cache dir (NOT
-// the per-document tts cache) for two reasons: (1) a boundary lead shares its
-// charStart with the enclosing canonical chunk, so caching it under the normal
-// key would alias/corrupt that chunk's cache (prerender/audiobook read by
-// charStart only); (2) leads are disposable — the OS may evict them freely.
-// Keyed by length too, so a lead never collides with a different-length clip.
+// Fast-lead clips live in the OS cache dir (not the tts cache): a boundary lead
+// shares a chunk's charStart, so caching it under the normal key would corrupt
+// that chunk's clip. Keyed by length too, and disposable (OS may evict).
 const LEAD_ROOT = 'tts-lead';
 
 function leadCacheDir(): Directory {
@@ -141,18 +116,13 @@ export function isLeadCached(docHash: string, charStart: number, len: number, s:
   return file.exists && file.size > MIN_CACHED_BYTES;
 }
 
-// Removes all cached audio/timing for a document (e.g. "clear cached audio").
 export function clearDocumentCache(docHash: string): void {
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (dir.exists) dir.delete();
 }
 
-/** The settings a cached profile was rendered with (speed is excluded — it's
- *  applied live, not baked into the audio). `null` when the profile predates the
- *  registry (e.g. cached before this feature) and couldn't be labelled. */
+// meta is null when the profile predates the registry (couldn't be labelled).
 export type ProfileMeta = { modelId: string; voiceId: string; steps: number; lang: string };
-
-/** One voice/profile's footprint within a document's cache. */
 export type CachedProfile = { hash: string; meta: ProfileMeta | null; count: number; bytes: number };
 
 function profilesRegistryFile(docHash: string): File {
@@ -176,9 +146,6 @@ function writeProfilesRegistry(docHash: string, reg: Record<string, ProfileMeta>
   file.write(JSON.stringify(reg));
 }
 
-// Records that a profile (settingsHash) now has cache for this document, so the
-// management UI can label it. Cheap + idempotent: only writes when the hash is
-// new. Called from ensureChunkAudio so every synthesized profile is registered.
 export function recordCachedProfile(docHash: string, s: NarrationSettings): void {
   const hash = settingsHash(s);
   const reg = readProfilesRegistry(docHash);
@@ -187,9 +154,8 @@ export function recordCachedProfile(docHash: string, s: NarrationSettings): void
   writeProfilesRegistry(docHash, reg);
 }
 
-// Extract the settingsHash from a cache filename `${charStart}-${hash}.m4a`
-// (and `.timing.json`). charStart is a non-negative int and settingsHash is
-// base36 (no dashes), so the FIRST dash always separates the two.
+// charStart is a non-negative int and settingsHash is base36 (no dashes), so the
+// first dash separates them.
 function hashFromFileName(name: string): string | null {
   const stem = name
     .replace(/\.timing\.json$/, '')
@@ -203,8 +169,6 @@ function fileName(uri: string): string {
   return uri.split('/').pop() ?? '';
 }
 
-/** Group a document's cached audio by profile (voice), with size + clip count,
- *  for the per-voice "manage cached audio" UI. */
 export function listCachedProfiles(docHash: string): CachedProfile[] {
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (!dir.exists) return [];
@@ -224,8 +188,6 @@ export function listCachedProfiles(docHash: string): CachedProfile[] {
     .sort((a, b) => b.bytes - a.bytes);
 }
 
-/** Remove every cached file (audio + timing) for one profile, leaving other
- *  voices' caches intact, and drop it from the registry. */
 export function clearProfileCache(docHash: string, hash: string): void {
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (!dir.exists) return;
@@ -244,7 +206,6 @@ export function clearProfileCache(docHash: string, hash: string): void {
   }
 }
 
-/** Count + total bytes of a document's cached audio (for "manage recordings"). */
 export function documentCacheStats(docHash: string): { count: number; bytes: number } {
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (!dir.exists) return { count: 0, bytes: 0 };

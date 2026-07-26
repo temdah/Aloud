@@ -6,22 +6,19 @@ import type { SupertonicConfig, VoiceStyleData } from './synthesis/synthesisType
 import { buildVoiceStyle, VoiceStyle } from './synthesis/voiceStyle';
 import { UnicodeTextProcessor } from './text/unicodeTextProcessor';
 
-// Prefer the XNNPACK execution provider — it accelerates the conv/matmul float32
-// work of the vector estimator (run `steps` times per chunk) 1.5–3× on ARM. ORT
-// partitions any unsupported op back to the CPU EP within the same session, so
-// the worst case is a create-time throw, which we catch per file.
+// Loads a model build's config + tokenizer + four ONNX sessions into a TextToSpeech.
+
+// XNNPACK accelerates the vector estimator's float32 conv/matmul 1.5–3× on ARM;
+// ORT falls unsupported ops back to CPU, worst case a create throw (caught per file).
 const FAST_OPTIONS: InferenceSession.SessionOptions = {
   graphOptimizationLevel: 'all',
   executionProviders: ['xnnpack'],
-  // 4 ≈ big-core count on typical mid/upper Android SoCs; using total core count
-  // pulls in the little cores and slows the pool.
-  intraOpNumThreads: 4,
+  intraOpNumThreads: 4, // big-core count; the total drags in the slow little cores
 };
 const SAFE_OPTIONS: InferenceSession.SessionOptions = { graphOptimizationLevel: 'all' };
 
-// Thrown when the ONNX sessions fail to construct — typically a corrupt/truncated
-// model file that passed the download checks. Screens catch this to offer a
-// re-download instead of failing silently.
+// Thrown when sessions fail to construct (usually a corrupt model that passed the
+// download checks); the reader catches it to offer a re-download.
 export class ModelLoadError extends Error {
   constructor(
     readonly modelId: string,
@@ -32,7 +29,6 @@ export class ModelLoadError extends Error {
   }
 }
 
-// Per-file so one net can use XNNPACK even if another must fall back to CPU.
 async function createSession(path: string): Promise<InferenceSession> {
   try {
     return await InferenceSession.create(path, FAST_OPTIONS);
@@ -42,9 +38,6 @@ async function createSession(path: string): Promise<InferenceSession> {
   }
 }
 
-// Loads the config, tokenizer, and four ONNX sessions for a model build from
-// local storage and assembles a ready-to-use TextToSpeech instance. Assumes the
-// build's files are downloaded.
 export async function loadTextToSpeech(modelId: string): Promise<TextToSpeech> {
   const config = (await modelFile(modelId, CONFIG_FILE).json()) as SupertonicConfig;
   const indexer = (await modelFile(modelId, INDEXER_FILE).json()) as number[];

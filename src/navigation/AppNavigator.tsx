@@ -15,12 +15,10 @@ import type { RootStackParamList } from './navigationTypes';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// A container-level ref so the global MiniPlayer (rendered outside the navigator)
-// can navigate, and so we can read the active route to hide it on the Reader.
+// Container ref so the global MiniPlayer (rendered outside the navigator) can
+// navigate and read the active route.
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-// Screens with their own AppBar manage their own header/back; the diagnostics
-// screen relies on the native stack header instead.
 export function AppNavigator() {
   const { palette: p, mode } = useTheme();
   const [routeName, setRouteName] = useState<string | undefined>(undefined);
@@ -65,7 +63,7 @@ export function AppNavigator() {
         <Stack.Screen name="VoiceModel" component={VoiceModelScreen} />
         <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Performance' }} />
       </Stack.Navigator>
-      {/* The Reader has its own full transport bar, so hide the mini player there. */}
+      {/* Reader has its own transport bar → hide the mini player there. */}
       <MiniPlayer hidden={routeName === 'Reader'} onOpen={openReader} />
     </NavigationContainer>
   );

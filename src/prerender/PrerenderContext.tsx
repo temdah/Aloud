@@ -5,20 +5,15 @@ import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
 
 export type PrerenderContextValue = {
-  /** docHash of the render currently in flight, or null when idle. */
   activeDocHash: string | null;
-  /** Begin (or resume) rendering every chunk of a document in the background. */
   start: (docHash: string, chunks: Chunk[], settings: NarrationSettings) => void;
-  /** Cooperatively cancel the active render (no-op if a different doc is active). */
   cancel: (docHash: string) => void;
 };
 
 const PrerenderContext = createContext<PrerenderContextValue | null>(null);
 
-// Drives "make full audiobook" from ABOVE the navigator so a render keeps going
-// (and keeps reporting progress) after the user leaves the Prerender screen.
-// Progress is written to the persisted documents store, so the Library circular
-// progress and "cache is complete" survive app restarts. One render at a time.
+// Drives "make full audiobook" from above the navigator so a render keeps going
+// (and reporting progress to the store) after the user leaves the screen. One at a time.
 export function PrerenderProvider({ children }: { children: ReactNode }) {
   const setAudiobook = useDocumentsStore((s) => s.setAudiobook);
   const [activeDocHash, setActiveDocHash] = useState<string | null>(null);
@@ -39,8 +34,7 @@ export function PrerenderProvider({ children }: { children: ReactNode }) {
         try {
           const tts = await getEngine(settings.modelId);
           const voice = await getVoice(settings.modelId, settings.voiceId);
-          // Wrap the whole render so a model swap waits for it (shares sessions
-          // with live playback — no second resident engine).
+          // Wrap so a model swap waits for it (shares sessions with live playback).
           const result = await withEngine(settings.modelId, () =>
             prerenderDocument({
               tts,

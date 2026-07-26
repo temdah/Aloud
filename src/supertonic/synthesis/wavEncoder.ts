@@ -1,5 +1,4 @@
-// Encodes a mono float waveform (samples in [-1, 1]) into 16-bit PCM WAV bytes.
-// Ported from the Supertonic web pipeline (web/helper.js: writeWavFile).
+// Mono float waveform [-1, 1] → 16-bit PCM WAV bytes.
 export function encodeWav(samples: ArrayLike<number>, sampleRate: number): Uint8Array {
   const numChannels = 1;
   const bitsPerSample = 16;

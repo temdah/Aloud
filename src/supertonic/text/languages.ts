@@ -12,7 +12,6 @@ export function isLanguageSupported(lang: string): lang is SupportedLanguage {
   return (AVAILABLE_LANGUAGES as readonly string[]).includes(lang);
 }
 
-// Human-readable names for the language picker (full-audiobook config).
 export const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English', ko: 'Korean', ja: 'Japanese', ar: 'Arabic', bg: 'Bulgarian',
   cs: 'Czech', da: 'Danish', de: 'German', el: 'Greek', es: 'Spanish',

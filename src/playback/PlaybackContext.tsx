@@ -3,48 +3,36 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import { usePlayback, useSleepTimer, type Playback, type SleepTimer } from '../hooks';
 import type { Chunk, ImportedDocument } from '../types';
 
-// Everything the playback engine needs to read a specific document. A screen
-// (the Reader) registers this when it opens a PDF; playback then survives that
-// screen unmounting, so audio keeps going as the user navigates the app.
+// Everything playback needs to read a document. The Reader registers this on
+// open; playback then survives that screen unmounting, so audio keeps going.
 export type ActiveDoc = {
   doc: ImportedDocument;
-  /** Canonical chunk list for the document. */
   chunks: Chunk[];
-  /** Canonical document text (used to build tap-start "lead" chunks). */
   text: string;
   modelId: string | null;
   voiceId: string;
   speed: number;
   steps: number;
   lang: string;
-  /** Apply a speed change from the OS notification's speed button to the right
-   *  source (per-doc pin or global). Omit to fall back to the global setting. */
+  // Route an OS-notification speed change to the right source (per-doc pin or global).
   onSpeedChange?: (speed: number) => void;
 };
 
 export type PlaybackContextValue = {
-  /** The live playback controller (play/pause/seek/state). */
   playback: Playback;
-  /** The document currently loaded for playback, or null if none. */
   activeDoc: ActiveDoc | null;
-  /** Register/replace the document the engine plays. */
   setActiveDoc: (doc: ActiveDoc) => void;
-  /** Register a document AND start playing it from `fromOffset` once the engine
-   *  is ready (used by the Library play button for background playback). */
+  // Register a doc AND start it from an offset once ready (Library background play).
   playDocument: (doc: ActiveDoc, fromOffset?: number) => void;
-  /** Forget the active document (e.g. it was deleted) so the engine releases it. */
   clearActiveDoc: () => void;
-  /** Sleep timer: pauses playback after a chosen number of minutes. */
   sleep: SleepTimer;
 };
 
-// Stable empty references so the "no document" render doesn't churn deps.
 const EMPTY_CHUNKS: Chunk[] = [];
 
 const PlaybackContext = createContext<PlaybackContextValue | null>(null);
 
-// Android 13+ suppresses the media/foreground-service notification (and thus the
-// lock-screen controls) unless POST_NOTIFICATIONS is granted. Ask once at start.
+// Android 13+ hides the media notification unless POST_NOTIFICATIONS is granted.
 async function requestNotificationPermission(): Promise<void> {
   if (Platform.OS !== 'android' || Platform.Version < 33) return;
   try {
@@ -74,17 +62,15 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     void requestNotificationPermission();
   }, []);
 
-  // Keep a ref to pause so the timer's fire callback is stable (the timer hook
-  // captures it once; playback.pause is recreated on status changes).
+  // Stable pause ref — the sleep timer captures its callback once.
   const pauseRef = useRef(playback.pause);
   pauseRef.current = playback.pause;
   const sleep = useSleepTimer(useCallback(() => pauseRef.current(), []));
 
   const clearActiveDoc = useCallback(() => setActiveDoc(null), []);
 
-  // A queued "play from here" from the Library. setActiveDoc only takes effect on
-  // the next render, so we can't call playFrom synchronously — stash the intent
-  // and let the effect below fire it once the engine has registered this doc.
+  // setActiveDoc applies next render, so stash the "play from here" intent and
+  // fire it once the engine has registered this doc.
   const pendingPlayRef = useRef<{ docHash: string; offset: number } | null>(null);
   const playDocument = useCallback((doc: ActiveDoc, fromOffset = 0) => {
     pendingPlayRef.current = { docHash: doc.doc.docHash, offset: fromOffset };

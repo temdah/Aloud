@@ -1,5 +1,6 @@
-// Imports engine pieces directly (NOT the src/supertonic barrel) so narration
-// can be re-exported from that barrel without a circular dependency.
+// Renders every chunk's audio, then stitches the book into one .m4a and drops the
+// per-chunk clips (we always favour the single file). Idempotent — returns early
+// if the stitched file already exists; a cancelled run keeps its per-chunk clips.
 import type { Chunk } from '../../types';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
@@ -19,16 +20,9 @@ export type PrerenderOptions = {
   chunks: Chunk[];
   settings: NarrationSettings;
   onProgress?: (p: PrerenderProgress) => void;
-  /** Polled before each chunk; return true to stop early (cooperative cancel). */
   shouldCancel?: () => boolean;
 };
 
-// Walks every chunk for a document, ensures its audio is cached, then stitches
-// the whole book into a single `.m4a` and drops the per-chunk clips — the
-// "process entire book" / full-audiobook job. We always favour the fully-cached
-// single file, so once it exists the per-chunk cache is redundant. Idempotent:
-// if the audiobook file already exists this returns immediately (cheap resume),
-// and a cancelled run keeps whatever per-chunk clips it produced.
 export async function prerenderDocument({
   tts,
   voice,
@@ -40,7 +34,6 @@ export async function prerenderDocument({
 }: PrerenderOptions): Promise<PrerenderResult> {
   const total = chunks.length;
 
-  // Already stitched (per-chunk clips are gone) — nothing to do.
   if (isAudiobookCached(docHash, settings)) {
     onProgress?.({ done: total, total });
     return { completed: true, done: total };
@@ -57,17 +50,15 @@ export async function prerenderDocument({
     onProgress?.({ done, total });
   }
 
-  // Every chunk is cached → stitch them into one audiobook file, then delete the
-  // per-chunk clips. Concat failure is non-fatal: the per-chunk cache stays and
-  // playback falls back to it, so a later run can retry the stitch.
+  // Stitch, then delete the per-chunk clips. Concat failure is non-fatal — the
+  // per-chunk cache stays and a later run retries.
   if (chunks.length > 0) {
     try {
       const parts = chunks.map((c) => chunkAudioFile(docHash, c.charStart, settings));
       if (parts.every((f) => f.exists)) {
         const startsMs = await concatM4a(parts.map((f) => f.uri), audiobookFile(docHash, settings).uri);
         if (isAudiobookCached(docHash, settings)) {
-          // Persist the file's real chunk offsets (aligned with the chunk list)
-          // so the timeline maps through actual clock, not predicted durations.
+          // Real chunk offsets for the timeline (not predicted durations).
           if (startsMs.length === chunks.length) {
             writeAudiobookIndex(docHash, settings, startsMs.map((ms) => ms / 1000));
           }

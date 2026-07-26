@@ -1,9 +1,8 @@
 import { isLanguageSupported } from './languages';
 import type { TokenizedText } from './textTypes';
 
-// Normalizes text and converts it to model token ids using the Supertonic
-// unicode indexer. Pure JS, character-level — no phonemizer or native deps.
-// Ported from the Supertonic web pipeline (web/helper.js: UnicodeProcessor).
+// Normalizes text and converts it to model token ids via the Supertonic unicode
+// indexer. Pure JS, character-level (no phonemizer). Ported from web/helper.js.
 export class UnicodeTextProcessor {
   private readonly indexer: number[];
 
@@ -67,13 +66,9 @@ export class UnicodeTextProcessor {
     while (text.includes("''")) text = text.replace("''", "'");
     while (text.includes('``')) text = text.replace('``', '`');
 
-    // A blank line is a block boundary (e.g. a heading before its body). If the
-    // text just before it has no terminal punctuation, insert a period so the
-    // model takes a natural pause there instead of running the heading straight
-    // into the next sentence. Boundaries that are already punctuated (".", ":",
-    // etc.) keep their own pause cue.
+    // A blank line with no terminal punctuation before it (e.g. a heading above
+    // its body) gets a period so the model pauses instead of running on.
     text = text.replace(/([^\s.!?:;,'")\]])\s*\n\s*\n/g, '$1. ');
-    // Any remaining hard line breaks collapse to spaces (handled below too).
     text = text.replace(/[\r\n]+/g, ' ');
 
     text = text.replace(/\s+/g, ' ').trim();
@@ -90,7 +85,6 @@ export class UnicodeTextProcessor {
   }
 }
 
-// Builds an attention mask shaped [batch][1][maxLen] from per-row lengths.
 export function lengthsToMask(lengths: number[], maxLen: number): number[][][] {
   return lengths.map((len) => {
     const row = new Array<number>(maxLen).fill(0.0);

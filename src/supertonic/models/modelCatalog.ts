@@ -1,8 +1,9 @@
 import { AVAILABLE_LANGUAGES, type SupportedLanguage } from '../text/languages';
 import type { ModelAsset } from './modelTypes';
 
-// Conservative minimum byte sizes per file, used to detect truncated downloads.
-// They differ per build (v3's nets are larger), so they live on each ModelInfo.
+// Selectable Supertonic builds + the file list to download for each.
+
+// Conservative per-file minimums to detect truncated downloads (larger for v3).
 type FileMinBytes = {
   durationPredictor: number;
   textEncoder: number;
@@ -13,9 +14,6 @@ type FileMinBytes = {
   voice: number;
 };
 
-// A selectable Supertonic build. Both builds share the 4-stage pipeline and the
-// same Hugging Face file layout (onnx/ + voice_styles/, F1–F5/M1–M5 voices);
-// they differ in size, speed, language coverage, and quality.
 export type ModelInfo = {
   id: string;
   label: string;
@@ -24,7 +22,6 @@ export type ModelInfo = {
   tagline: string;
   overview: string;
   languages: string;
-  /** Language tags this build can synthesize (gates the audiobook picker). */
   langCodes: SupportedLanguage[];
   minBytes: FileMinBytes;
 };
@@ -70,13 +67,10 @@ export const MODELS: ModelInfo[] = [
   },
 ];
 
-// The model's real voice styles (one embedding JSON each on Hugging Face),
-// shared across builds.
 export const AVAILABLE_VOICES = ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5'] as const;
 
 export const DEFAULT_VOICE = 'M1';
 
-// File names (relative to the model directory) for config and tokenizer assets.
 export const CONFIG_FILE = 'tts.json';
 export const INDEXER_FILE = 'unicode_indexer.json';
 export const voiceFileName = (voice: string) => `${voice}.json`;
@@ -98,7 +92,6 @@ export function getModel(modelId: string): ModelInfo {
   return model;
 }
 
-// The full set of files to download for a given model + voice.
 export function buildAssetList(modelId: string, voice: string): ModelAsset[] {
   const m = getModel(modelId);
   const base = `https://huggingface.co/${m.repo}/resolve/main`;

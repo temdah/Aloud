@@ -3,9 +3,8 @@ import { lengthsToMask, UnicodeTextProcessor } from '../text/unicodeTextProcesso
 import type { SupertonicConfig, SupertonicSessions, SynthesisProgress, SynthesisResult, SynthesisStageReporter } from './synthesisTypes';
 import type { VoiceStyle } from './voiceStyle';
 
-// Orchestrates the Supertonic inference pipeline:
-// tokenize -> predict duration -> encode text -> denoise latent (looped) -> vocode.
-// Ported from web/helper.js (TextToSpeech), with the denoising latent kept flat.
+// The Supertonic inference pipeline: tokenize → predict duration → encode text →
+// denoise latent (looped) → vocode. Ported from web/helper.js.
 export class TextToSpeech {
   readonly sampleRate: number;
 
@@ -17,9 +16,8 @@ export class TextToSpeech {
     this.sampleRate = config.ae.sample_rate;
   }
 
-  // Free the four native ONNX sessions. Hermes can't see the ~300–400 MB of
-  // native memory behind these small JS wrappers, so it must be released
-  // explicitly (the engine manager calls this before dropping an engine).
+  // Free the native ONNX sessions — Hermes can't see the ~300–400 MB behind these
+  // wrappers, so the engine manager releases them explicitly.
   async releaseSessions(): Promise<void> {
     for (const session of Object.values(this.sessions)) {
       try {
@@ -52,7 +50,7 @@ export class TextToSpeech {
       [batchSize, 1, textMask[0][0].length],
     );
 
-    // 1. Predict duration (seconds), adjusted by the speed factor.
+    // 1. Duration (seconds), scaled by speed.
     const durationOut = await this.sessions.durationPredictor.run({
       text_ids: textIdsTensor,
       style_dp: voice.dp,
@@ -70,7 +68,7 @@ export class TextToSpeech {
     const textEmb = textEncOut.text_emb;
     onStage?.('textEncoder');
 
-    // 3. Initialize the noisy latent.
+    // 3. Init noisy latent.
     const { latent, latentDim, latentLen, latentMask } = this.initLatent(durationsSec);
     const latentShape = [batchSize, latentDim, latentLen];
     const latentMaskTensor = new Tensor(
@@ -81,7 +79,7 @@ export class TextToSpeech {
     const totalStepTensor = new Tensor('float32', new Float32Array(batchSize).fill(totalSteps), [batchSize]);
     onStage?.('initLatent');
 
-    // 4. Denoising loop — feed each step's output straight back as the next input.
+    // 4. Denoise loop — each step's output feeds back as the next input.
     let current = latent;
     for (let step = 0; step < totalSteps; step++) {
       onProgress?.(step + 1, totalSteps);
@@ -99,7 +97,7 @@ export class TextToSpeech {
     }
     onStage?.('denoise');
 
-    // 5. Vocode the final latent into a waveform.
+    // 5. Vocode to a waveform.
     const vocoderOut = await this.sessions.vocoder.run({
       latent: new Tensor('float32', current, latentShape),
     });
@@ -108,11 +106,8 @@ export class TextToSpeech {
     return { waveform: vocoderOut.wav_tts.data as Float32Array, durationsSec };
   }
 
-  // Batched stage 1 (tokenize + duration predictor): each text's spoken length in
-  // seconds at the engine's neutral rate, in ONE run (no synthesis). Empty texts
-  // return 0 without inference. Falls back to sequential single runs if the
-  // batched run throws (e.g. a style/shape mismatch) or the output isn't one
-  // value per batch item — we never guess a reshape.
+  // Batched stage 1: each text's neutral-rate length in one run. Falls back to
+  // per-text runs on a shape/style mismatch (never guesses a reshape).
   async predictDurationsSec(texts: string[], lang: string, voice: VoiceStyle): Promise<number[]> {
     const result = new Array<number>(texts.length).fill(0);
     const srcIndex: number[] = [];
@@ -157,7 +152,6 @@ export class TextToSpeech {
     }
   }
 
-  // Single-text stage 1 — the sequential fallback and the public one-shot helper.
   private async predictOneDurationSec(text: string, lang: string, voice: VoiceStyle): Promise<number> {
     if (!text.trim()) return 0;
     const { textIds, textMask } = this.textProcessor.tokenize([text], [lang]);
@@ -180,7 +174,6 @@ export class TextToSpeech {
     return durs.reduce((sum, d) => sum + d, 0);
   }
 
-  /** Spoken length (neutral-rate seconds) of one text. 0 for empty text. */
   async predictDurationSec(text: string, lang: string, voice: VoiceStyle): Promise<number> {
     return this.predictOneDurationSec(text, lang, voice);
   }

@@ -4,11 +4,12 @@ import { stableHash } from '../../utils';
 import { clearDocumentCache, documentCacheDir } from './audioCache';
 import { buildChunks } from './textChunker';
 
+// Persisted per-document chunk list (manifest.json).
+
 const MANIFEST = 'manifest.json';
 
-// Bump when buildChunks/chunkText changes shape or granularity so stored
-// manifests (and their now-stale cached audio) are rebuilt on next open.
-// v4: CJK sentence boundaries + language-aware (120/300) chunk length.
+// Bump when buildChunks/chunkText changes shape so stale manifests (and their
+// now-stale audio) rebuild. v4: CJK boundaries + language-aware chunk length.
 const CHUNKER_VERSION = 4;
 
 export function readManifest(docHash: string): DocumentManifest | null {
@@ -28,13 +29,9 @@ export function writeManifest(manifest: DocumentManifest): void {
   file.write(JSON.stringify(manifest));
 }
 
-// The persisted chunk list for a document, built + persisted on first open.
-// Reuses stored chunk boundaries only when both docHash AND the source text are
-// unchanged, so chunkIdx/charStart stay aligned with the rendered sentences and
-// cached audio. A re-extraction (e.g. an extractor-version bump) changes the
-// text, which invalidates the old offsets — rebuild and drop the now-stale
-// audio, otherwise a new chunk whose charStart collides with an old one (chunk
-// 0 always starts at 0) would replay the wrong cached WAV.
+// Reuse stored chunks only when docHash, text, and chunker version all match. A
+// re-extraction changes the text → rebuild and clear the old audio, else a new
+// chunk 0 (charStart 0) would replay the previous cached clip.
 export function loadChunks(docHash: string, text: string): Chunk[] {
   const textHash = stableHash(text);
   const existing = readManifest(docHash);
