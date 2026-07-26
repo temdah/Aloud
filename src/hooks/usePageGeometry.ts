@@ -2,20 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { estimatePageHeights, loadGeometry, saveGeometry } from '../pdf';
 import type { ExtractedBlock } from '../pdf';
 
+// Per-page height/offset table so the reader jumps to any page instantly. Seeded
+// from a content estimate, refined by real onLayout heights, cached per doc.
+// `version` goes in FlatList extraData so it re-reads getItemLayout on change.
+
 const DEFAULT_PAGE = 560;
 
 export type PageGeometry = {
-  /** FlatList getItemLayout — gives every page an offset so jumps skip straight there. */
   getItemLayout: (data: ArrayLike<unknown> | null | undefined, index: number) => { length: number; offset: number; index: number };
-  /** Feed a page's real rendered height (from onLayout) to refine the table. */
   onPageLayout: (page: number, height: number) => void;
-  /** Bumps whenever offsets change — put it in FlatList's extraData to re-layout. */
   version: number;
 };
 
-// Builds + maintains a per-page height/offset table so the reader can jump to
-// any page instantly (PDFium-style) without FlatList rendering through. Seeded
-// from a content estimate, refined by real onLayout heights, cached per doc.
 export function usePageGeometry(
   docHash: string | undefined,
   blocks: ExtractedBlock[],
@@ -82,7 +80,6 @@ export function usePageGeometry(
     [docHash, pageCount],
   );
 
-  // Stable: reads the live refs. FlatList re-reads it when `version` changes via extraData.
   const getItemLayout = useCallback(
     (_data: ArrayLike<unknown> | null | undefined, index: number) => ({
       length: heightsRef.current[index] || DEFAULT_PAGE,

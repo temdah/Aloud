@@ -4,25 +4,21 @@ import { useDocumentsStore } from '../stores';
 import type { NarrationSettings } from '../supertonic';
 import type { Chunk } from '../types';
 
+// Per-document view over the global PrerenderProvider (the render loop lives there
+// so it survives leaving the screen) plus the persisted store.
+
 export type PrerenderStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error';
 
 export type PrerenderState = {
   status: PrerenderStatus;
-  /** Chunks rendered (or found cached) so far. */
   done: number;
   total: number;
-  /** 0..1 across the whole document. */
   progress: number;
   error?: string;
-  /** Begin (or resume) rendering every chunk with these settings. */
   start: (settings: NarrationSettings) => void;
-  /** Cooperatively stop after the current chunk. */
   cancel: () => void;
 };
 
-// Thin view over the global PrerenderProvider + persisted store. The actual
-// render loop lives in the provider (so it survives leaving the screen); this
-// hook just exposes the current document's status/progress and start/cancel.
 export function usePrerender(docHash: string, chunks: Chunk[]): PrerenderState {
   const { activeDocHash, start: ctxStart, cancel: ctxCancel } = usePrerenderContext();
   const audiobook = useDocumentsStore((s) => s.audiobook[docHash]);

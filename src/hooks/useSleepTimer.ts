@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+// Wall-clock countdown firing `onFire` once. Tracks an absolute deadline (not a
+// tick count) so it stays accurate when the JS timer is throttled in the
+// background — the "stop after N minutes with the screen off" case.
+
 export type SleepTimer = {
-  /** True while a countdown is running. */
   active: boolean;
-  /** Whole minutes left (rounded up), 0 when inactive. */
   minutesLeft: number;
-  /** Start (or restart) the countdown for `minutes`. */
   start: (minutes: number) => void;
-  /** Cancel a running countdown. */
   cancel: () => void;
 };
 
-// A wall-clock countdown that fires `onFire` once when it elapses. It tracks an
-// absolute deadline (not a tick count) so it stays accurate even if the JS timer
-// is throttled in the background — the relevant case for "stop playback after N
-// minutes" while the screen is off.
 export function useSleepTimer(onFire: () => void): SleepTimer {
   const [deadline, setDeadline] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());

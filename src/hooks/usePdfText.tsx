@@ -7,19 +7,20 @@ import { useDocumentsStore } from '../stores';
 import { loadChunks } from '../supertonic';
 import type { ImportedDocument } from '../types';
 
+// Resolves a document's reflowed text: reuse the per-doc cache, else run the
+// headless PDF.js extractor, which streams pages so the reader can show page 1
+// immediately. On completion it caches, builds the chunk manifest, records pages.
+
 export type PdfTextStatus = 'idle' | 'loading' | 'streaming' | 'ready' | 'error';
 
 export type PdfTextState = {
   status: PdfTextStatus;
-  /** Partial while streaming, complete once ready. */
   document: ExtractedDocument | null;
-  /** Total pages (known after the first message). */
   pageCount: number;
-  /** Pages whose text has arrived so far. */
   loadedPages: number;
   stage: string;
   error?: string;
-  /** Mount this (hidden) somewhere in the tree while it extracts. */
+  // Mount this (hidden) in the tree while it extracts.
   extractor: ReactNode;
 };
 
@@ -34,10 +35,6 @@ type State = {
 
 const IDLE: State = { status: 'idle', document: null, pageCount: 0, loadedPages: 0, stage: '' };
 
-// Resolves a document's reflowed text: reuse the per-doc cache, otherwise run
-// the headless PDF.js extractor, which streams pages back so the reader can
-// show page 1 immediately. On completion it persists the cache, builds the
-// chunk manifest, and records the page count.
 export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   const setPageCount = useDocumentsStore((s) => s.setPageCount);
   const [state, setState] = useState<State>(IDLE);
@@ -45,8 +42,6 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   const textRef = useRef('');
   const pageCountRef = useRef(0);
 
-  // Persists a fully-built document: cache it, build the chunk manifest, record
-  // the page count. Shared by the md/docx path and the PDF stream's onDone.
   const finalize = useCallback((d: ImportedDocument, extracted: ExtractedDocument) => {
     saveExtractedText(d.docHash, extracted);
     try {
@@ -68,11 +63,9 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
     blocksRef.current = [];
     textRef.current = '';
     pageCountRef.current = 0;
-    // Re-extracting → drop any images from a previous extraction of this doc.
-    clearExtractedImages(doc.docHash);
+    clearExtractedImages(doc.docHash); // re-extract → drop any prior images
 
-    // Markdown/docx are parsed directly in JS (no WebView), so they resolve
-    // synchronously here. PDF falls through to the streaming extractor below.
+    // md/docx parse synchronously in JS; PDF falls through to the WebView extractor.
     if (doc.kind === 'markdown' || doc.kind === 'docx') {
       try {
         const file = new File(doc.fileUri);
@@ -95,8 +88,7 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   }, []);
 
   const onPage = useCallback((page: number, blocks: ExtractedBlock[], textSegment: string) => {
-    // Persist any image blocks (sent as base64) to files, keeping only the uri so
-    // the cached document stays small. Drop an image if it can't be written.
+    // Persist image blocks (sent as base64) to files, keeping only the uri; drop one if it can't be written.
     const docHash = doc?.docHash;
     const processed = docHash
       ? blocks
