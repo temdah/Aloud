@@ -48,7 +48,7 @@ export function readChunkTiming(docHash: string, charStart: number, s: Narration
   if (!file.exists) return null;
   try {
     const parsed = JSON.parse(file.textSync()) as ChunkTiming;
-    return typeof parsed.seconds === 'number' && parsed.seconds >= 0 ? parsed.seconds : null;
+    return parsed.seconds >= 0 ? parsed.seconds : null;
   } catch {
     return null;
   }
