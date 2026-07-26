@@ -39,6 +39,32 @@ export function chunkTimingFile(docHash: string, charStart: number, s: Narration
   return new File(documentCacheDir(docHash), `${baseName(charStart, s)}.timing.json`);
 }
 
+// Neutral-rate clip length (s), written alongside each cached chunk at synth time.
+// Lets the document timeline rebuild from cached audio with no engine pass.
+type ChunkTiming = { seconds: number };
+
+export function readChunkTiming(docHash: string, charStart: number, s: NarrationSettings): number | null {
+  const file = chunkTimingFile(docHash, charStart, s);
+  if (!file.exists) return null;
+  try {
+    const parsed = JSON.parse(file.textSync()) as ChunkTiming;
+    return typeof parsed.seconds === 'number' && parsed.seconds >= 0 ? parsed.seconds : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeChunkTiming(docHash: string, charStart: number, s: NarrationSettings, seconds: number): void {
+  const file = chunkTimingFile(docHash, charStart, s);
+  try {
+    if (file.exists) file.delete();
+    file.create();
+    file.write(JSON.stringify({ seconds } satisfies ChunkTiming));
+  } catch {
+    // Non-fatal: the timeline just falls back to the duration predictor.
+  }
+}
+
 export function isChunkCached(docHash: string, charStart: number, s: NarrationSettings): boolean {
   const file = chunkAudioFile(docHash, charStart, s);
   return file.exists && file.size > MIN_CACHED_BYTES;

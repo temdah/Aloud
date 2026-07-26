@@ -6,7 +6,7 @@ import type { VoiceStyle } from '../synthesis/voiceStyle';
 import type { File } from 'expo-file-system';
 import { encodePcmToM4a } from '../../../modules/aac-codec';
 import { stageTimer } from '../../utils/perf';
-import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile } from './audioCache';
+import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile, writeChunkTiming } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
 
 async function synthesizeToFile(
@@ -15,7 +15,7 @@ async function synthesizeToFile(
   file: File,
   chunk: Chunk,
   settings: NarrationSettings,
-): Promise<string> {
+): Promise<{ uri: string; neutralSec: number }> {
   // Render at the engine's neutral rate; playback speed is applied live, so the
   // cache is speed-agnostic.
   const timer = stageTimer('synth');
@@ -37,7 +37,7 @@ async function synthesizeToFile(
     console.log(`[perf:synth] audio ${audioSec.toFixed(2)}s / wall ${wallSec.toFixed(2)}s = ${(audioSec / wallSec).toFixed(2)}x realtime`);
   }
   timer.done();
-  return file.uri;
+  return { uri: file.uri, neutralSec: waveform.length / tts.sampleRate };
 }
 
 export async function ensureChunkAudio(
@@ -53,7 +53,10 @@ export async function ensureChunkAudio(
   const file = chunkAudioFile(docHash, chunk.charStart, settings);
   if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
 
-  return synthesizeToFile(tts, voice, file, chunk, settings);
+  const { uri, neutralSec } = await synthesizeToFile(tts, voice, file, chunk, settings);
+  // Persist the clip length so the document timeline can rebuild from cache.
+  writeChunkTiming(docHash, chunk.charStart, settings, neutralSec);
+  return uri;
 }
 
 // Short first-sentence "fast lead" so playback starts in ~1 s. Keyed by length in
@@ -67,5 +70,6 @@ export async function ensureLeadAudio(
 ): Promise<string> {
   const file = leadAudioFile(docHash, chunk.charStart, chunk.text.length, settings);
   if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
-  return synthesizeToFile(tts, voice, file, chunk, settings);
+  const { uri } = await synthesizeToFile(tts, voice, file, chunk, settings);
+  return uri;
 }

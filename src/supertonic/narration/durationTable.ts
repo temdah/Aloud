@@ -7,7 +7,7 @@ import type { Chunk } from '../../types';
 import { stableHash } from '../../utils';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
-import { documentCacheDir } from './audioCache';
+import { documentCacheDir, readChunkTiming } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
 
 const TABLE_VERSION = 1;
@@ -49,6 +49,27 @@ function writeDurationTable(docHash: string, seconds: number[], s: NarrationSett
   }
 }
 
+// Build the whole timeline from disk alone — the stored table, or a complete set
+// of per-chunk timing sidecars (written at synth time). Returns null if anything
+// is missing, so the caller knows it must load the engine and predict. This is
+// what makes reopening an already-played document instant: no engine, no predict.
+export function loadDurationTableFromCache(
+  docHash: string,
+  chunks: Chunk[],
+  s: NarrationSettings,
+): DurationTable | null {
+  const stored = loadDurationTable(docHash, chunks.length, s);
+  if (stored) return stored;
+  const seconds = new Array<number>(chunks.length);
+  for (let i = 0; i < chunks.length; i++) {
+    const t = readChunkTiming(docHash, chunks[i].charStart, s);
+    if (t == null) return null;
+    seconds[i] = t;
+  }
+  writeDurationTable(docHash, seconds, s); // promote to the single-file fast path
+  return seconds;
+}
+
 export type BuildDurationTableOptions = {
   onProgress?: (done: number, total: number) => void;
   shouldCancel?: () => boolean;
@@ -67,20 +88,32 @@ export async function ensureDurationTable(
     opts.onProgress?.(chunks.length, chunks.length);
     return cached;
   }
+
+  // Reuse per-chunk timings from already-cached clips; only predict the gaps.
+  const seconds = new Array<number>(chunks.length);
+  const missing: number[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const t = readChunkTiming(docHash, chunks[i].charStart, s);
+    if (t != null) seconds[i] = t;
+    else missing.push(i);
+  }
+  let done = chunks.length - missing.length;
+  opts.onProgress?.(done, chunks.length);
+
   // Batch the predictor (one run per BATCH chunks) — the model is tiny, so padding
   // waste beats per-chunk JSI round-trips. Cancels between batches.
   const BATCH = 16;
-  const seconds: number[] = [];
-  for (let i = 0; i < chunks.length; i += BATCH) {
+  for (let i = 0; i < missing.length; i += BATCH) {
     if (opts.shouldCancel?.()) return null;
-    const slice = chunks.slice(i, i + BATCH);
+    const idxs = missing.slice(i, i + BATCH);
     const durs = await tts.predictDurationsSec(
-      slice.map((c) => c.text),
+      idxs.map((j) => chunks[j].text),
       s.lang,
       voice,
     );
-    for (const d of durs) seconds.push(d);
-    opts.onProgress?.(Math.min(i + BATCH, chunks.length), chunks.length);
+    for (let k = 0; k < idxs.length; k++) seconds[idxs[k]] = durs[k];
+    done += idxs.length;
+    opts.onProgress?.(done, chunks.length);
   }
   writeDurationTable(docHash, seconds, s);
   return seconds;

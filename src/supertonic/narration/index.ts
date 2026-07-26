@@ -26,6 +26,7 @@ export { readManifest, writeManifest, loadChunks } from './manifest';
 export {
   ensureDurationTable,
   loadDurationTable,
+  loadDurationTableFromCache,
   cumulativeOffsetsSec,
   totalDurationSec,
   locateTime,

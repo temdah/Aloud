@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
+import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTableFromCache, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
@@ -330,7 +330,10 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     let cancelled = false;
     setDurTable(null);
     if (!modelId || chunks.length === 0) return;
-    const cached = loadDurationTable(docHash, chunks.length, settings);
+    // Fast path: rebuild the timeline from disk (stored table or a full set of
+    // per-chunk timing sidecars) with no engine load. Only a doc with un-cached
+    // chunks falls through to the predictor below.
+    const cached = loadDurationTableFromCache(docHash, chunks, settings);
     if (cached) {
       setDurTable(cached);
       return;
