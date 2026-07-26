@@ -15,8 +15,8 @@ import { makeStyles } from './PrerenderScreen.styles';
 const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.25, 1.5];
 // Rough spoken rate (chars/sec at ×1.0) — only used for the size/time estimate.
 const CHARS_PER_SEC = 14;
-// 44.1 kHz mono 16-bit PCM.
-const WAV_BYTES_PER_SEC = 44100 * 2;
+// Cache is AAC-LC mono at 64 kbps (see aac-codec) → 8000 bytes/s.
+const AAC_BYTES_PER_SEC = 64000 / 8;
 
 function pickInitialModel(modelId: string | null, voiceId: string): ModelInfo {
   if (modelId) {
@@ -82,7 +82,7 @@ export default function PrerenderScreen() {
   const totalChars = chunks.length ? chunks[chunks.length - 1].charEnd : 0;
   const estSeconds = totalChars / (CHARS_PER_SEC * speed);
   const estMinutes = Math.max(1, Math.round(estSeconds / 60));
-  const estMb = Math.round((estSeconds * WAV_BYTES_PER_SEC) / 1e6);
+  const estMb = Math.max(1, Math.round((estSeconds * AAC_BYTES_PER_SEC) / 1e6));
 
   const chooseModel = (m: ModelInfo) => {
     setModel(m);
@@ -190,7 +190,7 @@ export default function PrerenderScreen() {
           <View style={[styles.estimate, { borderColor: p.border }]}>
             <Text style={ty(TYPE.bodyMedium, p.text)}>≈ {chunks.length} clips · ≈ {estMinutes} min · ≈ {estMb} MB</Text>
             <Text style={[ty(TYPE.caption, p.textDim), styles.estimateNote]}>
-              Audio is uncompressed (WAV), so long books can use a lot of space. Already-rendered clips are reused.
+              Audio is compressed (AAC), so it stays small. Already-rendered clips are reused.
             </Text>
           </View>
 
