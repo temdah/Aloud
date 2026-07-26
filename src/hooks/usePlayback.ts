@@ -553,6 +553,20 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
               await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, ahead, settings));
             } catch {}
           }
+          // Cache it now, lowest priority, so re-tapping this chunk later plays
+          // from cache instead of re-synthesizing a lead. )
+          if (lead) {
+            const enclosing = chunks[anchorIdx];
+            if (enclosing && !isChunkCached(docHash, enclosing.charStart, settings)) {
+              if (token !== playTokenRef.current) return;
+              const engine = await ensureEngine();
+              if (engine) {
+                try {
+                  await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, enclosing, settings));
+                } catch {}
+              }
+            }
+          }
         })();
       } catch (e) {
         if (token === playTokenRef.current) setLoading(false);
