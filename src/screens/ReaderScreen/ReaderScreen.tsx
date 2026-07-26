@@ -8,7 +8,7 @@ import { usePlaybackContext } from '../../playback';
 import { clearExtractedImages, type ExtractedBlock } from '../../pdf';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, findModel, isChunkCached, languageLabel, loadChunks } from '../../supertonic';
+import { clearDocumentCache, deleteModel, findModel, isChunkCached, languageLabel, loadChunks } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './ReaderScreen.styles';
@@ -110,6 +110,11 @@ export default function ReaderScreen() {
   // this screen (mini player on other screens). The Reader registers the open
   // document with the engine; consuming `playback` works exactly as before.
   const { playback, activeDoc, setActiveDoc, clearActiveDoc, sleep } = usePlaybackContext();
+  // Corrupt-model recovery: the engine load flags a damaged model → offer a re-download.
+  const [modelErrorOpen, setModelErrorOpen] = useState(false);
+  useEffect(() => {
+    if (playback.modelLoadFailed) setModelErrorOpen(true);
+  }, [playback.modelLoadFailed]);
   useEffect(() => {
     if (status !== 'ready' || !doc || !document?.text) return;
     setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, onSpeedChange: setEffSpeed });
@@ -691,6 +696,24 @@ export default function ReaderScreen() {
       />
 
       <ActionDialog open={menu} onClose={() => setMenu(false)} title={doc?.title} actions={menuActions} />
+
+      <ActionDialog
+        open={modelErrorOpen}
+        onClose={() => setModelErrorOpen(false)}
+        title="Voice model looks damaged"
+        message="The voice model couldn’t load — its files may be incomplete. Re-download it to fix reading aloud."
+        actions={[
+          {
+            label: 'Re-download',
+            variant: 'filled',
+            onPress: () => {
+              if (effModelId) deleteModel(effModelId);
+              navigation.navigate('VoiceModel');
+            },
+          },
+          { label: 'Not now', variant: 'ghost' },
+        ]}
+      />
 
       <ActionDialog
         open={sleepMenu}

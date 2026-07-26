@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, locateTime, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
+import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTable, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
@@ -125,6 +125,9 @@ export type UsePlaybackOptions = {
 
 export type Playback = {
   ready: boolean;
+  /** The active model's ONNX sessions failed to load (corrupt/truncated files).
+   *  The reader offers a re-download when this is set. */
+  modelLoadFailed: boolean;
   playing: boolean;
   /** True while the current chunk's audio is being synthesized (no audio yet). */
   loading: boolean;
@@ -192,6 +195,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const accentColor = palette.primary;
 
   const [ready, setReady] = useState(false);
+  // Set when the ONNX sessions fail to construct — typically a corrupt model file
+  // that passed the download checks. Drives the reader's re-download prompt.
+  const [modelLoadFailed, setModelLoadFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [engaged, setEngaged] = useState(false);
   const [started, setStarted] = useState(false);
@@ -322,6 +328,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // and reuses the resident engine). Model swaps release the old sessions.
   useEffect(() => {
     let cancelled = false;
+    setModelLoadFailed(false);
     if (!modelId) {
       setReady(false);
       return; // no model picked yet — leave the engine unloaded
@@ -337,7 +344,12 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       .then(() => {
         if (!cancelled) setReady(true);
       })
-      .catch((e) => console.warn('[usePlayback] failed to load engine:', e));
+      .catch((e) => {
+        console.warn('[usePlayback] failed to load engine:', e);
+        // A corrupt/truncated model surfaces here — flag it so the reader can
+        // offer a re-download instead of failing silently.
+        if (!cancelled && e instanceof ModelLoadError) setModelLoadFailed(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -911,6 +923,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
 
   return {
     ready,
+    modelLoadFailed,
     playing: status.playing,
     loading,
     engaged,
