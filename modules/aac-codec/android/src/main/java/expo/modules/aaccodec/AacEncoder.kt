@@ -27,7 +27,7 @@ private data class WavInfo(val rate: Int, val channels: Int, val dataLen: Long)
 // Result of a concat: an error code plus each source clip's start offset (ms) in
 // the stitched file — the file's REAL clock, which drifts from predicted durations
 // by AAC priming/padding + the inter-clip spacer.
-private data class ConcatResult(val rc: Int, val startsMs: List<Double>)
+internal data class ConcatResult(val rc: Int, val startsMs: List<Double>)
 
 // 16-bit PCM byte source for the shared encode loop (WAV files or an in-memory
 // buffer). `read` returns bytes written to dst (up to max), or 0 when exhausted.

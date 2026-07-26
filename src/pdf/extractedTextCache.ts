@@ -7,7 +7,8 @@ const TEXT_DIR = 'text';
 
 // Bump when extraction/reflow changes so stale caches are re-extracted.
 // v10: inline images. v11: cross-page paragraph merge + smarter dehyphenation.
-const EXTRACTOR_VERSION = 11;
+// v12: headings get sentence-final punctuation in the spoken stream.
+const EXTRACTOR_VERSION = 12;
 
 type CacheEnvelope = { version: number; doc: ExtractedDocument };
 

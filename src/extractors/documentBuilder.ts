@@ -64,6 +64,11 @@ export function buildDocument(source: SourceBlock[]): ExtractedDocument {
     const charEnd = text.length;
 
     if (sb.kind === 'h2') {
+      // Append sentence-final punctuation to the synthesized text so the heading
+      // reads with a pause + falling intonation instead of running straight into
+      // the body. It sits outside the block range, so the reader shows a clean
+      // title and the highlight is unaffected.
+      if (!/[.!?…:]$/.test(body)) text += '.';
       blocks.push({ kind: 'h2', text: body, charStart, charEnd, page, indent: 0 });
     } else {
       const sentences = splitSentences(body, charStart);

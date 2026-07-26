@@ -258,7 +258,12 @@ function canonicalizePage(blocks, base) {
   const out = [];
   for (const b of blocks) {
     if (b.kind === 'h2') {
-      const cs = base + text.length; text += b.text; const ce = base + text.length; text += '\n\n';
+      const cs = base + text.length; text += b.text; const ce = base + text.length;
+      // Sentence-final punctuation so the heading is spoken with a pause + falling
+      // intonation, not run into the body. Kept outside [cs, ce) so the reader
+      // shows a clean title and highlight is unaffected (mirrors documentBuilder).
+      if (!/[.!?…:]$/.test(b.text)) text += '.';
+      text += '\n\n';
       out.push({ kind: 'h2', text: b.text, charStart: cs, charEnd: ce, page: b.page, indent: b.indent });
     } else if (b.kind === 'toc') {
       const full = b.target ? b.title + ' ' + b.target : b.title;
