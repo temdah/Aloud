@@ -11,17 +11,14 @@ export type NowPlayingPillProps = {
   playing?: boolean;
   onPress?: () => void;
   onToggle?: () => void;
-  /** Square stop: halt audio but keep the pill (resumes from here on play). */
-  onStop?: () => void;
-  /** Swipe the pill away — fully dismiss it (stop + forget the active doc). */
-  onDismiss?: () => void;
+  onStop?: () => void; // square stop: halt but keep the pill (resume on play)
+  onDismiss?: () => void; // swipe away: full stop + forget the doc
 };
 
-// Distance (px) the pill must be dragged sideways before a release dismisses it.
 const DISMISS_THRESHOLD = 110;
 
-// Floating "now playing" bar above the library list. Swipe it horizontally to
-// dismiss; the square stops without dismissing (the bar stays so you can resume).
+// Floating "now playing" bar. Swipe horizontally to dismiss; the square stops
+// without dismissing (bar stays for resume).
 export function NowPlayingPill({ book, playing = true, onPress, onToggle, onStop, onDismiss }: NowPlayingPillProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -31,8 +28,7 @@ export function NowPlayingPill({ book, playing = true, onPress, onToggle, onStop
   const responder = useMemo(
     () =>
       PanResponder.create({
-        // Only claim the gesture for a deliberate horizontal drag, so taps still
-        // reach the inner buttons (open / stop / play-pause).
+        // Only claim a deliberate horizontal drag, so taps still reach the buttons.
         onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
         onPanResponderMove: (_e, g) => {
           translateX.setValue(g.dx);

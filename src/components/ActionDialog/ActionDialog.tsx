@@ -16,16 +16,14 @@ export type ActionDialogProps = {
   open: boolean;
   onClose?: () => void;
   title?: string;
-  /** One-line context: what happened / why this dialog appeared. */
   message?: string;
   actions: DialogAction[];
 };
 
-// Themed centered dialog (Animated + blurred backdrop) — the app's substitute
-// for the native Alert. Rendered as an in-tree overlay rather than a Modal so
-// expo-blur can actually blur the content behind it (BlurView can't sample
-// across a Modal's separate native window on Android). Mount it at a screen
-// root so it covers the whole screen. Auto-closes after an action.
+// Themed centered dialog (the app's Alert substitute). Rendered as an in-tree
+// overlay, not a Modal, so expo-blur can sample the content behind it (BlurView
+// can't blur across a Modal's separate native window on Android). Mount at a
+// screen root; auto-closes after an action.
 export function ActionDialog({ open, onClose, title, message, actions }: ActionDialogProps) {
   const { palette: p, mode } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -63,11 +61,9 @@ export function ActionDialog({ open, onClose, title, message, actions }: ActionD
 
   return (
     <View style={styles.overlay}>
-      {/* The BlurView must NOT be nested inside an opacity-animated layer:
-          dimezisBlurView samples the window content behind it, and a
-          native-driven opacity animation forces its parent onto a separate
-          composited layer, so the blur would sample nothing. Keep the blur
-          mounted with the overlay and fade a plain scrim instead. */}
+      {/* Keep the BlurView out of any opacity-animated layer: a native-driven
+          opacity animation composites its parent onto a separate layer, and the
+          blur would then sample nothing. Fade a plain scrim instead. */}
       <BlurView
         intensity={48}
         tint={mode === 'dark' ? 'dark' : 'light'}

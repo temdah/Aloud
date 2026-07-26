@@ -9,25 +9,19 @@ import { makeStyles } from './PlayerControls.styles';
 
 export type PlayerControlsProps = {
   playing: boolean;
-  /** Synthesizing the selected chunk — show a spinner on the play button. */
   loading?: boolean;
   onTogglePlay: () => void;
-  /** Stop the whole read-aloud (clears the selection + media controls). */
   onStop?: () => void;
   onSkipBack: () => void;
   onSkipFwd: () => void;
   progress: number;
-  /** Commit a scrub — fired only on release (fraction 0..1). */
-  onScrub: (value: number) => void;
-  /** Whole-timeline seconds, for the live preview label while dragging. */
-  totalSec: number;
+  onScrub: (value: number) => void; // fired on release (fraction 0..1)
+  totalSec: number; // for the live preview label while dragging
   position: string;
   duration: string;
   speed: number;
   onSpeed: () => void;
-  /** Open the sleep-timer menu (moon button, far-left). */
   onSleep: () => void;
-  /** Minutes left on the sleep timer, or null when it's off. */
   sleepMinutesLeft?: number | null;
 };
 
@@ -44,8 +38,7 @@ export function PlayerControls({
 }: PlayerControlsProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
-  // While dragging, show where the thumb WILL land (fraction 0..1); commit the
-  // seek only on release so playback never processes a half-finished drag.
+  // Show where the thumb will land while dragging; seek only on release.
   const [preview, setPreview] = useState<number | null>(null);
   const posLabel = preview != null ? fmtTime(preview * totalSec) : position;
   const remLabel = preview != null ? fmtTime(Math.max(0, totalSec - preview * totalSec)) : duration;

@@ -8,10 +8,8 @@ import { makeStyles } from './EmptyLibrary.styles';
 const TITLE = 'A library that reads to you';
 const SUBTITLE = 'Import a PDF, Markdown, or Word file and tap anywhere in the text. The voice picks up from there — fully offline.';
 
-// Reveals `text` one character at a time after `delay` ms. The full string is
-// rendered transparent underneath to reserve its final layout, so the visible
-// (left-aligned) text doesn't reflow / re-center as it grows — a clean
-// typewriter, not a jittering centered line.
+// Typewriter reveal. The full string is rendered transparent underneath to
+// reserve its final layout, so the visible text doesn't reflow as it grows.
 function Typewriter({
   text,
   delay,
@@ -51,9 +49,8 @@ function Typewriter({
   );
 }
 
-// Animated empty-library state: the book art spreads open, the title types
-// itself out, the subtitle fades in, and the import button fades in with a
-// little bounce to invite a tap. The whole sequence lands inside ~1.8s.
+// Animated empty-library state: art spreads open, the title types out, subtitle
+// fades in, then the import button pops in. The sequence lands inside ~1.8s.
 export function EmptyLibrary({ onImport }: { onImport: () => void }) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -79,12 +76,11 @@ export function EmptyLibrary({ onImport }: { onImport: () => void }) {
 
     const btn = Animated.sequence([
       Animated.delay(1120),
-      // Pop in with a slight overshoot.
       Animated.parallel([
         Animated.timing(btnOpacity, { toValue: 1, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: true }),
         Animated.timing(btnScale, { toValue: 1, duration: 260, easing: Easing.out(Easing.back(2.2)), useNativeDriver: true }),
       ]),
-      // A gentle secondary bounce to signal it's pressable.
+      // Secondary bounce to signal it's pressable.
       Animated.delay(120),
       Animated.timing(btnScale, { toValue: 1.05, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: true }),
       Animated.timing(btnScale, { toValue: 1, duration: 280, easing: Easing.elastic(1.6), useNativeDriver: true }),

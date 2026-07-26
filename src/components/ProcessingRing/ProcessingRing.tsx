@@ -4,18 +4,15 @@ import Svg, { Circle } from 'react-native-svg';
 import { useTheme } from '../../theme';
 
 export type ProcessingRingProps = {
-  /** Spin + show while true; fade back out when false. */
-  active: boolean;
-  /** Ring diameter (should be a touch larger than the button it wraps). */
-  size?: number;
+  active: boolean; // spin + fade in while true, fade out when false
+  size?: number; // should be a touch larger than the button it wraps
   color?: string;
 };
 
 const STROKE = 3;
 
-// A spinning accent arc that fades in around the play button while a chunk is
-// being synthesized, then fades back out when it starts playing. Built on RN
-// Animated + react-native-svg (old-arch safe; no reanimated).
+// Spinning accent arc that fades in around the play button while a chunk is
+// being synthesized, then fades out when it starts playing.
 export function ProcessingRing({ active, size = 68, color }: ProcessingRingProps) {
   const { palette: p } = useTheme();
   const ringColor = color ?? p.primary;

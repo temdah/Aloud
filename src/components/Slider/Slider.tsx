@@ -8,21 +8,17 @@ export type SliderProps = {
   min?: number;
   max?: number;
   step?: number | null;
-  /** Fires continuously while dragging (and on release if no onCommit). Use for a
-   *  live preview label; avoid doing expensive work here. */
   onChange?: (value: number) => void;
-  /** Fires once, on release, with the final value. When set, the drag is a
-   *  "preview" — the caller should do the real work (e.g. seek) only here. */
+  // When set, the drag is a preview (onChange fires live); do the real work
+  // (e.g. seek) here, on release only.
   onCommit?: (value: number) => void;
   ticks?: number[] | null;
   height?: number;
 };
 
-// Gesture math identical to the design; only the event source changes (web
-// PointerEvents -> RN PanResponder + measureInWindow). While dragging, the thumb
-// follows the finger (its own drag value) rather than the controlled `value`, so
-// a live-updating source (e.g. playback position) can't fight the finger. With
-// `onCommit`, work is deferred to release for precise, stutter-free scrubbing.
+// While dragging, the thumb follows the finger (its own drag value) instead of
+// the controlled `value`, so a live source (playback position) can't fight it;
+// with onCommit the seek is deferred to release for stutter-free scrubbing.
 export function Slider({ value, min = 0, max = 1, step = null, onChange, onCommit, ticks = null, height = 36 }: SliderProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -77,7 +73,6 @@ export function Slider({ value, min = 0, max = 1, step = null, onChange, onCommi
           setDragValue(null);
         },
       }),
-    // valueAt closes over current props via refs; recreate when bounds/handlers change
     [min, max, step, onChange, onCommit],
   );
 

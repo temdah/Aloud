@@ -14,18 +14,16 @@ const PREFETCH_AHEAD = 4;
 // Minimum length (chars) of a mid-chunk "lead" so the first clip isn't a tiny
 // stutter; a shorter remainder merges forward into the next chunk(s).
 const MIN_LEAD = 140;
-// "Fast lead": when starting fresh on a not-yet-cached chunk, synthesize only the
-// first sentence first so audio begins in ~1 s instead of after the whole chunk.
-// The rest of the chunk plays right after as a "remainder" clip. We only bother
-// when the lead is at least this long (avoid a 3-word stutter) AND the remainder
-// it leaves behind is worth splitting out (else just render the whole chunk).
+// "Fast lead": on a fresh, not-yet-cached start, synthesize only the first
+// sentence so audio begins in ~1 s; the rest plays after as a "remainder". Only
+// worth it when both the lead and the remainder it leaves are large enough.
 const MIN_FAST_LEAD = 60;
 const MIN_FAST_REMAINDER = 40;
-// Lock-screen transport extras. Android renders an OS Media3 notification (it
-// can't be themed to match the app); these add seek buttons beside play/pause.
+// Extra OS-notification transport buttons (the Android Media3 notification can't
+// be themed to match the app).
 const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed: true } as const;
-// loadedKeyRef sentinel meaning "the single concatenated audiobook file is loaded"
-// (vs a per-chunk charStart >= 0). -1 means "nothing loaded".
+// loadedKeyRef sentinel for "the concatenated audiobook file is loaded" (vs a
+// per-chunk charStart >= 0; -1 means nothing loaded).
 const AUDIOBOOK_KEY = -2;
 
 function chunkIndexForOffset(chunks: Chunk[], charOffset: number): number {
@@ -101,88 +99,58 @@ function buildFastStart(text: string, chunks: Chunk[], charOffset: number): Fast
 }
 
 export type UsePlaybackOptions = {
-  /** PDF content hash — the audio-cache namespace for this document. */
-  docHash: string;
-  /** Canonical chunk list (large, sentence-aligned) from loadChunks. */
-  chunks: Chunk[];
-  /** Canonical document text — used to build a lead chunk from any offset. */
-  text: string;
-  /** Active model build id; null = none picked yet (engine stays unloaded). */
-  modelId: string | null;
+  docHash: string; // audio-cache namespace for this document
+  chunks: Chunk[]; // canonical, sentence-aligned chunk list from loadChunks
+  text: string; // canonical document text — used to build a lead from any offset
+  modelId: string | null; // null = none picked yet (engine stays unloaded)
   voiceId: string;
   speed: number;
   steps: number;
   lang?: string;
-  /** Document title shown on the lock-screen / media notification. */
-  title?: string;
-  /** Secondary line on the lock-screen (defaults to the app name). */
-  artist?: string;
-  /** Apply a speed change driven by the OS notification's speed button, routed to
-   *  the same setter the in-app control uses (per-doc pin or global). Omit to fall
-   *  back to the global setting. */
+  title?: string; // lock-screen title
+  artist?: string; // lock-screen secondary line (defaults to app name)
+  // Routes an OS-notification speed change to the same setter the in-app control
+  // uses (per-doc pin or global). Omit to fall back to the global setting.
   onSpeedChange?: (speed: number) => void;
 };
 
 export type Playback = {
   ready: boolean;
-  /** The active model's ONNX sessions failed to load (corrupt/truncated files).
-   *  The reader offers a re-download when this is set. */
-  modelLoadFailed: boolean;
+  modelLoadFailed: boolean; // ONNX sessions failed to load (corrupt files) → reader offers re-download
   playing: boolean;
-  /** True while the current chunk's audio is being synthesized (no audio yet). */
-  loading: boolean;
-  /** True once a chunk is selected or playback has started (drives highlight). */
-  engaged: boolean;
-  /** True once audio has actually started for this document (stays true while
-   *  paused, cleared on stop / document switch). Gates the global MiniPlayer so
-   *  it never shows for a mere text selection that hasn't played. */
+  loading: boolean; // synthesizing the current chunk (no audio yet)
+  engaged: boolean; // a chunk is selected or playback started (drives highlight)
+  // True once audio actually started (stays true while paused; cleared on stop /
+  // doc switch). Gates the MiniPlayer so it never shows for a mere text selection.
   started: boolean;
-  /** The chunk currently playing/selected (a canonical chunk or a tap-start lead). */
   currentChunk: Chunk | null;
   total: number;
-  /** Position within the CURRENT clip (per-chunk). */
-  positionSec: number;
-  /** Duration of the CURRENT clip (per-chunk). */
-  durationSec: number;
-  /** Position on the WHOLE-document timeline, in seconds at the active speed.
-   *  0 until the duration table is built. */
-  docPositionSec: number;
-  /** Whole-document runtime in seconds at the active speed (0 until built). */
-  docDurationSec: number;
-  /** True once the duration table is ready (whole-doc timeline is meaningful). */
-  timelineReady: boolean;
+  positionSec: number; // within the current clip
+  durationSec: number; // of the current clip
+  docPositionSec: number; // on the whole-document timeline, at speed (0 until table built)
+  docDurationSec: number; // whole-document runtime at speed (0 until built)
+  timelineReady: boolean; // duration table ready → whole-doc timeline is meaningful
   toggle: () => void;
   play: () => void;
   pause: () => void;
   next: () => void;
   previous: () => void;
   seekToChunk: (index: number) => void;
-  /** Select (highlight) a lead starting at this global char offset, WITHOUT
-   *  playing; stops any current audio. Press play to start from the selection. */
-  select: (charOffset: number) => void;
-  /** Jump to + play a lead starting at this offset (used for "play from here"). */
-  playFrom: (charOffset: number) => void;
-  /** Set the current position from a saved offset WITHOUT playing (resume). */
-  goTo: (charOffset: number) => void;
-  /** Seek within the current chunk's audio (fraction 0..1 of its duration). */
-  seek: (fraction: number) => void;
-  /** Seek to an absolute time on the whole-document timeline (seconds, at speed):
-   *  maps to the enclosing chunk, starts it, and seeks within it. */
-  seekToTime: (sec: number) => void;
-  /** Fully halt playback: stop audio, drop the selection, release the OS controls. */
-  stop: () => void;
-  /** Stop audio + release the OS controls but KEEP the selection/position (and the
-   *  mini-player visible), so pressing play resumes exactly where it left off. */
-  halt: () => void;
+  select: (charOffset: number) => void; // highlight a lead WITHOUT playing; stops current audio
+  playFrom: (charOffset: number) => void; // jump to + play ("play from here")
+  goTo: (charOffset: number) => void; // set position from a saved offset WITHOUT playing (resume)
+  seek: (fraction: number) => void; // within the current clip (0..1)
+  seekToTime: (sec: number) => void; // to an absolute whole-doc time (maps to the enclosing chunk)
+  stop: () => void; // hard stop: audio + selection + OS controls
+  halt: () => void; // soft stop: audio + OS controls, KEEP selection/position (play resumes)
 };
 
 // Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
 // tapping starts at the exact tapped sentence via a one-off "lead" chunk, then
 // continues with the canonical chunks after it. Highlight is chunk-level.
 export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en', title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
-  // A player we own for the hook's lifetime (created once, released on unmount):
-  // useAudioPlayer() released the native player mid-session (replace() failed
-  // with ERR_USING_RELEASED_SHARED_OBJECT).
+  // A player we own for the hook's lifetime; useAudioPlayer() released the native
+  // player mid-session (replace() threw ERR_USING_RELEASED_SHARED_OBJECT).
   const playerRef = useRef<AudioPlayer | null>(null);
   if (!playerRef.current) {
     playerRef.current = createAudioPlayer();
@@ -190,13 +158,13 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }
   const player = playerRef.current;
   const status = useAudioPlayerStatus(player);
-  // App accent for the OS media notification background (themed, not default grey).
+  // Themed accent for the OS media notification background.
   const { palette } = useTheme();
   const accentColor = palette.primary;
 
   const [ready, setReady] = useState(false);
-  // Set when the ONNX sessions fail to construct — typically a corrupt model file
-  // that passed the download checks. Drives the reader's re-download prompt.
+  // Set when the ONNX sessions fail to construct (corrupt model that passed the
+  // download checks) → drives the reader's re-download prompt.
   const [modelLoadFailed, setModelLoadFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [engaged, setEngaged] = useState(false);
@@ -222,8 +190,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const loadedKeyRef = useRef(-1); // charStart of the audio currently in the player
   // Whether this player currently owns the OS lock-screen / media notification.
   const lockScreenActiveRef = useRef(false);
-  // Latest "now playing" metadata; kept in a ref so the play callback doesn't
-  // need to be re-created when the title/artist change.
+  // Latest "now playing" metadata in a ref, so the play callback needn't rebuild
+  // when title/artist change.
   const lockMetadataRef = useRef<{ title: string; artist: string; albumTitle: string }>({
     title: 'Document',
     artist: 'Aloud',
@@ -247,37 +215,33 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     [modelId, voiceId, speed, steps, lang],
   );
 
-  // A book whose full audiobook finished rendering with these exact settings: we
-  // can play straight from cache (no engine cold-load, no "loading" spinner) and
-  // snap starts to canonical chunk boundaries so every clip is a cache hit.
+  // A full audiobook rendered with these exact settings: play straight from cache
+  // (no cold-load) and snap starts to chunk boundaries so every clip is a hit.
   const audiobook = useDocumentsStore((s) => s.audiobook[docHash]);
   const fullyRendered = useMemo(
     () => !!modelId && audiobook?.status === 'done' && audiobook.profileHash === settingsHash(settings),
     [modelId, audiobook?.status, audiobook?.profileHash, settings],
   );
 
-  // Once a full render is stitched into one file (prerenderDocument concats the
-  // per-chunk clips and deletes them), we play it as ONE media item: the OS
-  // notification then gets a real whole-book timeline + scrubber, and tap/seek map
-  // through the duration table. If the file isn't there (concat failed, or still
-  // per-chunk), this is null and the normal per-chunk path runs.
+  // When a full render is stitched into one file, play it as ONE media item so
+  // the OS notification gets a real whole-book timeline + scrubber. Null if the
+  // file isn't there (concat failed / still per-chunk) → normal per-chunk path.
   const audiobookUri = useMemo(
     () => (fullyRendered && isAudiobookCached(docHash, settings) ? audiobookAudioUri(docHash, settings) : null),
     [fullyRendered, docHash, settings],
   );
   const singleItem = audiobookUri != null;
   const audiobookLoadedRef = useRef(false);
-  // Real per-chunk offsets (seconds) in the stitched file, if the index sidecar
-  // exists — the file's actual clock (see P5). Null → fall back to predicted starts.
+  // Real per-chunk offsets (s) in the stitched file from the index sidecar — the
+  // file's actual clock. Null → fall back to predicted starts.
   const [fileStarts, setFileStarts] = useState<number[] | null>(null);
   useEffect(() => {
     audiobookLoadedRef.current = false; // a new/absent audiobook file must be (re)loaded
     setFileStarts(audiobookUri ? readAudiobookIndex(docHash, settings) : null);
   }, [audiobookUri, docHash, settings]);
 
-  // Configure the audio session once for sustained background playback.
-  // `shouldPlayInBackground` keeps audio alive when the screen is off, and
-  // `doNotMix` is required for the OS to bind the lock-screen controls to us.
+  // Configure the audio session once for background playback: shouldPlayInBackground
+  // keeps audio alive with the screen off, doNotMix binds the lock-screen to us.
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' }).catch((e) =>
       console.warn('[usePlayback] failed to set audio mode:', e),
@@ -296,9 +260,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     };
   }, []);
 
-  // The player now outlives any single screen (it lives in the global provider),
-  // so switching to a *different* document must stop the old one and clear the
-  // selection/lock-screen. Reopening the SAME document leaves playback running.
+  // The player outlives any single screen, so switching to a *different* document
+  // stops the old one and clears state; reopening the SAME doc leaves it running.
   const prevDocRef = useRef(docHash);
   useEffect(() => {
     if (prevDocRef.current === docHash) return;
@@ -323,9 +286,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     lockScreenActiveRef.current = false;
   }, [docHash, player]);
 
-  // Warm the shared engine when a model is picked. Keyed on modelId only — a
-  // VOICE change no longer reloads sessions (the manager caches voices per model
-  // and reuses the resident engine). Model swaps release the old sessions.
+  // Warm the shared engine when a model is picked. Keyed on modelId only — a voice
+  // change reuses the resident engine (the manager caches voices per model).
   useEffect(() => {
     let cancelled = false;
     setModelLoadFailed(false);
@@ -334,9 +296,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       return; // no model picked yet — leave the engine unloaded
     }
     if (fullyRendered) {
-      // Cached audiobook: don't pay the ONNX cold-load — playback reads clips
-      // directly. The engine lazy-loads only if one is unexpectedly missing.
-      setReady(true);
+      setReady(true); // cached audiobook: skip the cold-load, read clips directly
       return;
     }
     setReady(false);
@@ -346,8 +306,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       })
       .catch((e) => {
         console.warn('[usePlayback] failed to load engine:', e);
-        // A corrupt/truncated model surfaces here — flag it so the reader can
-        // offer a re-download instead of failing silently.
+        // Corrupt model → flag it so the reader can offer a re-download.
         if (!cancelled && e instanceof ModelLoadError) setModelLoadFailed(true);
       });
     return () => {
@@ -355,9 +314,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     };
   }, [modelId, fullyRendered]);
 
-  // Resolve the shared engine's tts + the current voice on demand. Returns null
-  // if no model is selected. The engine is module-level (see engineManager), so
-  // this is cheap once warm; inference runs go through `withEngine` for swap safety.
+  // Resolve the shared engine's tts + current voice on demand (null if no model).
+  // Cheap once warm; inference goes through `withEngine` for swap safety.
   const ensureEngine = useCallback(async (): Promise<{ tts: TextToSpeech; voice: VoiceStyle } | null> => {
     if (!modelId) return null;
     const tts = await getEngine(modelId);
@@ -365,10 +323,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     return { tts, voice };
   }, [modelId, voiceId]);
 
-  // Build the whole-document duration table for the timeline. Reads instantly
-  // from disk if cached for this model/voice/lang; otherwise runs the cheap
-  // duration predictor (no synthesis) over every chunk in the background. Depends
-  // only on model/voice/lang, so a speed/steps change just reloads the cache.
+  // Build the whole-document duration table (timeline). Reads from disk if cached,
+  // else runs the cheap duration predictor over every chunk in the background.
+  // Depends only on model/voice/lang, so a speed/steps change just reloads it.
   useEffect(() => {
     let cancelled = false;
     setDurTable(null);
@@ -408,12 +365,10 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }, [speed, player]);
 
   // Mirror a notification-driven speed change (the OS speed button cycles the
-  // player's rate directly) back into app state, so the in-app speed and the
-  // neutral-rate cache stay the single source of truth. Only fires on a real
-  // divergence; the effect above then re-applies the now-matching rate.
+  // player's rate directly) back into app state. Only fires on a real divergence.
   useEffect(() => {
-    // Only while actually playing: at load the player can briefly report the
-    // default rate before our rate is applied, which must not overwrite `speed`.
+    // Only while playing: at load the player can briefly report the default rate
+    // before ours is applied, which must not overwrite `speed`.
     if (!status.isLoaded || !status.playing) return;
     const r = status.playbackRate;
     if (r > 0 && Math.abs(r - speed) > 0.02) {
@@ -435,14 +390,13 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }, [status.isLoaded, status.duration, player]);
 
   // Claim the OS lock-screen / media notification (idempotent). Called on first
-  // audio and again when resuming after a halt (which released it).
+  // audio and when resuming after a halt (which released it).
   const claimLockScreen = useCallback(() => {
     if (lockScreenActiveRef.current) return;
     try {
-      // Only a fully-rendered book plays as one file with a real whole-book
-      // duration → show the OS scrubber + squiggle. Live per-chunk playback is a
-      // rolling series of ~seconds-long clips that would reset the bar constantly,
-      // so mark it a live stream and the OS hides the (meaningless) timeline.
+      // Only a single-file book has a real whole-book duration → show the OS
+      // scrubber. Per-chunk playback is marked a live stream so the OS hides the
+      // (meaningless, constantly-resetting) timeline.
       player.setActiveForLockScreen(true, lockMetadataRef.current, { ...LOCK_OPTIONS, accentColor, isLiveStream: !singleItem });
       lockScreenActiveRef.current = true;
     } catch (e) {
@@ -451,11 +405,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }, [player, accentColor, singleItem]);
 
   // --- Single concatenated-audiobook playback (one media item) ----------------
-  // Cumulative NEUTRAL-rate start time (s) of each chunk, used to map a char
-  // offset / chunk index to an absolute position in the single audiobook file.
+  // Cumulative NEUTRAL-rate start time (s) of each chunk, mapping a char offset /
+  // chunk index to an absolute position in the single audiobook file.
   const neutralStarts = useMemo(() => {
-    // Prefer the stitched file's REAL per-chunk offsets (no cumulative drift);
-    // append a synthetic total (last real start + its predicted duration).
+    // Prefer the stitched file's REAL offsets (no cumulative drift); append a
+    // synthetic total (last real start + its predicted duration).
     if (fileStarts && durTable && fileStarts.length === durTable.length) {
       const arr = fileStarts.slice();
       arr.push(fileStarts[fileStarts.length - 1] + (durTable[durTable.length - 1] ?? 0));
@@ -476,8 +430,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       const c = chunks[i];
       const span = c.charEnd - c.charStart;
       const frac = span > 0 ? Math.min(1, Math.max(0, (charOffset - c.charStart) / span)) : 0;
-      // Use the chunk's REAL span (neutralStarts prefers file offsets) not the
-      // predicted duration, so a mid-chunk tap lands accurately in a long book.
+      // Interpolate over the chunk's REAL span so a mid-chunk tap lands accurately.
       return neutralStarts[i] + frac * (neutralStarts[i + 1] - neutralStarts[i]);
     },
     [neutralStarts, chunks],
@@ -540,18 +493,17 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       setCurrent(chunk);
       setEngaged(true);
       setStarted(true); // audio is now actually engaged → MiniPlayer may show
-      // Stop whatever is playing right now so it doesn't keep going while the
-      // newly requested chunk synthesizes (e.g. after "play from here").
+      // Stop current audio so it doesn't run on while the new chunk synthesizes.
       player.pause();
       try {
-        // Fast-lead clips live in an ephemeral cache (keyed by length) so they
-        // never alias the canonical per-chunk cache; everything else uses it.
+        // Fast-lead clips use an ephemeral cache (keyed by length) so they never
+        // alias the canonical per-chunk cache; everything else uses it.
         const cached = lead
           ? isLeadCached(docHash, chunk.charStart, chunk.text.length, settings)
           : isChunkCached(docHash, chunk.charStart, settings);
         let uri: string;
         if (cached) {
-          // Cache hit — play instantly, no engine and no "loading" spinner.
+          // Cache hit — play instantly, no engine, no spinner.
           uri = lead
             ? leadAudioFile(docHash, chunk.charStart, chunk.text.length, settings).uri
             : chunkAudioUri(docHash, chunk.charStart, settings);
@@ -574,13 +526,10 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         } catch {}
         loadedKeyRef.current = chunk.charStart;
         player.play();
-        // Claim the lock-screen / media notification on first audio so transport
-        // controls appear and background playback is sustained past ~3 min.
-        claimLockScreen();
+        claimLockScreen(); // on first audio, so transport appears + background survives
         setLoading(false);
-        // Generate-ahead so boundaries don't stall. A queued remainder is the
-        // most urgent (it plays next), then the upcoming canonical chunks.
-        // Cached items are skipped; the engine lazy-loads only if one is missing.
+        // Generate-ahead so boundaries don't stall: a queued remainder first (it
+        // plays next), then upcoming canonical chunks. Cached items are skipped.
         void (async () => {
           if (next && !isChunkCached(docHash, next.chunk.charStart, settings)) {
             if (token !== playTokenRef.current) return;
@@ -646,7 +595,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }, [singleItem, status.didJustFinish, chunks.length, playCanonical, playChunkObject]);
 
   // Single-item highlight: derive the current chunk from the file's play position
-  // (neutral time) via the duration table, so the reader highlight tracks playback.
+  // (via the duration table) so the reader highlight tracks playback.
   useEffect(() => {
     if (!singleItem || !neutralStarts || !status.isLoaded) return;
     const t = status.currentTime;
@@ -669,10 +618,9 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     }
   }, [singleItem, neutralStarts, status.currentTime, status.isLoaded, chunks]);
 
-  // Try to begin a fresh start with a fast first-sentence lead so audio starts in
-  // ~1 s. Returns false (caller falls back to the normal path) when a lead won't
-  // help: a fully-rendered audiobook (already instant), a chunk that's already
-  // cached, or text that can't be usefully split.
+  // Begin a fresh start with a fast first-sentence lead (~1 s to audio). Returns
+  // false (caller falls back) when a lead won't help: already-instant audiobook,
+  // an already-cached chunk, or text that can't be usefully split.
   const startFast = useCallback(
     (charOffset: number): boolean => {
       if (fullyRendered) return false;
@@ -690,8 +638,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     activeRef.current = true;
     setEngaged(true);
     if (singleItem) {
-      // One media item: load it (once), resume in place, reclaim the notification.
-      ensureAudiobookLoaded();
+      ensureAudiobookLoaded(); // one media item: load once, resume in place
+
       player.play();
       claimLockScreen();
       setStarted(true);
@@ -736,9 +684,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     [singleItem, seekToChunkSingle, playCanonical],
   );
 
-  // Where to actually start for a tapped/resumed offset. A fully-cached audiobook
-  // snaps to the enclosing canonical chunk (always a cache hit, no synthesis);
-  // otherwise it builds a precise mid-sentence lead.
+  // Where to start for a tapped/resumed offset: a cached audiobook snaps to the
+  // enclosing canonical chunk (always a hit); otherwise build a mid-sentence lead.
   const resolveStart = useCallback(
     (charOffset: number): Lead | null => {
       if (fullyRendered) {
@@ -811,8 +758,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     [singleItem, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, player, claimLockScreen, startFast, resolveStart, playChunkObject],
   );
 
-  // Hard stop: halt audio, drop the selection, and release the OS media controls
-  // so nothing lingers in the notification. (The "Stop" transport action.)
+  // Hard stop (the "Stop" action): halt audio, drop the selection, release the OS
+  // controls so nothing lingers in the notification.
   const stop = useCallback(() => {
     playTokenRef.current++;
     activeRef.current = false;
@@ -835,9 +782,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     lockScreenActiveRef.current = false;
   }, [player]);
 
-  // Soft stop: halt audio and release the OS notification, but KEEP the selection,
-  // position, and `started` (so the mini-player stays). Pressing play resumes in
-  // place. Used by the mini-player's square stop — dismiss is a separate gesture.
+  // Soft stop (mini-player's square): halt audio + release the notification, but
+  // KEEP selection/position/`started` so play resumes in place.
   const halt = useCallback(() => {
     playTokenRef.current++; // cancel any in-flight load so it can't auto-start
     activeRef.current = false;
@@ -858,9 +804,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     [player, status.isLoaded, status.duration],
   );
 
-  // Seek to an absolute position on the whole-document timeline: locate the
-  // enclosing chunk, queue a precise within-chunk seek, then start that chunk.
-  // Snaps to a canonical chunk so it's always a clean cache unit.
+  // Seek to an absolute whole-document time: locate the enclosing chunk, queue a
+  // precise within-chunk seek, then start it (snaps to a canonical cache unit).
   const seekToTime = useCallback(
     (sec: number) => {
       if (!durTable) return;
@@ -878,10 +823,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       const loc = locateTime(durTable, speed, sec);
       if (!loc) return;
       activeRef.current = true;
-      // Fast-start at the dropped position: synthesize just the first sentence so
-      // audio begins in ~1 s instead of waiting for the whole chunk to render.
-      // (startFast declines when the chunk is already cached — then we play it
-      //  whole from cache, which is instant — or when the text can't be split.)
+      // Fast-start at the dropped position (startFast declines and we fall back to
+      // playing the whole chunk when it's already cached or can't be split).
       const c = chunks[loc.index];
       const span = c ? c.charEnd - c.charStart : 0;
       const frac = durTable[loc.index] > 0 ? Math.min(1, Math.max(0, loc.withinNeutralSec / durTable[loc.index])) : 0;
@@ -895,15 +838,14 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     [durTable, singleItem, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical, startFast, chunks],
   );
 
-  // Map the current clip's position onto the whole-document timeline. The clip
-  // may be a full canonical chunk, a fast-lead, or a remainder, so we offset by
-  // the canonical chunk's start time plus the lead portion already played before
-  // this clip (estimated by char proportion). Neutral seconds → /speed for docs.
+  // Map the current clip's position onto the whole-document timeline. The clip may
+  // be a canonical chunk, a fast-lead, or a remainder, so offset by the canonical
+  // start plus the lead already played (by char proportion). Neutral secs → /speed.
   let docPositionSec = 0;
   let docDurationSec = tableDurationSec;
   if (singleItem && status.isLoaded) {
-    // The file IS the whole book: media time is neutral, /speed → at-speed timeline.
-    // Use the file's real clock for both, so the scrubber matches the OS notification.
+    // The file IS the whole book (neutral time) — use its real clock so the
+    // scrubber matches the OS notification. /speed → at-speed timeline.
     docPositionSec = status.currentTime / speed;
     if (status.duration > 0) docDurationSec = status.duration / speed;
   } else if (offsets && durTable) {

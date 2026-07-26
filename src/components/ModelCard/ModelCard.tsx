@@ -12,15 +12,13 @@ export type ModelCardProps = {
   model: ModelInfo;
   voiceId: string;
   active: boolean;
-  /** Set this build as the one reading uses (only offered once downloaded). */
   onUse: () => void;
-  /** Called after this build's files are deleted (e.g. to clear the active selection). */
   onDeleted?: () => void;
 };
 
-// One selectable Supertonic build: its overview/size, its own download state
-// (via useModelDownload), and Use / In-use / Delete controls. Both builds can
-// be installed at once; reading uses whichever is active.
+// One selectable Supertonic build: overview/size, its own download state (via
+// useModelDownload), and Use / In-use / Delete controls. Both builds can be
+// installed at once; reading uses whichever is active.
 export function ModelCard({ model, voiceId, active, onUse, onDeleted }: ModelCardProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);

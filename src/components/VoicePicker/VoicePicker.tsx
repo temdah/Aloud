@@ -14,28 +14,23 @@ import { makeStyles } from './VoicePicker.styles';
 export type VoicePickerProps = {
   value: string;
   onChange: (id: string) => void;
-  /** Active model build; needed to download + synthesize a real preview. */
   modelId: string | null;
-  /** Language to synthesize the preview phrase in (defaults to English). */
   lang?: string;
 };
 type GenderFilter = 'all' | 'f' | 'm';
 
-// A short, phonetically varied phrase so previews showcase the voice quickly.
 const PREVIEW_SENTENCE = 'Hi, this is how I sound when I read your book aloud.';
 const PREVIEW_FILE = 'voice_preview.wav';
 const PREVIEW_STEPS = 8; // fast enough for an instant-ish on-device preview
 
-// Body of the voice-picker sheet: gender filter + selectable voice list with a
-// real on-device preview. Selecting a voice also downloads its style file (the
-// ~150 KB embedding the engine needs) so reading works immediately afterwards.
+// Voice-picker sheet body: gender filter + selectable list with a real on-device
+// preview. Selecting a voice also pre-fetches its style file so reading works
+// immediately afterwards.
 export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePickerProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
   const [gender, setGender] = useState<GenderFilter>('all');
-  // Voice id currently being prepared (downloading model files / synthesizing).
   const [busy, setBusy] = useState<string | null>(null);
-  // Voice id whose preview clip is currently playing.
   const [playing, setPlaying] = useState<string | null>(null);
 
   const playerRef = useRef<AudioPlayer | null>(null);
@@ -57,7 +52,6 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
 
   const preview = async (voiceId: string) => {
     if (!modelId) return;
-    // Toggle off if this voice is already playing.
     if (playing === voiceId) {
       tokenRef.current++;
       try {
@@ -92,8 +86,7 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
       playerRef.current.play();
       setBusy(null);
       setPlaying(voiceId);
-      // Clear the playing state when the clip finishes (no status hook on a
-      // ref-held player), with a little padding.
+      // No status hook on a ref-held player, so clear "playing" on a timer.
       const audioMs = (waveform.length / tts.sampleRate) * 1000;
       stopTimerRef.current = setTimeout(() => {
         if (token === tokenRef.current) setPlaying(null);
@@ -107,9 +100,8 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
     }
   };
 
-  // Selecting a voice: commit it immediately, then pre-fetch its style file so
-  // reading/full-audiobook work right away (the engine also self-heals via its
-  // own ensureModelsDownloaded, this just removes the first-play wait).
+  // Commit immediately, then pre-fetch the style file so reading works right
+  // away (the engine self-heals anyway; this just removes the first-play wait).
   const select = (voiceId: string) => {
     onChange(voiceId);
     if (!modelId) return;

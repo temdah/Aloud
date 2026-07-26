@@ -44,16 +44,13 @@ export default function PrerenderScreen() {
   const defaultSpeed = useSettingsStore((s) => s.speed);
   const steps = useSettingsStore((s) => s.steps);
 
-  // Prepare the book's text headlessly — no need to open the reader first. The
-  // hidden extractor (mounted below) streams pages, persists the text cache and
-  // writes the chunk manifest; we re-read the manifest once it's ready.
+  // Prepare the book's text headlessly (the hidden extractor below streams pages
+  // and writes the caches); no need to open the reader first.
   const pdfText = usePdfText(doc);
-  // Once the text is ready, derive chunks straight from it: loadChunks is
-  // idempotent (reuses a valid manifest, otherwise rebuilds + persists). This
-  // is what un-sticks "Preparing pages…" forever when the text was cached but
-  // the chunk manifest is missing — e.g. a prior chunk-build threw (it's
-  // swallowed in usePdfText) or the audio/manifest cache was cleared while the
-  // extracted text survived. While still extracting we just read the manifest.
+  // Derive chunks from the ready text via idempotent loadChunks (reuses a valid
+  // manifest, else rebuilds). Rebuilding here un-sticks the case where the text
+  // was cached but the chunk manifest went missing. Still extracting → read the
+  // manifest as-is.
   const chunks = useMemo<Chunk[]>(() => {
     if (pdfText.status === 'ready' && pdfText.document) {
       try {
@@ -76,8 +73,7 @@ export default function PrerenderScreen() {
   const prerender = usePrerender(docId, chunks);
   const running = prerender.status === 'running';
 
-  // When the global MiniPlayer is floating (audio actually playing), pad the
-  // scroll content so the "Make full audiobook" button can clear the pill.
+  // Used to pad the scroll content so the start button clears the floating pill.
   const { playback } = usePlaybackContext();
 
   const settings: NarrationSettings = { modelId: model.id, voiceId, speed, steps, lang };
@@ -93,9 +89,8 @@ export default function PrerenderScreen() {
     if (!m.langCodes.includes(lang as never)) setLang(m.langCodes[0]);
   };
 
-  // A finished audiobook is pinned to the profile it was rendered with. Changing
-  // voice/model/language (speed is applied live, so it doesn't count) means the
-  // existing clips can't be reused — warn before re-rendering from scratch.
+  // A finished audiobook is pinned to its render profile; changing voice/model/
+  // language (speed is live, so it's excluded) invalidates the cache — warn first.
   const cacheInvalidated = audiobook?.status === 'done' && audiobook.profileHash !== settingsHash(settings);
 
   const doStart = () => {
@@ -122,8 +117,7 @@ export default function PrerenderScreen() {
               </Text>
             </>
           ) : (
-            // status is 'error', or 'ready' yet still no chunks (a build that
-            // produced nothing) — never leave the user on an endless spinner.
+            // Error, or ready but no chunks — never leave an endless spinner.
             <>
               <Icon name="book" size={40} color={p.textDim} />
               <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>

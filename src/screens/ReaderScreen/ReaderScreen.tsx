@@ -37,6 +37,8 @@ function renderTocTitle(title: string, accent: string) {
   );
 }
 
+// The reader: paginated text with tap-to-start, sentence highlighting, follow
+// mode, page scrubbing, and the full transport (speed/voice/language/sleep).
 export default function ReaderScreen() {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -62,16 +64,12 @@ export default function ReaderScreen() {
   const setSpeed = useSettingsStore((s) => s.setSpeed);
   const steps = useSettingsStore((s) => s.steps);
 
-  // A document that was pre-rendered ("full audiobook") pins the exact narration
-  // settings it was made with; the reader uses those so tap-to-start reads the
-  // pre-rendered cache instead of re-synthesizing. Otherwise fall back to the
-  // global voice settings.
+  // A pinned full-audiobook render fixes the narration settings so tap-to-start
+  // reads its cache; otherwise fall back to the global voice settings.
   const effModelId = renderProfile?.modelId ?? modelId;
   const effVoiceId = renderProfile?.voiceId ?? voiceId;
   const effSteps = renderProfile?.steps ?? steps;
-  // Language precedence: a pinned full-audiobook render wins (its cache was made
-  // in that language); otherwise the per-document override; otherwise the global
-  // default. Keeps tap-to-start reading the right cache.
+  // Language precedence: pinned render → per-document override → global default.
   const effLang = renderProfile?.lang ?? doc?.lang ?? settingsLang ?? 'en';
   const effSpeed = renderProfile?.speed ?? speed;
   const setEffSpeed = useCallback(
@@ -85,8 +83,7 @@ export default function ReaderScreen() {
   const { status, document, pageCount, loadedPages, stage, error, extractor } = usePdfText(doc);
 
   const blocks = document?.blocks ?? [];
-  // Map each PDF page to its blocks (with their global index, used as the
-  // render key for each block).
+  // Group blocks by page, keeping each block's global index (its render key).
   const blocksByPage = useMemo(() => {
     const m = new Map<number, { block: ExtractedBlock; gbi: number }[]>();
     blocks.forEach((b, gbi) => {
@@ -98,19 +95,18 @@ export default function ReaderScreen() {
   }, [blocks]);
   const { getItemLayout, onPageLayout, version: geomVersion } = usePageGeometry(doc?.docHash, blocks, pageCount, status === 'ready');
 
-  // Canonical chunk list (playback order + char ranges into document.text),
-  // built/persisted once the text layer is ready. The same string drives both
-  // the chunk boundaries and the rendered sentences, so char offsets join them.
+  // Canonical chunk list (playback order + char ranges into document.text). The
+  // same string drives chunk boundaries and rendered sentences, so char offsets
+  // join them.
   const chunks = useMemo(
     () => (status === 'ready' && doc && document?.text ? loadChunks(doc.docHash, document.text) : []),
     [status, doc?.docHash, document?.text],
   );
 
-  // Playback now lives in a global provider so audio + transport survive leaving
-  // this screen (mini player on other screens). The Reader registers the open
-  // document with the engine; consuming `playback` works exactly as before.
+  // Playback lives in a global provider so audio + transport survive leaving this
+  // screen (mini player elsewhere). The reader registers the open document.
   const { playback, activeDoc, setActiveDoc, clearActiveDoc, sleep } = usePlaybackContext();
-  // Corrupt-model recovery: the engine load flags a damaged model → offer a re-download.
+  // Corrupt-model recovery: a damaged-model load flag → offer a re-download.
   const [modelErrorOpen, setModelErrorOpen] = useState(false);
   useEffect(() => {
     if (playback.modelLoadFailed) setModelErrorOpen(true);
@@ -120,13 +116,11 @@ export default function ReaderScreen() {
     setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, onSpeedChange: setEffSpeed });
   }, [status, doc, document?.text, chunks, effModelId, effVoiceId, effSpeed, effSteps, effLang, setActiveDoc, setEffSpeed]);
 
-  // Highlight the selected/playing chunk once the user has engaged (tapped a
-  // sentence or pressed play); nothing is highlighted before that.
+  // Nothing is highlighted until the user engages (taps a sentence or plays).
   const activeChunk = playback.engaged ? playback.currentChunk : null;
   const hasPages = pageCount > 0;
 
-  // Tapping a sentence only selects + highlights it (free, no model needed).
-  // Pressing play needs a model — route to the picker when none is chosen yet.
+  // Playing needs a model — route to the picker when none is chosen yet.
   const onTogglePlay = useCallback(() => {
     if (!effModelId) return navigation.navigate('VoiceModel');
     playback.toggle();
@@ -144,15 +138,13 @@ export default function ReaderScreen() {
   const [voiceSheet, setVoiceSheet] = useState(false);
   const [langSheet, setLangSheet] = useState(false);
   const [manageSheet, setManageSheet] = useState(false);
-  // A voice the user picked that needs confirmation because switching it would
-  // bypass already-cached audio (held until they confirm in the dialog).
+  // A picked voice held until the user confirms bypassing already-cached audio.
   const [pendingVoice, setPendingVoice] = useState<string | null>(null);
   const [tocPrompt, setTocPrompt] = useState<{ title: string; target: number; charStart: number } | null>(null);
   const [showHint, setShowHint] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Follow mode: when on, the view tracks the spoken sentence; when off, the user
-  // scrolls freely. A tapped-while-playing sentence is held as a pending offset
-  // (gray highlight) until the user confirms via the play-from-here prompt.
+  // Follow mode: when on, the view tracks the spoken sentence. A tapped-while-
+  // playing sentence is held as a pending offset until the prompt is confirmed.
   const [followMode, setFollowMode] = useState(true);
   const [pendingOffset, setPendingOffset] = useState<number | null>(null);
   const [playPrompt, setPlayPrompt] = useState(false);
@@ -162,9 +154,8 @@ export default function ReaderScreen() {
     if (hintTimer.current) clearTimeout(hintTimer.current);
   }, []);
 
-  // Tapping a sentence: no model → go pick one; already playing → ask before
-  // hijacking the audio (hold the tap as a pending selection); otherwise just
-  // select + highlight it (press play to start there).
+  // Tap a sentence: no model → pick one; playing → confirm before hijacking
+  // audio; otherwise just select + highlight it.
   const handleSentenceTap = useCallback(
     (charStart: number) => {
       if (!modelId) {
@@ -211,8 +202,8 @@ export default function ReaderScreen() {
   });
   const viewConfigRef = useRef({ itemVisiblePercentThreshold: 10 });
 
-  // animated jumps smooth-scroll across every page in between (stuttery on a big
-  // doc), so far jumps (scrubber, TOC) pass animated=false for an instant jump.
+  // Animated jumps smooth-scroll every page in between (stuttery on a big doc),
+  // so far jumps (scrubber, TOC) pass animated=false.
   const scrollToPage = useCallback(
     (page: number, animated = true) => {
       if (pageCount <= 0) return;
@@ -234,9 +225,8 @@ export default function ReaderScreen() {
     [blocks],
   );
 
-  // Scroll to a char offset's approximate vertical spot within its page (not the
-  // page top), using the geometry offset table + the offset's fractional
-  // position among that page's blocks, with a little headroom above.
+  // Scroll to a char offset's approximate spot within its page (not the page
+  // top), interpolating its fractional position among that page's blocks.
   const scrollToReadingOffset = useCallback(
     (charOffset: number, animated = true) => {
       const page = pageForOffset(charOffset);
@@ -267,9 +257,8 @@ export default function ReaderScreen() {
 
   const isFavourite = doc ? favourites.includes(doc.docHash) : false;
 
-  // Delete the open document (and all its cache) from the reader's overflow
-  // menu, halting playback first if this is the doc currently playing, then
-  // leaving the now-empty reader.
+  // Delete the open document and all its cache, halting playback first if it's
+  // the one playing, then leave the reader.
   const deleteDocument = useCallback(() => {
     if (!doc) return;
     if (activeDoc?.doc.docHash === doc.docHash) {
@@ -287,11 +276,9 @@ export default function ReaderScreen() {
     navigation.goBack();
   }, [doc, activeDoc, playback, clearActiveDoc, clearAudiobook, removeDocument, navigation]);
 
-  // Apply a voice change for real. When a full-audiobook profile is pinned, the
-  // reader always reads through that profile, so we must repoint it at the new
-  // voice (and forget the now-stale "done" render so the cache isn't treated as
-  // complete); otherwise we just move the global voice. Either way the effVoiceId
-  // change re-registers the active document, so playback picks up the new voice.
+  // Apply a voice change. With a pinned profile, repoint it (and forget a stale
+  // "done" render); otherwise move the global voice. The effVoiceId change
+  // re-registers the active document, so playback picks up the new voice.
   const applyVoice = useCallback(
     (newVoice: string) => {
       if (!doc) return;
@@ -306,10 +293,8 @@ export default function ReaderScreen() {
     [doc, renderProfile, setRenderProfile, audiobook?.status, clearAudiobook, setVoice],
   );
 
-  // Voice picked in the sheet. If the document already has cached audio for the
-  // current voice (per-chunk or a full audiobook), switching means that cache is
-  // kept but bypassed and new audio is generated — so we confirm first. With no
-  // cache to bypass, switch immediately.
+  // Voice picked in the sheet. If audio is already cached for the current voice,
+  // switching bypasses it — confirm first; otherwise switch immediately.
   const onVoiceChange = useCallback(
     (newVoice: string) => {
       if (!doc || newVoice === effVoiceId) return;
@@ -375,8 +360,7 @@ export default function ReaderScreen() {
     { label: 'Cancel', variant: 'ghost' as const },
   ];
 
-  // Tapping a contents entry is ambiguous (navigate vs. read), so open a themed
-  // dialog: jump to the section, or select its text like any sentence.
+  // A contents entry is ambiguous (navigate vs. read), so prompt: jump or select.
   const promptTocAction = useCallback((title: string, target: number, charStart: number) => {
     setTocPrompt({ title, target, charStart });
   }, []);
@@ -392,17 +376,15 @@ export default function ReaderScreen() {
     return a;
   }, [tocPrompt, scrollToPage, playback]);
 
-  // Follow mode: when on, keep the playing/selected chunk in view as it advances.
-  // Reads currentPage via a ref so the user's own scrolling doesn't retrigger
-  // this — only a chunk change does.
+  // Keep the active chunk in view as it advances (only a chunk change triggers
+  // this — currentPage is read via ref so the user's own scrolling doesn't).
   const activeOffset = activeChunk?.charStart ?? -1;
   useEffect(() => {
     if (!followMode || activeOffset < 0 || pageCount <= 0) return;
     scrollToReadingOffset(activeOffset, true);
   }, [followMode, activeOffset, pageCount, scrollToReadingOffset]);
 
-  // Persist the reading position (char offset of the current chunk) so the
-  // library's "Continue" can resume it.
+  // Persist the reading position so the library's "Continue" can resume it.
   const currentCharStart = playback.currentChunk?.charStart ?? -1;
   const totalChars = document?.text?.length ?? 0;
   useEffect(() => {
@@ -412,10 +394,8 @@ export default function ReaderScreen() {
     }
   }, [doc?.docHash, playback.engaged, currentCharStart, totalChars, setCursor, setProgress]);
 
-  // Resume the saved position once, when the text is ready (highlight + follow,
-  // no auto-play — the user presses play to continue). Wait until the engine has
-  // actually registered this document (so its chunks are loaded), and never
-  // disturb a document that's already playing (returning to it from elsewhere).
+  // Resume the saved position once the engine has registered this doc (highlight
+  // + follow, no auto-play). Never disturb a doc already playing.
   const resumedRef = useRef(false);
   useEffect(() => {
     if (status !== 'ready' || !doc || resumedRef.current) return;
@@ -440,8 +420,7 @@ export default function ReaderScreen() {
   const renderBlock = (b: ExtractedBlock, gbi: number) => {
     const pad = { paddingLeft: b.indent * INDENT_STEP };
     if (b.kind === 'pageHeader') {
-      // Running header/footer — greyed, receded, and separated by a rule. Not
-      // spoken, so it isn't tappable/selectable like body text.
+      // Running header/footer — not spoken, so not tappable like body text.
       return (
         <View key={gbi} style={styles.pageHeader}>
           <Text numberOfLines={1} style={ty(TYPE.caption, p.textDim)}>{b.text}</Text>
@@ -466,15 +445,13 @@ export default function ReaderScreen() {
         </Pressable>
       );
     }
-    // Whole paragraph is the tap target (incl. line gaps + the trailing-margin
-    // gap) so taps that land off a glyph still select the right sentence; a tap
-    // outside any sentence falls back to the paragraph's first sentence.
+    // Whole paragraph is the tap target so taps landing off a glyph still select
+    // a sentence (falling back to the first).
     return (
       <Pressable key={gbi} onPress={() => handleSentenceTap(b.sentences[0]?.charStart ?? b.charStart)} style={pad}>
         <Text style={ty(TYPE.reader, p.text)}>
           {b.sentences.map((s, si) => {
-            // Accent highlight = playing/selected chunk; gray = a pending tap made
-            // while audio is playing; dim = already read.
+            // Accent = playing/selected; gray = pending tap; dim = already read.
             const isCurrent = !!activeChunk && s.charStart >= activeChunk.charStart && s.charStart < activeChunk.charEnd;
             const isPending = !!pendingChunk && s.charStart >= pendingChunk.charStart && s.charStart < pendingChunk.charEnd;
             const isRead = !!activeChunk && s.charStart < activeChunk.charStart;

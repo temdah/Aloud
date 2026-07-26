@@ -17,14 +17,12 @@ import { useSettingsStore } from '../../stores';
 import { useTheme } from '../../theme';
 import { makeStyles } from './TextToSpeechDemoScreen.styles';
 
-// A short utterance for the quick "does the engine work at all" smoke test.
+// Short utterance for the quick smoke test.
 const SAMPLE_SENTENCE =
   'The quick brown fox jumps over the lazy dog, and then it reads a book aloud.';
 
-// A multi-paragraph passage that, once chunked, mirrors a real (large) document:
-// several ~300-char canonical chunks. The benchmark times the FIRST chunk
-// (time-to-first-audio — the metric that hurts on big PDFs) then a few more to
-// gauge sustained throughput. Long enough to yield 5+ chunks.
+// Multi-paragraph passage that chunks into 5+ ~300-char chunks, mirroring a real
+// document so the benchmark can measure time-to-first-audio and throughput.
 const SAMPLE_DOC = `Reading aloud has accompanied the written word for almost as long as writing itself. In the libraries of the ancient world, texts were rarely read in silence; a reader would murmur the words, letting the sound shape the meaning. The practice persisted through the monasteries of the early medieval period, where copying and reciting were inseparable acts of devotion and study.
 
 When silent reading finally became common, something was quietly lost. The voice gives a sentence its rhythm, its hesitations, and its emphasis, and a page of prose can feel very different when it is spoken than when it is merely scanned. Modern speech synthesis tries to recover a little of that lost music, turning flat characters back into something a listener can follow without ever looking down.
@@ -56,12 +54,9 @@ type ChunkBench = {
   uri: string;
 };
 
-// Voice engine performance lab (Developer tool). Two jobs:
-//  • "Run benchmark" — chunks a representative document and reports the full
-//    cold-start latency breakdown (session load, build-chunks, per-stage synth
-//    of the first chunk = time-to-first-audio) plus a sustained-throughput pass.
-//  • "Smoke test" — the original single-sentence synth+play, kept as a quick
-//    "is the engine alive" check.
+// Voice engine performance lab (Developer tool): "Run benchmark" reports the
+// cold-start latency breakdown + time-to-first-audio + a throughput pass;
+// "Smoke test" is a quick single-sentence synth+play liveness check.
 export default function TextToSpeechDemoScreen() {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
@@ -82,8 +77,7 @@ export default function TextToSpeechDemoScreen() {
     setLog((prev) => prev + line + '\n');
   };
 
-  // Loads the sessions + the selected voice on first use. The first load of a
-  // screen visit is the genuine cold-load cost; later runs reuse it (warm).
+  // First use pays the genuine cold-load cost; later runs reuse it (warm).
   const ensureLoaded = async () => {
     if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
     const v = voiceId || DEFAULT_VOICE;
@@ -93,15 +87,14 @@ export default function TextToSpeechDemoScreen() {
     }
     append(`Cold-loading ONNX sessions (${modelId}, voice ${v})...`);
     const start = Date.now();
-    // Shared engine (engineManager) — reuses the resident sessions if playback
-    // already loaded them, and won't leave a second copy behind.
+    // Shared engine — reuses playback's resident sessions, no second copy.
     ttsRef.current = await getEngine(modelId);
     voiceRef.current = await getVoice(modelId, v);
     append(`  sessions loaded in ${seconds(Date.now() - start)} s  (sampleRate=${ttsRef.current.sampleRate}).`);
   };
 
-  // Synthesize one chunk, capturing per-stage + encode/write timings, and write
-  // the WAV so it can be played. Does NOT play.
+  // Synthesize one chunk, capturing per-stage + encode/write timings and writing
+  // the WAV so it can be played later. Does not play.
   const benchChunk = async (text: string): Promise<ChunkBench> => {
     const tts = ttsRef.current!;
     const voice = voiceRef.current!;

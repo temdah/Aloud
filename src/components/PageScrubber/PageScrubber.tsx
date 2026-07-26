@@ -5,11 +5,8 @@ import { makeStyles } from './PageScrubber.styles';
 
 export type PageScrubberProps = {
   pageCount: number;
-  /** Current page (1-based) — anchors the solid pill when not dragging. */
   currentPage: number;
-  /** Optional bubble label for a page, e.g. "Page 50 · Module 5". */
   labelForPage?: (page: number) => string;
-  /** Called after the pill finishes traveling to the released page. */
   onJumpToPage: (page: number) => void;
 };
 
@@ -18,9 +15,8 @@ const THUMB_H = 46;
 const GHOST_W = 18;
 const GHOST_H = 56;
 
-// Page rail with a "ghost" preview: the solid pill stays where you are while a
-// translucent fat pill follows your finger; on release the solid pill glides
-// (200ms) to the target, then the content jumps (so the motion reads clearly).
+// Page rail with a "ghost" preview: the solid pill stays put while a translucent
+// pill follows the finger; on release it glides to the target, then content jumps.
 export function PageScrubber({ pageCount, currentPage, labelForPage, onJumpToPage }: PageScrubberProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -38,7 +34,6 @@ export function PageScrubber({ pageCount, currentPage, labelForPage, onJumpToPag
   const fracOf = (page: number) => (pageCount <= 1 ? 0 : (page - 1) / (pageCount - 1));
   const posY = (frac: number, h: number) => frac * Math.max(0, railH - h);
 
-  // Keep the solid pill on the current page while idle.
   useEffect(() => {
     if (!active && !animatingRef.current && railH > 0) {
       anchorY.setValue(fracOf(currentPage) * Math.max(0, railH - THUMB_H));
@@ -54,7 +49,7 @@ export function PageScrubber({ pageCount, currentPage, labelForPage, onJumpToPag
   const responder = useMemo(
     () =>
       PanResponder.create({
-        // Capture-phase so the rail intercepts the touch before the list.
+        // Capture-phase so the rail intercepts the touch before the list scroll.
         onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponderCapture: () => true,
         onStartShouldSetPanResponder: () => true,

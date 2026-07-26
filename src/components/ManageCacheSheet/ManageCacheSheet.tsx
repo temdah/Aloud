@@ -20,7 +20,6 @@ import { makeStyles } from './ManageCacheSheet.styles';
 export type ManageCacheSheetProps = {
   open: boolean;
   onClose: () => void;
-  /** The document whose cached voices we're managing (null = nothing to show). */
   docHash: string | null;
   title?: string;
 };
@@ -39,12 +38,9 @@ function profileLabel(cp: CachedProfile): { title: string; sub: string } {
   return { title: voiceLabel(cp.meta.voiceId), sub };
 }
 
-// Per-voice cache manager. A cached document can hold audio rendered with several
-// different voices/profiles (each keyed by its own settingsHash); this lists them
-// with size + clip count and lets the user remove one voice at a time, or clear
-// everything. Deleting the voice that's currently playing stops playback first,
-// and dropping the profile a full audiobook was rendered with forgets that
-// audiobook so the reader doesn't think a stale render is still on disk.
+// Per-voice cache manager: a doc can hold audio for several voices/profiles; list
+// them with size + clip count and remove one or all. Deleting the playing voice
+// stops playback, and dropping an audiobook's profile forgets that render.
 export function ManageCacheSheet({ open, onClose, docHash, title }: ManageCacheSheetProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -57,8 +53,6 @@ export function ManageCacheSheet({ open, onClose, docHash, title }: ManageCacheS
 
   const refresh = () => setProfiles(docHash ? listCachedProfiles(docHash) : []);
 
-  // Re-scan the cache each time the sheet opens (or the doc changes); reset the
-  // "tap again to confirm" clear-all latch.
   useEffect(() => {
     if (open) {
       refresh();
@@ -71,11 +65,10 @@ export function ManageCacheSheet({ open, onClose, docHash, title }: ManageCacheS
 
   const deleteProfile = (cp: CachedProfile) => {
     if (!docHash) return;
-    // If this voice is the one currently playing, stop before its files vanish.
-    if (isActive) playback.stop();
+    if (isActive) playback.stop(); // this voice may be playing — stop before its files vanish
     clearProfileCache(docHash, cp.hash);
-    // If a full audiobook was rendered with this exact profile, forget it so the
-    // reader stops treating the (now-deleted) render as available.
+    // Forget an audiobook rendered with this exact profile so the reader doesn't
+    // treat the deleted render as available.
     if (audiobook[docHash]?.profileHash === cp.hash) clearAudiobook(docHash);
     refresh();
   };

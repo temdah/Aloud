@@ -20,8 +20,8 @@ type CoverProps = {
   y: number;
   w: number;
   h: number;
-  /** Start translation (relative to the final spot) so the cover begins stacked
-   *  over the middle book, then animates to (0,0) as `anim` runs 0→1. */
+  // dx/dy: start offset from the final spot (cover begins stacked over the
+  // middle book), animating to (0,0) as `anim` runs 0→1.
   dx: number;
   dy: number;
   rotFrom: number;

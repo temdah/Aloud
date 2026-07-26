@@ -28,6 +28,8 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
+// Library home: searchable/filterable/sortable book grid, per-book long-press
+// menu (favourite, cover colour, audiobook, cache, delete), and background play.
 export default function LibraryScreen() {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -86,10 +88,8 @@ export default function LibraryScreen() {
   const openBook = (docId: string) => navigation.navigate('Reader', { docId });
   const openSettings = () => navigation.navigate('Settings');
 
-  // Library play button: resume in the background (mini-player), staying on the
-  // list. If the document hasn't been text-extracted yet, fall back to opening
-  // the reader (which runs extraction). If it's already the active document,
-  // just toggle play/pause in place.
+  // Play from the list without leaving it: toggle if already active, open the
+  // reader if not yet extracted, otherwise start background playback.
   const playBook = (docId: string) => {
     const doc = documents.find((d) => d.docHash === docId);
     if (!doc) return;
@@ -117,8 +117,7 @@ export default function LibraryScreen() {
     playDocument(active, cursor[docId] ?? 0);
   };
   const menuStats = menuDoc ? documentCacheStats(menuDoc.docHash) : null;
-  // The floating mini-player is visible here whenever a document is engaged; lift
-  // the FAB above it so they don't overlap.
+  // Lift the FAB above the mini-player when one is showing so they don't overlap.
   const pillVisible = !!activeDoc && playback.engaged;
   const audiobookFor = (docId: string) => {
     const a = audiobook[docId];
@@ -240,9 +239,8 @@ export default function LibraryScreen() {
                   label: 'Delete',
                   variant: 'danger',
                   onPress: () => {
-                    // If the doc being deleted is the one playing, halt audio and
-                    // release it first — otherwise the player keeps going from the
-                    // already-loaded clip after its files are gone.
+                    // Halt + release first if this doc is playing, else the player
+                    // runs on from the loaded clip after its files are gone.
                     if (activeDoc?.doc.docHash === menuDoc.docHash) {
                       playback.stop();
                       clearActiveDoc();

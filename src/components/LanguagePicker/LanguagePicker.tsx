@@ -6,20 +6,15 @@ import { Icon } from '../Icon';
 import { makeStyles } from './LanguagePicker.styles';
 
 export type LanguagePickerProps = {
-  /** Currently selected language code, or null when following the app default. */
-  value: string | null;
-  /** Pick a specific language code. */
+  value: string | null; // null = follow app default
   onChange: (code: string) => void;
-  /** Language codes the active model can synthesize (gates the list). */
   langCodes: readonly string[];
-  /** When provided, shows a top "Use app default" row that clears the override. */
-  onUseDefault?: () => void;
-  /** Label for the default row, e.g. the resolved global language name. */
+  onUseDefault?: () => void; // when set, shows a "Use app default" row that clears the override
   defaultLabel?: string;
 };
 
-// A scrollable language list, gated to the active model's supported languages.
-// Used both for the global default (Settings) and per-document overrides (reader).
+// Scrollable language list, gated to the active model's supported languages.
+// Used for the global default (Settings) and per-document overrides (reader).
 export function LanguagePicker({ value, onChange, langCodes, onUseDefault, defaultLabel }: LanguagePickerProps) {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);

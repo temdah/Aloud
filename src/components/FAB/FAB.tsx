@@ -9,8 +9,7 @@ export type FABProps = {
   icon: IconName;
   label: string;
   onPress?: () => void;
-  /** Lift above the floating mini-player when it's showing, so they don't overlap. */
-  raised?: boolean;
+  raised?: boolean; // lift above the now-playing pill so they don't overlap
 };
 
 // Floating action button (import PDF). Sits flush near the bottom by default and

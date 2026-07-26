@@ -4,21 +4,16 @@ import Svg, { Circle } from 'react-native-svg';
 import { useTheme } from '../../theme';
 
 export type CircularProgressProps = {
-  /** 0..1 fraction complete. */
-  value: number;
-  /** Ring diameter. */
+  value: number; // 0..1 fraction complete
   size?: number;
   stroke?: number;
-  /** Progress arc colour (defaults to the accent). */
   color?: string;
-  /** Unfilled track colour (defaults to a faint border). */
   trackColor?: string;
-  /** Centred content (e.g. an icon or percentage). */
-  children?: ReactNode;
+  children?: ReactNode; // centred content, e.g. an icon or percentage
 };
 
-// A determinate progress ring (distinct from the indeterminate ProcessingRing).
-// Used on the Library row to show how far a full-audiobook render has gotten.
+// Determinate progress ring (vs. the indeterminate ProcessingRing). Used on the
+// Library row to show how far a full-audiobook render has gotten.
 export function CircularProgress({ value, size = 30, stroke = 3, color, trackColor, children }: CircularProgressProps) {
   const { palette: p } = useTheme();
   const arc = color ?? p.primary;

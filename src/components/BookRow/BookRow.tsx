@@ -9,7 +9,8 @@ import { PlayingPulse } from '../PlayingPulse';
 import { ProgressBar } from '../ProgressBar';
 import { makeStyles } from './BookRow.styles';
 
-/** Full-audiobook render state for the trailing circular indicator. */
+// Library list row: cover, title/author, progress, and a trailing indicator that
+// shows audiobook-render progress, a playing pulse, or a play/done affordance.
 export type BookRowAudiobook = { value: number; status: 'running' | 'done' | 'cancelled' | 'error' };
 
 export type BookRowProps = {
@@ -19,7 +20,6 @@ export type BookRowProps = {
   audiobook?: BookRowAudiobook;
   onPress?: () => void;
   onLongPress?: () => void;
-  /** Tap the trailing play/pause indicator — resume/toggle without opening the reader. */
   onPlay?: () => void;
 };
 

@@ -3,22 +3,18 @@ import { documentToBook } from '../../utils';
 import { NowPlayingPill } from '../NowPlayingPill';
 
 export type MiniPlayerProps = {
-  /** Hide on screens that have their own full transport (the Reader). */
   hidden?: boolean;
-  /** Open the Reader for the playing document when the pill is tapped. */
   onOpen: (docId: string) => void;
 };
 
-// App-wide "now playing" bar. Renders nothing until a document is engaged, then
-// floats above whatever screen is showing so the user keeps transport control
-// after leaving the Reader. Driven entirely by the global playback context.
+// App-wide "now playing" bar; floats above every screen so transport survives
+// leaving the Reader. Driven by the global playback context.
 export function MiniPlayer({ hidden = false, onOpen }: MiniPlayerProps) {
   const { playback, activeDoc, clearActiveDoc } = usePlaybackContext();
 
-  // Gate on `started` (audio has actually played), not `engaged` (which is also
-  // true for a mere text selection) — otherwise the bar shows with no audio.
-  // `halt` keeps `started` true, so the square stop leaves the bar in place; only
-  // a swipe-dismiss (full stop + clearActiveDoc) removes it.
+  // Gate on `started` (audio actually played), not `engaged` (also true for a
+  // text selection). `halt` keeps it true, so square-stop leaves the bar; only a
+  // swipe-dismiss removes it.
   if (hidden || !activeDoc || !playback.started) return null;
 
   const book = documentToBook(activeDoc.doc);

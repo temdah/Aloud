@@ -1,8 +1,7 @@
 import { AVAILABLE_VOICES } from '../../supertonic';
 import type { Voice } from '../../types';
 
-// Real selectable voices derived from the model's voice IDs (F1–F5, M1–M5).
-// No invented names/descriptions — labels are derived from the id.
+// Selectable voices derived from the model's voice IDs (F1–F5, M1–M5).
 export const VOICES: Voice[] = AVAILABLE_VOICES.map((id) => ({
   id,
   gender: id.startsWith('F') ? 'f' : 'm',
