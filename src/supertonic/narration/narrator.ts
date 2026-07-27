@@ -9,6 +9,21 @@ import { stageTimer } from '../../utils/perf';
 import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile, writeChunkTiming } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
 
+// Coalesce concurrent synthesis of the same clip. Without this, a chunk being
+// prefetched in the background and then reached by playback runs TWO full ONNX
+// pipelines over the same text at once (halving throughput, racing the same file
+// write). Keyed by the output uri, which already encodes doc + charStart +
+// settings, so only truly-identical clips collapse.
+const inFlight = new Map<string, Promise<string>>();
+
+function dedupeSynth(key: string, run: () => Promise<string>): Promise<string> {
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+  const p = run().finally(() => inFlight.delete(key));
+  inFlight.set(key, p);
+  return p;
+}
+
 async function synthesizeToFile(
   tts: TextToSpeech,
   voice: VoiceStyle,
@@ -53,10 +68,13 @@ export async function ensureChunkAudio(
   const file = chunkAudioFile(docHash, chunk.charStart, settings);
   if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
 
-  const { uri, neutralSec } = await synthesizeToFile(tts, voice, file, chunk, settings);
-  // Persist the clip length so the document timeline can rebuild from cache.
-  writeChunkTiming(docHash, chunk.charStart, settings, neutralSec);
-  return uri;
+  return dedupeSynth(file.uri, async () => {
+    if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri; // landed while queued
+    const { uri, neutralSec } = await synthesizeToFile(tts, voice, file, chunk, settings);
+    // Persist the clip length so the document timeline can rebuild from cache.
+    writeChunkTiming(docHash, chunk.charStart, settings, neutralSec);
+    return uri;
+  });
 }
 
 // Short first-sentence "fast lead" so playback starts in ~1 s. Keyed by length in
@@ -70,6 +88,9 @@ export async function ensureLeadAudio(
 ): Promise<string> {
   const file = leadAudioFile(docHash, chunk.charStart, chunk.text.length, settings);
   if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
-  const { uri } = await synthesizeToFile(tts, voice, file, chunk, settings);
-  return uri;
+  return dedupeSynth(file.uri, async () => {
+    if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
+    const { uri } = await synthesizeToFile(tts, voice, file, chunk, settings);
+    return uri;
+  });
 }

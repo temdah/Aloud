@@ -12,11 +12,14 @@ type SettingsState = {
   lang: string;
   speed: number;
   steps: number;
+  // First-run wizard seen (model downloaded before the first play prompt).
+  onboarded: boolean;
   setModelId: (modelId: string | null) => void;
   setVoice: (voiceId: string) => void;
   setLang: (lang: string) => void;
   setSpeed: (speed: number) => void;
   setSteps: (steps: number) => void;
+  setOnboarded: (onboarded: boolean) => void;
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -27,11 +30,13 @@ export const useSettingsStore = create<SettingsState>()(
       lang: 'en',
       speed: 1.05,
       steps: 5,
+      onboarded: false,
       setModelId: (modelId) => set({ modelId }),
       setVoice: (voiceId) => set({ voiceId }),
       setLang: (lang) => set({ lang }),
       setSpeed: (speed) => set({ speed }),
       setSteps: (steps) => set({ steps }),
+      setOnboarded: (onboarded) => set({ onboarded }),
     }),
     { name: 'settings', storage: createJSONStorage(() => fileStorage) },
   ),

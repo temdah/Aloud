@@ -1,3 +1,4 @@
+import { Asset } from 'expo-asset';
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTableFromCache, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
@@ -25,6 +26,26 @@ const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed:
 // loadedKeyRef sentinel for "the concatenated audiobook file is loaded" (vs a
 // per-chunk charStart >= 0; -1 means nothing loaded).
 const AUDIOBOOK_KEY = -2;
+
+// Media-notification artwork. Media3 derives the notification's colour scheme
+// from the large-icon bitmap; without one, contrast falls back to OEM defaults
+// (invisible white-on-white on some devices). Resolve the bundled icon to a
+// file:// uri once and reuse it as a universal cover.
+let artworkPromise: Promise<string | undefined> | null = null;
+function resolveArtworkUrl(): Promise<string | undefined> {
+  if (!artworkPromise) {
+    artworkPromise = (async () => {
+      try {
+        const asset = Asset.fromModule(require('../../assets/icon.png'));
+        if (!asset.localUri) await asset.downloadAsync();
+        return asset.localUri ?? asset.uri;
+      } catch {
+        return undefined;
+      }
+    })();
+  }
+  return artworkPromise;
+}
 
 function chunkIndexForOffset(chunks: Chunk[], charOffset: number): number {
   const hit = chunks.findIndex((c) => charOffset >= c.charStart && charOffset < c.charEnd);
@@ -192,7 +213,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const lockScreenActiveRef = useRef(false);
   // Latest "now playing" metadata in a ref, so the play callback needn't rebuild
   // when title/artist change.
-  const lockMetadataRef = useRef<{ title: string; artist: string; albumTitle: string }>({
+  const lockMetadataRef = useRef<{ title: string; artist: string; albumTitle: string; artworkUrl?: string }>({
     title: 'Document',
     artist: 'Aloud',
     albumTitle: 'Aloud',
@@ -202,6 +223,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       title: title?.trim() || 'Document',
       artist: artist?.trim() || 'Aloud',
       albumTitle: 'Aloud',
+      artworkUrl: lockMetadataRef.current.artworkUrl,
     };
     if (lockScreenActiveRef.current) {
       try {
@@ -209,6 +231,24 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       } catch {}
     }
   }, [title, artist]);
+
+  // Resolve the notification artwork once and fold it into the metadata (updating
+  // a live notification if one's already showing).
+  useEffect(() => {
+    let alive = true;
+    void resolveArtworkUrl().then((uri) => {
+      if (!alive || !uri) return;
+      lockMetadataRef.current = { ...lockMetadataRef.current, artworkUrl: uri };
+      if (lockScreenActiveRef.current) {
+        try {
+          playerRef.current?.updateLockScreenMetadata?.(lockMetadataRef.current);
+        } catch {}
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const settings = useMemo<NarrationSettings>(
     () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang }),

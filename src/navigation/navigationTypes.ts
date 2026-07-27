@@ -2,6 +2,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 export type RootStackParamList = {
+  Onboarding: undefined;
   Library: undefined;
   Reader: { docId: string };
   Prerender: { docId: string };

@@ -4,12 +4,14 @@ import { useCallback, useMemo, useState } from 'react';
 import { MiniPlayer } from '../components/MiniPlayer';
 import LibraryScreen from '../screens/LibraryScreen';
 import LicensesScreen from '../screens/LicensesScreen';
+import OnboardingScreen from '../screens/OnboardingScreen';
 import PrerenderScreen from '../screens/PrerenderScreen';
 import ReaderScreen from '../screens/ReaderScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import StorageScreen from '../screens/StorageScreen';
 import TextToSpeechDemoScreen from '../screens/TextToSpeechDemoScreen';
 import VoiceModelScreen from '../screens/VoiceModelScreen';
+import { useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { RootStackParamList } from './navigationTypes';
 
@@ -21,6 +23,10 @@ export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 export function AppNavigator() {
   const { palette: p, mode } = useTheme();
+  // Show the first-run wizard only to a genuinely fresh install. Existing users
+  // who already picked a model are treated as onboarded (the flag defaults false
+  // for them after an update, so fall back to modelId).
+  const onboarded = useSettingsStore((s) => s.onboarded || s.modelId !== null);
   const [routeName, setRouteName] = useState<string | undefined>(undefined);
   const syncRoute = useCallback(() => setRouteName(navigationRef.getCurrentRoute()?.name), []);
   const openReader = useCallback((docId: string) => {
@@ -46,6 +52,7 @@ export function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} onReady={syncRoute} onStateChange={syncRoute}>
       <Stack.Navigator
+        initialRouteName={onboarded ? 'Library' : 'Onboarding'}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: p.background },
@@ -54,6 +61,7 @@ export function AppNavigator() {
           headerShadowVisible: false,
         }}
       >
+        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Library" component={LibraryScreen} />
         <Stack.Screen name="Reader" component={ReaderScreen} />
         <Stack.Screen name="Prerender" component={PrerenderScreen} />
