@@ -1,7 +1,7 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Image, Pressable, Text, View, type ViewToken } from 'react-native';
-import { ActionDialog, AppBar, Chip, Icon, IconButton, LanguagePicker, ManageCacheSheet, PageScrubber, PlayerControls, Sheet, Slider, Spinner, TapHint, VoicePicker, voiceLabel, type DialogAction } from '../../components';
+import { ActionDialog, AppBar, Chip, Icon, IconButton, LanguagePicker, ManageCacheSheet, PageScrubber, PerfTips, PlayerControls, Sheet, Slider, Spinner, TapHint, VoicePicker, voiceLabel, type DialogAction } from '../../components';
 import { usePageGeometry, usePdfText } from '../../hooks';
 import { File } from 'expo-file-system';
 import { usePlaybackContext } from '../../playback';
@@ -15,6 +15,8 @@ import { makeStyles } from './ReaderScreen.styles';
 
 const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.15, 1.25, 1.5];
 const INDENT_STEP = 18;
+// After the perf tip is shown/dismissed, don't surface it again for this long.
+const PERF_TIP_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 const TOC_DOTS = Array(80).fill('·').join(' ');
 
 // mm:ss for a duration in seconds (audio positions/durations).
@@ -63,6 +65,10 @@ export default function ReaderScreen() {
   const speed = useSettingsStore((s) => s.speed);
   const setSpeed = useSettingsStore((s) => s.setSpeed);
   const steps = useSettingsStore((s) => s.steps);
+  const perfTipSuppressed = useSettingsStore((s) => s.perfTipSuppressed);
+  const perfTipLastShown = useSettingsStore((s) => s.perfTipLastShown);
+  const suppressPerfTip = useSettingsStore((s) => s.suppressPerfTip);
+  const markPerfTipShown = useSettingsStore((s) => s.markPerfTipShown);
 
   // A pinned full-audiobook render fixes the narration settings so tap-to-start
   // reads its cache; otherwise fall back to the global voice settings.
@@ -111,6 +117,20 @@ export default function ReaderScreen() {
   useEffect(() => {
     if (playback.modelLoadFailed) setModelErrorOpen(true);
   }, [playback.modelLoadFailed]);
+
+  // Perf tip: surface once when detection fires, unless permanently suppressed or
+  // within the cooldown from the last time it was shown/dismissed.
+  const [perfBanner, setPerfBanner] = useState(false);
+  useEffect(() => {
+    if (playback.perfWarning && !perfTipSuppressed && Date.now() - perfTipLastShown > PERF_TIP_COOLDOWN_MS) {
+      setPerfBanner(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playback.perfWarning]);
+  const dismissPerf = () => {
+    setPerfBanner(false);
+    markPerfTipShown();
+  };
   useEffect(() => {
     if (status !== 'ready' || !doc || !document?.text) return;
     setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, onSpeedChange: setEffSpeed });
@@ -559,6 +579,24 @@ export default function ReaderScreen() {
           </View>
         </View>
       ) : null}
+
+      <PerfTips
+        visible={perfBanner}
+        onDismiss={dismissPerf}
+        onSuppress={() => {
+          setPerfBanner(false);
+          suppressPerfTip();
+        }}
+        onMakeAudiobook={() => {
+          dismissPerf();
+          navigation.navigate('Prerender', { docId: route.params.docId });
+        }}
+        onChangeVoice={() => {
+          dismissPerf();
+          navigation.navigate('VoiceModel');
+        }}
+        lighterVoiceHint={effModelId === 'supertonic-3' ? 'Use a lighter voice model' : undefined}
+      />
 
       <PlayerControls
         playing={playback.playing}

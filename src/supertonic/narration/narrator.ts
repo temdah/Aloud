@@ -8,6 +8,7 @@ import { encodePcmToM4a } from '../../../modules/aac-codec';
 import { stageTimer } from '../../utils/perf';
 import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile, writeChunkTiming } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
+import { recordSynthRtf } from './perfStats';
 
 // Coalesce concurrent synthesis of the same clip. Without this, a chunk being
 // prefetched in the background and then reached by playback runs TWO full ONNX
@@ -34,6 +35,7 @@ async function synthesizeToFile(
   // Render at the engine's neutral rate; playback speed is applied live, so the
   // cache is speed-agnostic.
   const timer = stageTimer('synth');
+  const wallStart = Date.now();
   const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0, undefined, timer.mark);
   // Float [-1,1] -> 16-bit LE PCM, byte-identical to the old WAV path, so the
   // cache is unchanged (SYNTH_VERSION stays put).
@@ -46,9 +48,10 @@ async function synthesizeToFile(
   if (file.exists) file.delete();
   await encodePcmToM4a(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), tts.sampleRate, file.uri);
   timer.mark('aac-encode');
+  const audioSec = waveform.length / tts.sampleRate;
+  const wallSec = (Date.now() - wallStart) / 1000;
+  if (wallSec > 0) recordSynthRtf(settings.modelId, audioSec / wallSec); // sensor for the perf tip
   if (__DEV__) {
-    const audioSec = waveform.length / tts.sampleRate;
-    const wallSec = timer.elapsedMs() / 1000;
     console.log(`[perf:synth] audio ${audioSec.toFixed(2)}s / wall ${wallSec.toFixed(2)}s = ${(audioSec / wallSec).toFixed(2)}x realtime`);
   }
   timer.done();

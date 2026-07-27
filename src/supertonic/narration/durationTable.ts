@@ -73,6 +73,9 @@ export function loadDurationTableFromCache(
 export type BuildDurationTableOptions = {
   onProgress?: (done: number, total: number) => void;
   shouldCancel?: () => boolean;
+  // Awaited before each predictor batch so the timeline yields the engine to a
+  // clip the user is waiting on (the table is a background nicety, not audio).
+  beforeBatch?: () => Promise<void>;
 };
 
 export async function ensureDurationTable(
@@ -104,6 +107,8 @@ export async function ensureDurationTable(
   // waste beats per-chunk JSI round-trips. Cancels between batches.
   const BATCH = 16;
   for (let i = 0; i < missing.length; i += BATCH) {
+    if (opts.shouldCancel?.()) return null;
+    await opts.beforeBatch?.();
     if (opts.shouldCancel?.()) return null;
     const idxs = missing.slice(i, i + BATCH);
     const durs = await tts.predictDurationsSec(

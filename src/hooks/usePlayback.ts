@@ -1,7 +1,7 @@
 import { Asset } from 'expo-asset';
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, isChunkCached, isLeadCached, leadAudioFile, loadDurationTableFromCache, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
+import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, loadDurationTableFromCache, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
@@ -46,6 +46,13 @@ function resolveArtworkUrl(): Promise<string | undefined> {
   }
   return artworkPromise;
 }
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Perf-tip detection thresholds.
+const STALL_MS = 2000; // a boundary gap longer than this = an audible stall
+const STALL_TRIGGER = 2; // stalls in a session before offering the tip
+const RTF_THRESHOLD = 1.1; // synthesis realtime factor below which we blame the device
 
 function chunkIndexForOffset(chunks: Chunk[], charOffset: number): number {
   const hit = chunks.findIndex((c) => charOffset >= c.charStart && charOffset < c.charEnd);
@@ -151,6 +158,7 @@ export type Playback = {
   docPositionSec: number; // on the whole-document timeline, at speed (0 until table built)
   docDurationSec: number; // whole-document runtime at speed (0 until built)
   timelineReady: boolean; // duration table ready → whole-doc timeline is meaningful
+  perfWarning: boolean; // repeated stalls + slow synthesis → offer the "device is slow" tip
   toggle: () => void;
   play: () => void;
   pause: () => void;
@@ -188,6 +196,12 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // download checks) → drives the reader's re-download prompt.
   const [modelLoadFailed, setModelLoadFailed] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Ref mirror so the background duration-table build can poll "is playback
+  // waiting on a clip right now?" and pause itself while it is.
+  const loadingRef = useRef(false);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
   const [engaged, setEngaged] = useState(false);
   const [started, setStarted] = useState(false);
   const [current, setCurrent] = useState<Chunk | null>(null);
@@ -196,6 +210,12 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
 
   const activeRef = useRef(false);
   const finishedHandledRef = useRef(false);
+  // Perf-tip detection: when a clip finishes but the next isn't cached, the user
+  // waits — time that gap; enough long gaps this session plus a below-realtime
+  // synthesis RTF surfaces the "device is slow for this voice" tip.
+  const stallStartRef = useRef<number | null>(null);
+  const stallCountRef = useRef(0);
+  const [perfWarning, setPerfWarning] = useState(false);
   // Bumped by every new play/select/pause so a slow in-flight synthesis can tell
   // it was superseded and must not grab the player.
   const playTokenRef = useRef(0);
@@ -379,12 +399,20 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       return;
     }
     void (async () => {
+      // Let playback claim the engine first — the timeline is never on the
+      // critical path, so a brief head start avoids the worst first-play contention.
+      await sleep(600);
+      if (cancelled) return;
       const engine = await ensureEngine();
       if (!engine || cancelled) return;
       try {
         const table = await withEngine(modelId!, (tts) =>
           ensureDurationTable(tts, engine.voice, docHash, chunks, settings, {
             shouldCancel: () => cancelled,
+            // Pause between batches while a clip the user is waiting on synthesizes.
+            beforeBatch: async () => {
+              while (loadingRef.current && !cancelled) await sleep(120);
+            },
           }),
         );
         if (table && !cancelled) setDurTable(table);
@@ -640,16 +668,33 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       const pending = pendingLeadRef.current;
       if (pending) {
         // A fast-lead just finished — play the remainder of its chunk next.
+        if (!isChunkCached(docHash, pending.chunk.charStart, settings)) stallStartRef.current = Date.now();
         pendingLeadRef.current = null;
         void playChunkObject(pending.chunk, pending.anchorIdx, pending.resumeIdx);
       } else {
         const next = resumeIndexRef.current;
-        if (next < chunks.length) playCanonical(next);
-        else activeRef.current = false;
+        if (next < chunks.length) {
+          if (!isChunkCached(docHash, chunks[next].charStart, settings)) stallStartRef.current = Date.now();
+          playCanonical(next);
+        } else activeRef.current = false;
       }
     }
     if (!status.didJustFinish) finishedHandledRef.current = false;
-  }, [singleItem, status.didJustFinish, chunks.length, playCanonical, playChunkObject]);
+  }, [singleItem, status.didJustFinish, chunks.length, playCanonical, playChunkObject, docHash, settings]);
+
+  // Perf-tip: when audio resumes after a non-cached boundary, measure the gap;
+  // enough long gaps + a below-realtime RTF surfaces the tip.
+  useEffect(() => {
+    if (singleItem || stallStartRef.current == null || !status.isLoaded || !status.playing) return;
+    const gap = Date.now() - stallStartRef.current;
+    stallStartRef.current = null;
+    if (gap <= STALL_MS) return;
+    stallCountRef.current += 1;
+    if (stallCountRef.current >= STALL_TRIGGER && !perfWarning) {
+      const rtf = getSynthRtf(modelId);
+      if (rtf != null && rtf < RTF_THRESHOLD) setPerfWarning(true);
+    }
+  }, [singleItem, status.isLoaded, status.playing, modelId, perfWarning]);
 
   // Single-item highlight: derive the current chunk from the file's play position
   // (via the duration table) so the reader highlight tracks playback.
@@ -934,6 +979,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     docPositionSec,
     docDurationSec,
     timelineReady: durTable != null,
+    perfWarning,
     toggle,
     play,
     pause,

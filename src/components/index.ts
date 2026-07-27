@@ -32,3 +32,4 @@ export * from './VoicePicker';
 export * from './VoiceSwatch';
 export * from './LanguagePicker';
 export * from './ManageCacheSheet';
+export * from './PerfTips';
