@@ -30,8 +30,14 @@ export default function OnboardingScreen() {
 
   const finish = (docId?: string) => {
     setOnboarded(true);
-    navigation.reset({ index: 0, routes: [{ name: 'Library' }] });
-    if (docId) navigation.navigate('Reader', { docId });
+    // One atomic reset that replaces the whole stack — a reset-then-navigate pair
+    // races and can leave Onboarding under the Reader, so back-ing out returns
+    // here instead of the library.
+    navigation.reset(
+      docId
+        ? { index: 1, routes: [{ name: 'Library' }, { name: 'Reader', params: { docId } }] }
+        : { index: 0, routes: [{ name: 'Library' }] },
+    );
   };
 
   const onImport = async () => {
