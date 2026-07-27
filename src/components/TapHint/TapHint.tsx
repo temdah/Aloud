@@ -25,7 +25,7 @@ export function TapHint({ onClose }: TapHintProps) {
   return (
     <Animated.View style={[styles.hint, elevation(3), { opacity, transform: [{ scale }] }]}>
       <Icon name="highlight" size={16} color={p.background} />
-      <Text style={[ty(TYPE.bodySmall, p.background), styles.label]}>Tap a sentence to start there, then press play</Text>
+      <Text style={[ty(TYPE.bodySmall, p.background), styles.label]}>Press play to begin, or tap any sentence to start there</Text>
       <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Dismiss hint" style={styles.close}>
         <Icon name="close" size={15} color={p.background} />
       </Pressable>

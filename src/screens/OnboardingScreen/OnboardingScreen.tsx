@@ -89,7 +89,7 @@ export default function OnboardingScreen() {
         <View style={styles.copy}>
           <Text style={ty(TYPE.title, p.text)}>You’re all set</Text>
           <Text style={[ty(TYPE.body, p.textMuted), styles.lead]}>
-            Import a document, then tap any sentence to start listening.
+            Import a document and press play — or tap any sentence to start there.
           </Text>
         </View>
         <View style={styles.footer}>
