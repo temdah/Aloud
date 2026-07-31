@@ -18,7 +18,7 @@ const PROFILES_FILE = 'profiles.json';
 const SYNTH_VERSION = 4;
 
 export function settingsHash(s: NarrationSettings): string {
-  return stableHash(`v${SYNTH_VERSION}|${s.modelId}|${s.voiceId}|${s.steps}|${s.lang}`);
+  return stableHash(`v${SYNTH_VERSION}|${s.modelId}|${s.voiceId}|${s.steps}|${s.lang}|${s.quality}`);
 }
 
 export function documentCacheDir(docHash: string): Directory {

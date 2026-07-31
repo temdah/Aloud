@@ -43,6 +43,7 @@ export default function PrerenderScreen() {
   const defaultVoice = useSettingsStore((s) => s.voiceId);
   const defaultSpeed = useSettingsStore((s) => s.speed);
   const steps = useSettingsStore((s) => s.steps);
+  const quality = useSettingsStore((s) => s.quality);
   const unitLen = useSettingsStore((s) => qualityProfile(s.quality).unitLen);
 
   // Prepare the book's text headlessly (the hidden extractor below streams pages
@@ -77,7 +78,7 @@ export default function PrerenderScreen() {
   // Used to pad the scroll content so the start button clears the floating pill.
   const { playback } = usePlaybackContext();
 
-  const settings: NarrationSettings = { modelId: model.id, voiceId, speed, steps, lang };
+  const settings: NarrationSettings = { modelId: model.id, voiceId, speed, steps, lang, quality };
   const downloaded = areModelsDownloaded(model.id, voiceId);
 
   const totalChars = chunks.length ? chunks[chunks.length - 1].charEnd : 0;

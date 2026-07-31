@@ -79,6 +79,8 @@ export default function ReaderScreen() {
   // Language precedence: pinned render → per-document override → global default.
   const effLang = renderProfile?.lang ?? doc?.lang ?? settingsLang ?? 'en';
   const effSpeed = renderProfile?.speed ?? speed;
+  // Pinned quality keeps a rendered audiobook's chunking consistent with its cache.
+  const effQuality = renderProfile?.quality ?? quality;
   const setEffSpeed = useCallback(
     (v: number) => {
       if (renderProfile) setRenderProfile(route.params.docId, { ...renderProfile, speed: v });
@@ -108,9 +110,9 @@ export default function ReaderScreen() {
   const chunks = useMemo(
     () =>
       status === 'ready' && doc && document?.text
-        ? loadChunks(doc.docHash, document.text, qualityProfile(quality).unitLen)
+        ? loadChunks(doc.docHash, document.text, qualityProfile(effQuality).unitLen)
         : [],
-    [status, doc?.docHash, document?.text, quality],
+    [status, doc?.docHash, document?.text, effQuality],
   );
 
   // Playback lives in a global provider so audio + transport survive leaving this
@@ -137,8 +139,8 @@ export default function ReaderScreen() {
   };
   useEffect(() => {
     if (status !== 'ready' || !doc || !document?.text) return;
-    setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, onSpeedChange: setEffSpeed });
-  }, [status, doc, document?.text, chunks, effModelId, effVoiceId, effSpeed, effSteps, effLang, setActiveDoc, setEffSpeed]);
+    setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, quality: effQuality, onSpeedChange: setEffSpeed });
+  }, [status, doc, document?.text, chunks, effModelId, effVoiceId, effSpeed, effSteps, effLang, effQuality, setActiveDoc, setEffSpeed]);
 
   // Nothing is highlighted until the user engages (taps a sentence or plays).
   const activeChunk = playback.engaged ? playback.currentChunk : null;
@@ -331,6 +333,7 @@ export default function ReaderScreen() {
             speed: effSpeed,
             steps: effSteps,
             lang: effLang,
+            quality: effQuality,
           }));
       if (cached) {
         setVoiceSheet(false);
@@ -339,7 +342,7 @@ export default function ReaderScreen() {
         applyVoice(newVoice);
       }
     },
-    [doc, effVoiceId, audiobook?.status, chunks, effModelId, effSpeed, effSteps, effLang, applyVoice],
+    [doc, effVoiceId, audiobook?.status, chunks, effModelId, effSpeed, effSteps, effLang, effQuality, applyVoice],
   );
 
   const menuActions: DialogAction[] = doc

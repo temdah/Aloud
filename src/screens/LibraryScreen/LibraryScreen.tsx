@@ -103,15 +103,17 @@ export default function LibraryScreen() {
       return;
     }
     const rp = renderProfile[docId];
+    const effQuality = rp?.quality ?? settings.quality;
     const active: ActiveDoc = {
       doc,
-      chunks: loadChunks(docId, extracted.text, qualityProfile(settings.quality).unitLen),
+      chunks: loadChunks(docId, extracted.text, qualityProfile(effQuality).unitLen),
       text: extracted.text,
       modelId: rp?.modelId ?? settings.modelId,
       voiceId: rp?.voiceId ?? settings.voiceId,
       speed: rp?.speed ?? settings.speed,
       steps: rp?.steps ?? settings.steps,
       lang: rp?.lang ?? doc.lang ?? settings.lang ?? 'en',
+      quality: effQuality,
       onSpeedChange: (v: number) => (rp ? setRenderProfile(docId, { ...rp, speed: v }) : settings.setSpeed(v)),
     };
     playDocument(active, cursor[docId] ?? 0);

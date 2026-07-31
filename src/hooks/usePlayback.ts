@@ -2,7 +2,7 @@ import { Asset } from 'expo-asset';
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, loadDurationTableFromCache, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
-import type { DurationTable, NarrationSettings, TextToSpeech, VoiceStyle } from '../supertonic';
+import type { DurationTable, NarrationSettings, Quality, TextToSpeech, VoiceStyle } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
@@ -135,6 +135,7 @@ export type UsePlaybackOptions = {
   speed: number;
   steps: number;
   lang?: string;
+  quality: Quality;
   title?: string; // lock-screen title
   artist?: string; // lock-screen secondary line (defaults to app name)
   // Routes an OS-notification speed change to the same setter the in-app control
@@ -177,7 +178,7 @@ export type Playback = {
 // Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
 // tapping starts at the exact tapped sentence via a one-off "lead" chunk, then
 // continues with the canonical chunks after it. Highlight is chunk-level.
-export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en', title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
+export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en', quality, title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
   // A player we own for the hook's lifetime; useAudioPlayer() released the native
   // player mid-session (replace() threw ERR_USING_RELEASED_SHARED_OBJECT).
   const playerRef = useRef<AudioPlayer | null>(null);
@@ -271,8 +272,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   }, []);
 
   const settings = useMemo<NarrationSettings>(
-    () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang }),
-    [modelId, voiceId, speed, steps, lang],
+    () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang, quality }),
+    [modelId, voiceId, speed, steps, lang, quality],
   );
 
   // A full audiobook rendered with these exact settings: play straight from cache

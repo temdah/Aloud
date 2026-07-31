@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { usePlayback, useSleepTimer, type Playback, type SleepTimer } from '../hooks';
+import { DEFAULT_QUALITY, type Quality } from '../supertonic';
 import type { Chunk, ImportedDocument } from '../types';
 
 // Everything playback needs to read a document. The Reader registers this on
@@ -14,6 +15,7 @@ export type ActiveDoc = {
   speed: number;
   steps: number;
   lang: string;
+  quality: Quality;
   // Route an OS-notification speed change to the right source (per-doc pin or global).
   onSpeedChange?: (speed: number) => void;
 };
@@ -54,6 +56,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     speed: activeDoc?.speed ?? 1,
     steps: activeDoc?.steps ?? 1,
     lang: activeDoc?.lang ?? 'en',
+    quality: activeDoc?.quality ?? DEFAULT_QUALITY,
     title: activeDoc?.doc.title,
     onSpeedChange: activeDoc?.onSpeedChange,
   });
