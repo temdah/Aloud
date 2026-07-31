@@ -164,6 +164,13 @@ export default function SettingsScreen() {
         <SettingsSection title="About">
           <View style={styles.storageCard}>
             <ListItem
+              leading={<View style={styles.leadingMuted}><Icon name="book" size={16} color={p.textMuted} /></View>}
+              title="Terms of use"
+              subtitle="Personal, non-commercial use"
+              trailing={<Icon name="chevR" size={18} color={p.textDim} />}
+              onPress={() => navigation.navigate('Terms')}
+            />
+            <ListItem
               divider={false}
               leading={<View style={styles.leadingMuted}><Icon name="book" size={16} color={p.textMuted} /></View>}
               title="Open-source licenses"

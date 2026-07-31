@@ -155,6 +155,13 @@ export default function OnboardingScreen() {
       </View>
       <View style={styles.footer}>
         <Button label="Get started" icon="chevR" size="lg" variant="filled" full onPress={() => setStep('model')} />
+        <Text style={[ty(TYPE.caption, p.textDim), styles.consent]}>
+          By continuing you agree to the{' '}
+          <Text style={ty(TYPE.caption, p.primary)} onPress={() => navigation.navigate('Terms')}>
+            Terms of use
+          </Text>
+          {' '}— for personal, non-commercial use only.
+        </Text>
       </View>
     </View>
   );

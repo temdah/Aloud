@@ -56,6 +56,11 @@ export const makeStyles = (p: Palette) =>
     hint: {
       textAlign: 'center',
     },
+    consent: {
+      textAlign: 'center',
+      lineHeight: 18,
+      marginTop: 2,
+    },
     readyBadge: {
       width: 96,
       height: 96,
