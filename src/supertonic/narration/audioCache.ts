@@ -122,19 +122,12 @@ export function writeAudiobookIndex(docHash: string, s: NarrationSettings, start
   }
 }
 
-// Fast-lead clips live in the OS cache dir (not the tts cache): a boundary lead
-// shares a chunk's charStart, so caching it under the normal key would corrupt
-// that chunk's clip. Keyed by length too, and disposable (OS may evict).
-const LEAD_ROOT = 'tts-lead';
-
-function leadCacheDir(): Directory {
-  const dir = new Directory(Paths.cache, LEAD_ROOT);
-  if (!dir.exists) dir.create({ intermediates: true });
-  return dir;
-}
-
+// Fast-lead clips: a partial "start here" clip covering a chunk's first sentence.
+// Durable (in the doc cache, `lead-` prefixed so it can't collide with a chunk's
+// numeric name) and keyed by length, so re-tapping a section replays from cache
+// instead of re-synthesizing.
 export function leadAudioFile(docHash: string, charStart: number, len: number, s: NarrationSettings): File {
-  return new File(leadCacheDir(), `${docHash}-${charStart}-${len}-${settingsHash(s)}.m4a`);
+  return new File(documentCacheDir(docHash), `lead-${charStart}-${len}-${settingsHash(s)}.m4a`);
 }
 
 export function isLeadCached(docHash: string, charStart: number, len: number, s: NarrationSettings): boolean {
@@ -180,14 +173,14 @@ export function recordCachedProfile(docHash: string, s: NarrationSettings): void
   writeProfilesRegistry(docHash, reg);
 }
 
-// charStart is a non-negative int and settingsHash is base36 (no dashes), so the
-// first dash separates them.
+// settingsHash is base36 (no dashes) and always the final dash-segment, across
+// every name shape: `<charStart>-<hash>`, `book-<hash>`, `lead-<start>-<len>-<hash>`.
 function hashFromFileName(name: string): string | null {
   const stem = name
     .replace(/\.timing\.json$/, '')
     .replace(/\.index\.json$/, '')
     .replace(/\.m4a$/, '');
-  const dash = stem.indexOf('-');
+  const dash = stem.lastIndexOf('-');
   return dash < 0 ? null : stem.slice(dash + 1);
 }
 
