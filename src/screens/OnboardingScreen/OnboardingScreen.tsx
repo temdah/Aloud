@@ -1,16 +1,16 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, EmptyArt, Icon, ModelCard } from '../../components';
 import { useImportDocument } from '../../hooks';
 import { useSettingsStore } from '../../stores';
-import { MODELS } from '../../supertonic';
+import { MODELS, QUALITY_LABELS, type Quality } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation } from '../../navigation/navigationTypes';
 import { makeStyles } from './OnboardingScreen.styles';
 
-type Step = 'welcome' | 'model' | 'ready';
+type Step = 'welcome' | 'model' | 'quality' | 'ready';
 
 // First-run wizard: model-first, so the app never ambushes the user with a model
 // download the moment they press play. Welcome → download + choose a voice →
@@ -24,6 +24,8 @@ export default function OnboardingScreen() {
   const modelId = useSettingsStore((s) => s.modelId);
   const setModelId = useSettingsStore((s) => s.setModelId);
   const voiceId = useSettingsStore((s) => s.voiceId);
+  const quality = useSettingsStore((s) => s.quality);
+  const setQuality = useSettingsStore((s) => s.setQuality);
   const setOnboarded = useSettingsStore((s) => s.setOnboarded);
   const { importDocument, importing } = useImportDocument();
   const [step, setStep] = useState<Step>('welcome');
@@ -69,10 +71,50 @@ export default function OnboardingScreen() {
           ))}
         </ScrollView>
         <View style={styles.footer}>
-          <Button label="Continue" icon="chevR" size="lg" variant="filled" full disabled={!modelId} onPress={() => setStep('ready')} />
+          <Button label="Continue" icon="chevR" size="lg" variant="filled" full disabled={!modelId} onPress={() => setStep('quality')} />
           <Text style={[ty(TYPE.caption, p.textDim), styles.hint]}>
             {modelId ? 'Voice ready' : 'Download a voice, then tap “Use this model” to continue'}
           </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (step === 'quality') {
+    return (
+      <View style={[styles.screen, pad]}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={[ty(TYPE.title, p.text), styles.stepTitle]}>How should it sound?</Text>
+          <Text style={[ty(TYPE.body, p.textMuted), styles.stepIntro]}>
+            Higher quality is smoother but needs a faster phone; Faster starts quicker. You can change this anytime in Settings.
+          </Text>
+          <View style={styles.presetCard}>
+            {(['fast', 'balanced', 'quality'] as Quality[]).map((q, i) => {
+              const label = QUALITY_LABELS[q];
+              const selected = quality === q;
+              return (
+                <Pressable
+                  key={q}
+                  onPress={() => setQuality(q)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  style={[
+                    styles.presetRow,
+                    { backgroundColor: selected ? p.primarySoft : 'transparent', borderBottomWidth: i === 2 ? 0 : 1, borderBottomColor: p.border },
+                  ]}
+                >
+                  <View style={styles.presetBody}>
+                    <Text style={ty(TYPE.bodyMedium, p.text)}>{label.title}</Text>
+                    <Text style={ty(TYPE.bodySmall, p.textMuted)}>{label.subtitle}</Text>
+                  </View>
+                  {selected ? <Icon name="check" size={20} color={p.primary} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </ScrollView>
+        <View style={styles.footer}>
+          <Button label="Continue" icon="chevR" size="lg" variant="filled" full onPress={() => setStep('ready')} />
         </View>
       </View>
     );

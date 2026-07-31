@@ -1,7 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { AppBar, Icon, LanguagePicker, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
+import { ActionDialog, AppBar, Icon, LanguagePicker, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
 import { documentCacheStats, findModel, languageLabel, QUALITY_LABELS, type Quality } from '../../supertonic';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { ty, TYPE, useTheme } from '../../theme';
@@ -30,6 +30,7 @@ export default function SettingsScreen() {
   const [voiceSheet, setVoiceSheet] = useState(false);
   const [langSheet, setLangSheet] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pendingQuality, setPendingQuality] = useState<Quality | null>(null);
 
   const activeModel = findModel(modelId);
 
@@ -91,7 +92,12 @@ export default function SettingsScreen() {
               return (
                 <Pressable
                   key={q}
-                  onPress={() => setQuality(q)}
+                  onPress={() => {
+                    if (q === quality) return;
+                    // Changing quality re-chunks docs; warn if that would clear cached audio.
+                    if (cacheTotal.bytes > 0) setPendingQuality(q);
+                    else setQuality(q);
+                  }}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                   style={[
@@ -196,6 +202,17 @@ export default function SettingsScreen() {
           langCodes={activeModel?.langCodes ?? []}
         />
       </Sheet>
+
+      <ActionDialog
+        open={pendingQuality !== null}
+        onClose={() => setPendingQuality(null)}
+        title="Change playback quality?"
+        message="This re-chunks your documents, so their cached audio is regenerated. Full audiobooks you've saved are kept; other cached clips are cleared and re-made as you listen."
+        actions={[
+          { label: 'Change', variant: 'filled', onPress: () => pendingQuality && setQuality(pendingQuality) },
+          { label: 'Cancel', variant: 'ghost' },
+        ]}
+      />
     </View>
   );
 }

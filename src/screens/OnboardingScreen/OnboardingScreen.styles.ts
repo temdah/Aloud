@@ -32,6 +32,22 @@ export const makeStyles = (p: Palette) =>
       marginBottom: 18,
       lineHeight: 22,
     },
+    presetCard: {
+      backgroundColor: p.surface,
+      borderWidth: 1,
+      borderColor: p.border,
+      borderRadius: 14,
+      overflow: 'hidden',
+    },
+    presetRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+    },
+    presetBody: {
+      flex: 1,
+    },
     footer: {
       paddingHorizontal: 20,
       paddingTop: 12,
