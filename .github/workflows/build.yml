@@ -45,6 +45,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Prebuild native project
+        run: npx expo prebuild --platform android --no-install # android/ is gitignored (CNG); regenerate it + apply config plugins
+
       - name: Configure release signing (optional)
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
