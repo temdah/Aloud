@@ -38,6 +38,28 @@ export const makeStyles = (p: Palette) =>
     spacer: {
       height: 12,
     },
+    groupLabel: {
+      marginBottom: 8,
+      marginLeft: 4,
+    },
+    presetRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomColor: p.border,
+    },
+    presetBody: {
+      flex: 1,
+    },
+    advancedToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 6,
+      paddingVertical: 12,
+      marginTop: 4,
+    },
     qualityCard: {
       backgroundColor: p.surface,
       borderWidth: 1,

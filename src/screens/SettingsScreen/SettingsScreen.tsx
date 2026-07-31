@@ -1,8 +1,8 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { AppBar, Icon, LanguagePicker, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
-import { documentCacheStats, findModel, languageLabel } from '../../supertonic';
+import { documentCacheStats, findModel, languageLabel, QUALITY_LABELS, type Quality } from '../../supertonic';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation } from '../../navigation/navigationTypes';
@@ -22,11 +22,14 @@ export default function SettingsScreen() {
   const setSpeed = useSettingsStore((s) => s.setSpeed);
   const steps = useSettingsStore((s) => s.steps);
   const setSteps = useSettingsStore((s) => s.setSteps);
+  const quality = useSettingsStore((s) => s.quality);
+  const setQuality = useSettingsStore((s) => s.setQuality);
 
   const documents = useDocumentsStore((s) => s.documents);
 
   const [voiceSheet, setVoiceSheet] = useState(false);
   const [langSheet, setLangSheet] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const activeModel = findModel(modelId);
 
@@ -80,23 +83,56 @@ export default function SettingsScreen() {
 
           <View style={styles.spacer} />
 
-          <View style={styles.qualityCard}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={ty(TYPE.bodyMedium, p.text)}>Speed vs. quality</Text>
-              <Text style={ty(TYPE.mono, p.textMuted)}>{steps} steps</Text>
-            </View>
-            <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.qualityHint]}>
-              Fewer steps produce each voice clip faster; more steps sound smoother but take longer to generate, so audio starts later.
-            </Text>
-            <View style={styles.qualitySliderWrap}>
-              <Slider value={steps} min={4} max={16} step={1} onChange={(v) => setSteps(Math.round(v))} ticks={[4, 5, 8, 12, 16]} />
-            </View>
-            <View style={styles.labelRow}>
-              <Text style={ty(TYPE.mono, p.textDim)}>Speed</Text>
-              <Text style={ty(TYPE.mono, p.textDim)}>default 5</Text>
-              <Text style={ty(TYPE.mono, p.textDim)}>Quality</Text>
-            </View>
+          <Text style={[ty(TYPE.label, p.textMuted), styles.groupLabel]}>Quality</Text>
+          <View style={styles.storageCard}>
+            {(['fast', 'balanced', 'quality'] as Quality[]).map((q, i) => {
+              const label = QUALITY_LABELS[q];
+              const selected = quality === q;
+              return (
+                <Pressable
+                  key={q}
+                  onPress={() => setQuality(q)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  style={[
+                    styles.presetRow,
+                    { backgroundColor: selected ? p.primarySoft : 'transparent', borderBottomWidth: i === 2 ? 0 : 1 },
+                  ]}
+                >
+                  <View style={styles.presetBody}>
+                    <Text style={ty(TYPE.bodyMedium, p.text)}>{label.title}</Text>
+                    <Text style={ty(TYPE.bodySmall, p.textMuted)}>{label.subtitle}</Text>
+                  </View>
+                  {selected ? <Icon name="check" size={20} color={p.primary} /> : null}
+                </Pressable>
+              );
+            })}
           </View>
+
+          <Pressable onPress={() => setAdvancedOpen((o) => !o)} accessibilityRole="button" style={styles.advancedToggle}>
+            <Text style={ty(TYPE.label, p.textMuted)}>Advanced</Text>
+            <View style={{ transform: [{ rotate: advancedOpen ? '90deg' : '0deg' }] }}>
+              <Icon name="chevR" size={16} color={p.textDim} />
+            </View>
+          </Pressable>
+          {advancedOpen ? (
+            <View style={styles.qualityCard}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={ty(TYPE.bodyMedium, p.text)}>Quality steps</Text>
+                <Text style={ty(TYPE.mono, p.textMuted)}>{steps} steps</Text>
+              </View>
+              <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.qualityHint]}>
+                Fewer steps generate each clip faster; more sound smoother but start later. The presets above set this for you.
+              </Text>
+              <View style={styles.qualitySliderWrap}>
+                <Slider value={steps} min={4} max={16} step={1} onChange={(v) => setSteps(Math.round(v))} ticks={[4, 5, 8, 12, 16]} />
+              </View>
+              <View style={styles.labelRow}>
+                <Text style={ty(TYPE.mono, p.textDim)}>Faster</Text>
+                <Text style={ty(TYPE.mono, p.textDim)}>Smoother</Text>
+              </View>
+            </View>
+          ) : null}
         </SettingsSection>
 
         <SettingsSection title="Models & storage">
