@@ -5,7 +5,7 @@ import { ActionDialog, AppBar, Button, Chip, Icon, ProgressBar, Sheet, Spinner, 
 import { usePdfText, usePrerender } from '../../hooks';
 import { usePlaybackContext } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { areModelsDownloaded, languageLabel, loadChunks, MODELS, readManifest, settingsHash } from '../../supertonic';
+import { areModelsDownloaded, languageLabel, loadChunks, MODELS, qualityProfile, readManifest, settingsHash } from '../../supertonic';
 import type { ModelInfo, NarrationSettings } from '../../supertonic';
 import type { Chunk } from '../../types';
 import { ty, TYPE, useTheme } from '../../theme';
@@ -43,6 +43,7 @@ export default function PrerenderScreen() {
   const defaultVoice = useSettingsStore((s) => s.voiceId);
   const defaultSpeed = useSettingsStore((s) => s.speed);
   const steps = useSettingsStore((s) => s.steps);
+  const unitLen = useSettingsStore((s) => qualityProfile(s.quality).unitLen);
 
   // Prepare the book's text headlessly (the hidden extractor below streams pages
   // and writes the caches); no need to open the reader first.
@@ -54,13 +55,13 @@ export default function PrerenderScreen() {
   const chunks = useMemo<Chunk[]>(() => {
     if (pdfText.status === 'ready' && pdfText.document) {
       try {
-        return loadChunks(docId, pdfText.document.text);
+        return loadChunks(docId, pdfText.document.text, unitLen);
       } catch {
         return [];
       }
     }
     return readManifest(docId)?.chunks ?? [];
-  }, [docId, pdfText.status, pdfText.document]);
+  }, [docId, pdfText.status, pdfText.document, unitLen]);
 
   const [model, setModel] = useState<ModelInfo>(() => pickInitialModel(defaultModelId, defaultVoice));
   const [voiceId, setVoiceId] = useState(defaultVoice);

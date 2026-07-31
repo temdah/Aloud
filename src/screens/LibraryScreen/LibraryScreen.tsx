@@ -10,7 +10,7 @@ import { loadExtractedText } from '../../pdf';
 import { usePlaybackContext } from '../../playback';
 import type { ActiveDoc } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, documentCacheStats, loadChunks } from '../../supertonic';
+import { clearDocumentCache, documentCacheStats, loadChunks, qualityProfile } from '../../supertonic';
 import { COVER_PALETTE, ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
 import type { Book, ImportedDocument } from '../../types';
@@ -105,7 +105,7 @@ export default function LibraryScreen() {
     const rp = renderProfile[docId];
     const active: ActiveDoc = {
       doc,
-      chunks: loadChunks(docId, extracted.text),
+      chunks: loadChunks(docId, extracted.text, qualityProfile(settings.quality).unitLen),
       text: extracted.text,
       modelId: rp?.modelId ?? settings.modelId,
       voiceId: rp?.voiceId ?? settings.voiceId,

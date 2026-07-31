@@ -8,7 +8,7 @@ import { usePlaybackContext } from '../../playback';
 import { clearExtractedImages, type ExtractedBlock } from '../../pdf';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, deleteModel, findModel, isChunkCached, languageLabel, loadChunks } from '../../supertonic';
+import { clearDocumentCache, deleteModel, findModel, isChunkCached, languageLabel, loadChunks, qualityProfile } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './ReaderScreen.styles';
@@ -65,6 +65,7 @@ export default function ReaderScreen() {
   const speed = useSettingsStore((s) => s.speed);
   const setSpeed = useSettingsStore((s) => s.setSpeed);
   const steps = useSettingsStore((s) => s.steps);
+  const quality = useSettingsStore((s) => s.quality);
   const perfTipSuppressed = useSettingsStore((s) => s.perfTipSuppressed);
   const perfTipLastShown = useSettingsStore((s) => s.perfTipLastShown);
   const suppressPerfTip = useSettingsStore((s) => s.suppressPerfTip);
@@ -105,8 +106,11 @@ export default function ReaderScreen() {
   // same string drives chunk boundaries and rendered sentences, so char offsets
   // join them.
   const chunks = useMemo(
-    () => (status === 'ready' && doc && document?.text ? loadChunks(doc.docHash, document.text) : []),
-    [status, doc?.docHash, document?.text],
+    () =>
+      status === 'ready' && doc && document?.text
+        ? loadChunks(doc.docHash, document.text, qualityProfile(quality).unitLen)
+        : [],
+    [status, doc?.docHash, document?.text, quality],
   );
 
   // Playback lives in a global provider so audio + transport survive leaving this

@@ -156,7 +156,7 @@ export default function TextToSpeechDemoScreen() {
 
       // Build-chunks: on a large PDF this happens before any audio can play.
       const bcStart = Date.now();
-      const chunks = buildChunks(SAMPLE_DOC);
+      const chunks = buildChunks(SAMPLE_DOC, 300);
       append(`Built ${chunks.length} chunks from ${SAMPLE_DOC.length} chars in ${Date.now() - bcStart} ms.`);
       if (chunks.length === 0) throw new Error('Sample produced no chunks.');
 

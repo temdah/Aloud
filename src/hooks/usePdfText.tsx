@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { extractDocx, extractMarkdown } from '../extractors';
 import { PdfTextExtractor, clearExtractedImages, loadExtractedText, saveExtractedImage, saveExtractedText } from '../pdf';
 import type { ExtractedBlock, ExtractedDocument } from '../pdf';
-import { useDocumentsStore } from '../stores';
-import { loadChunks } from '../supertonic';
+import { useDocumentsStore, useSettingsStore } from '../stores';
+import { loadChunks, qualityProfile } from '../supertonic';
 import type { ImportedDocument } from '../types';
 
 // Resolves a document's reflowed text: reuse the per-doc cache, else run the
@@ -37,6 +37,7 @@ const IDLE: State = { status: 'idle', document: null, pageCount: 0, loadedPages:
 
 export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   const setPageCount = useDocumentsStore((s) => s.setPageCount);
+  const unitLen = useSettingsStore((s) => qualityProfile(s.quality).unitLen);
   const [state, setState] = useState<State>(IDLE);
   const blocksRef = useRef<ExtractedBlock[]>([]);
   const textRef = useRef('');
@@ -45,10 +46,10 @@ export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   const finalize = useCallback((d: ImportedDocument, extracted: ExtractedDocument) => {
     saveExtractedText(d.docHash, extracted);
     try {
-      loadChunks(d.docHash, extracted.text);
+      loadChunks(d.docHash, extracted.text, unitLen);
     } catch {}
     if (extracted.pageCount > 0) setPageCount(d.docHash, extracted.pageCount);
-  }, [setPageCount]);
+  }, [setPageCount, unitLen]);
 
   useEffect(() => {
     if (!doc) {

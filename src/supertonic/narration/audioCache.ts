@@ -140,6 +140,23 @@ export function clearDocumentCache(docHash: string): void {
   if (dir.exists) dir.delete();
 }
 
+// Clear the loose per-chunk cache (chunk + lead clips, timing sidecars, duration
+// table) but KEEP fully-rendered audiobooks (`book-*`) and the profile registry.
+// Used when re-chunking (e.g. a quality change) invalidates chunk boundaries but
+// the stitched audiobook is still valid audio.
+export function clearFragmentedCache(docHash: string): void {
+  const dir = new Directory(Paths.document, ROOT, docHash);
+  if (!dir.exists) return;
+  for (const entry of dir.list()) {
+    if (!(entry instanceof File)) continue;
+    const name = fileName(entry.uri);
+    if (name.startsWith('book-') || name === PROFILES_FILE) continue;
+    try {
+      entry.delete();
+    } catch {}
+  }
+}
+
 // meta is null when the profile predates the registry (couldn't be labelled).
 export type ProfileMeta = { modelId: string; voiceId: string; steps: number; lang: string };
 export type CachedProfile = { hash: string; meta: ProfileMeta | null; count: number; bytes: number };

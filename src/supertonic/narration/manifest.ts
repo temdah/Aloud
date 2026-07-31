@@ -1,7 +1,7 @@
 import { File } from 'expo-file-system';
 import type { Chunk, DocumentManifest } from '../../types';
 import { stableHash } from '../../utils';
-import { clearDocumentCache, documentCacheDir } from './audioCache';
+import { clearDocumentCache, clearFragmentedCache, documentCacheDir } from './audioCache';
 import { buildChunks } from './textChunker';
 
 // Persisted per-document chunk list (manifest.json).
@@ -29,22 +29,27 @@ export function writeManifest(manifest: DocumentManifest): void {
   file.write(JSON.stringify(manifest));
 }
 
-// Reuse stored chunks only when docHash, text, and chunker version all match. A
-// re-extraction changes the text → rebuild and clear the old audio, else a new
-// chunk 0 (charStart 0) would replay the previous cached clip.
-export function loadChunks(docHash: string, text: string): Chunk[] {
+// Reuse stored chunks only when docHash, text, chunker version, and unit length
+// all match. On a mismatch, rebuild and clear stale audio: a text change makes
+// ALL cached audio stale (full clear); a unit-length change (same text, different
+// chunking) keeps any full audiobook and drops only the loose per-chunk cache.
+export function loadChunks(docHash: string, text: string, unitLen: number): Chunk[] {
   const textHash = stableHash(text);
   const existing = readManifest(docHash);
   if (
     existing?.docHash === docHash &&
     existing.textHash === textHash &&
     existing.chunkerVersion === CHUNKER_VERSION &&
+    (existing.unitLen ?? 300) === unitLen &&
     existing.chunks.length > 0
   ) {
     return existing.chunks;
   }
-  if (existing) clearDocumentCache(docHash);
-  const chunks = buildChunks(text);
-  writeManifest({ docHash, textHash, chunkerVersion: CHUNKER_VERSION, chunks });
+  if (existing) {
+    if (existing.textHash !== textHash) clearDocumentCache(docHash);
+    else clearFragmentedCache(docHash);
+  }
+  const chunks = buildChunks(text, unitLen);
+  writeManifest({ docHash, textHash, chunkerVersion: CHUNKER_VERSION, unitLen, chunks });
   return chunks;
 }

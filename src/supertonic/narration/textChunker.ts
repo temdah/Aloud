@@ -26,8 +26,8 @@ export function chunkText(text: string, maxLen = 300): RawChunk[] {
   return chunks;
 }
 
-export function buildChunks(text: string): Chunk[] {
-  return chunkText(text, maxChunkLen(text)).map((c, idx) => ({
+export function buildChunks(text: string, unitLen: number): Chunk[] {
+  return chunkText(text, maxChunkLen(text, unitLen)).map((c, idx) => ({
     idx,
     charStart: c.charStart,
     charEnd: c.charEnd,

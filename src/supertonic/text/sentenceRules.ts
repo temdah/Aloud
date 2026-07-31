@@ -23,7 +23,8 @@ export function isCjkDominant(sample: string): boolean {
   return letters > 0 && cjk / letters > 0.3;
 }
 
-// CJK synthesis degrades on long inputs, so cap shorter (matches upstream helper).
-export function maxChunkLen(text: string): number {
-  return isCjkDominant(text) ? 120 : 300;
+// CJK synthesis degrades on long inputs, so cap it shorter than the requested
+// unit length regardless of the chosen quality preset (matches upstream helper).
+export function maxChunkLen(text: string, unitLen: number): number {
+  return isCjkDominant(text) ? Math.min(unitLen, 120) : unitLen;
 }

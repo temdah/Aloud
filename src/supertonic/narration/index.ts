@@ -17,6 +17,7 @@ export {
   clearDocumentCache,
   documentCacheStats,
   documentCacheDir,
+  clearFragmentedCache,
   settingsHash,
   recordCachedProfile,
   listCachedProfiles,

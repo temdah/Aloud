@@ -36,5 +36,6 @@ export type DocumentManifest = {
   docHash: string;
   textHash: string;
   chunkerVersion: number;
+  unitLen: number; // chunk unit length (from the quality preset); absent = legacy 300
   chunks: Chunk[];
 };
