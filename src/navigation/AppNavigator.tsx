@@ -5,6 +5,7 @@ import { MiniPlayer } from '../components/MiniPlayer';
 import LibraryScreen from '../screens/LibraryScreen';
 import LicensesScreen from '../screens/LicensesScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
 import TermsScreen from '../screens/TermsScreen';
 import PrerenderScreen from '../screens/PrerenderScreen';
 import ReaderScreen from '../screens/ReaderScreen';
@@ -70,6 +71,7 @@ export function AppNavigator() {
         <Stack.Screen name="Storage" component={StorageScreen} />
         <Stack.Screen name="Licenses" component={LicensesScreen} />
         <Stack.Screen name="Terms" component={TermsScreen} />
+        <Stack.Screen name="Privacy" component={PrivacyScreen} />
         <Stack.Screen name="VoiceModel" component={VoiceModelScreen} />
         <Stack.Screen name="TextToSpeechDemo" component={TextToSpeechDemoScreen} options={{ headerShown: true, title: 'Performance' }} />
       </Stack.Navigator>

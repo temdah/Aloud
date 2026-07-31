@@ -171,6 +171,13 @@ export default function SettingsScreen() {
               onPress={() => navigation.navigate('Terms')}
             />
             <ListItem
+              leading={<View style={styles.leadingMuted}><Icon name="book" size={16} color={p.textMuted} /></View>}
+              title="Privacy policy"
+              subtitle="No data collected — fully offline"
+              trailing={<Icon name="chevR" size={18} color={p.textDim} />}
+              onPress={() => navigation.navigate('Privacy')}
+            />
+            <ListItem
               divider={false}
               leading={<View style={styles.leadingMuted}><Icon name="book" size={16} color={p.textMuted} /></View>}
               title="Open-source licenses"

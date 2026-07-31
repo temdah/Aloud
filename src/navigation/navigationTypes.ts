@@ -12,6 +12,7 @@ export type RootStackParamList = {
   TextToSpeechDemo: undefined;
   Licenses: undefined;
   Terms: undefined;
+  Privacy: undefined;
 };
 
 export type AppNavigation = NativeStackNavigationProp<RootStackParamList>;

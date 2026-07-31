@@ -10,7 +10,7 @@ export type TermsSection = {
 export const TERMS_UPDATED = '2026-07-31';
 
 export const TERMS_INTRO =
-  'Aloud ("the app") is a personal, on-device document reader that speaks your documents aloud using an offline text-to-speech voice. The app is published by monkeybusiness ("we"). By installing or using the app, you agree to these Terms. If you do not agree, do not use the app.';
+  'Aloud ("the app") is a personal, on-device document reader that speaks your documents aloud using an offline text-to-speech voice. The app is published by Temirlan Dahle, operating as monkeybusiness ("we"). By installing or using the app, you agree to these Terms. If you do not agree, do not use the app.';
 
 export const TERMS_SECTIONS: TermsSection[] = [
   {
@@ -56,7 +56,7 @@ export const TERMS_SECTIONS: TermsSection[] = [
   {
     title: '6. Limitation of liability',
     paragraphs: [
-      'To the maximum extent permitted by law, monkeybusiness will not be liable for any indirect, incidental, special, or consequential damages, or any loss of data, arising out of or related to your use of the app.',
+      'To the maximum extent permitted by law, we will not be liable for any indirect, incidental, special, or consequential damages, or any loss of data, arising out of or related to your use of the app.',
     ],
   },
   {
@@ -66,7 +66,13 @@ export const TERMS_SECTIONS: TermsSection[] = [
     ],
   },
   {
-    title: '8. Contact',
+    title: '8. Governing law',
+    paragraphs: [
+      'These Terms are governed by the laws of [YOUR COUNTRY/STATE — set this], without regard to conflict-of-law rules, and any dispute relating to the app or these Terms is subject to the exclusive jurisdiction of the courts located there.',
+    ],
+  },
+  {
+    title: '9. Contact',
     paragraphs: ['Questions about these Terms: temirdahle@gmail.com'],
   },
 ];

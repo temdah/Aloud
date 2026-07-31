@@ -17,6 +17,8 @@ type SettingsState = {
   quality: Quality;
   // First-run wizard seen (model downloaded before the first play prompt).
   onboarded: boolean;
+  // Timestamp the user explicitly accepted the Terms (0 = not yet).
+  termsAcceptedAt: number;
   // "Having performance issues?" tip: permanently dismissed, and when last shown
   // (a cooldown so a session-dismiss doesn't nag on the next launch).
   perfTipSuppressed: boolean;
@@ -28,6 +30,7 @@ type SettingsState = {
   setSteps: (steps: number) => void;
   setQuality: (quality: Quality) => void;
   setOnboarded: (onboarded: boolean) => void;
+  acceptTerms: () => void;
   suppressPerfTip: () => void;
   markPerfTipShown: () => void;
 };
@@ -42,6 +45,7 @@ export const useSettingsStore = create<SettingsState>()(
       steps: 5,
       quality: DEFAULT_QUALITY,
       onboarded: false,
+      termsAcceptedAt: 0,
       perfTipSuppressed: false,
       perfTipLastShown: 0,
       setModelId: (modelId) => set({ modelId }),
@@ -52,6 +56,7 @@ export const useSettingsStore = create<SettingsState>()(
       // Picking a preset also sets its steps; Advanced can then override steps alone.
       setQuality: (quality) => set({ quality, steps: qualityProfile(quality).steps }),
       setOnboarded: (onboarded) => set({ onboarded }),
+      acceptTerms: () => set({ termsAcceptedAt: Date.now() }),
       suppressPerfTip: () => set({ perfTipSuppressed: true }),
       markPerfTipShown: () => set({ perfTipLastShown: Date.now() }),
     }),

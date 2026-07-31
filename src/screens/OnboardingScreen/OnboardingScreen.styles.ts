@@ -56,10 +56,30 @@ export const makeStyles = (p: Palette) =>
     hint: {
       textAlign: 'center',
     },
-    consent: {
-      textAlign: 'center',
+    consentRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      paddingHorizontal: 4,
+      marginBottom: 4,
+    },
+    checkbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: p.borderStrong,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 1,
+    },
+    checkboxOn: {
+      backgroundColor: p.primary,
+      borderColor: p.primary,
+    },
+    consentText: {
+      flex: 1,
       lineHeight: 18,
-      marginTop: 2,
     },
     readyBadge: {
       width: 96,

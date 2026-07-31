@@ -27,8 +27,10 @@ export default function OnboardingScreen() {
   const quality = useSettingsStore((s) => s.quality);
   const setQuality = useSettingsStore((s) => s.setQuality);
   const setOnboarded = useSettingsStore((s) => s.setOnboarded);
+  const acceptTerms = useSettingsStore((s) => s.acceptTerms);
   const { importDocument, importing } = useImportDocument();
   const [step, setStep] = useState<Step>('welcome');
+  const [agreed, setAgreed] = useState(false);
 
   const finish = (docId?: string) => {
     setOnboarded(true);
@@ -154,14 +156,36 @@ export default function OnboardingScreen() {
         </Text>
       </View>
       <View style={styles.footer}>
-        <Button label="Get started" icon="chevR" size="lg" variant="filled" full onPress={() => setStep('model')} />
-        <Text style={[ty(TYPE.caption, p.textDim), styles.consent]}>
-          By continuing you agree to the{' '}
-          <Text style={ty(TYPE.caption, p.primary)} onPress={() => navigation.navigate('Terms')}>
-            Terms of use
+        <View style={styles.consentRow}>
+          <Pressable
+            onPress={() => setAgreed((a) => !a)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreed }}
+            hitSlop={8}
+            style={[styles.checkbox, agreed && styles.checkboxOn]}
+          >
+            {agreed ? <Icon name="check" size={13} color={p.onPrimary} /> : null}
+          </Pressable>
+          <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.consentText]}>
+            I agree to the{' '}
+            <Text style={ty(TYPE.bodySmall, p.primary)} onPress={() => navigation.navigate('Terms')}>Terms</Text>
+            {' '}and{' '}
+            <Text style={ty(TYPE.bodySmall, p.primary)} onPress={() => navigation.navigate('Privacy')}>Privacy policy</Text>
+            {' '}— personal, non-commercial use only.
           </Text>
-          {' '}— for personal, non-commercial use only.
-        </Text>
+        </View>
+        <Button
+          label="Get started"
+          icon="chevR"
+          size="lg"
+          variant="filled"
+          full
+          disabled={!agreed}
+          onPress={() => {
+            acceptTerms();
+            setStep('model');
+          }}
+        />
       </View>
     </View>
   );
