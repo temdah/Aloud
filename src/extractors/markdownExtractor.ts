@@ -58,6 +58,18 @@ export function extractMarkdown(raw: string): ExtractedDocument {
       continue;
     }
 
+    // A standalone, short, fully-bold line used as a title (**Title** / __Title__):
+    // treat it as a heading so it's spoken with a pause, not run into the body.
+    const boldTitle = /^\*\*([^*]+)\*\*$/.exec(trimmed) ?? /^__([^_]+)__$/.exec(trimmed);
+    if (boldTitle && para.length === 0) {
+      const inner = boldTitle[1].trim();
+      if (inner.length > 0 && inner.length <= 60 && !/[.!?]$/.test(inner)) {
+        const text = stripInline(inner);
+        if (text) source.push({ kind: 'h2', text });
+        continue;
+      }
+    }
+
     // Horizontal rule → paragraph break.
     if (/^([-*_])\1{2,}$/.test(trimmed)) {
       flush();
