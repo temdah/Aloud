@@ -5,13 +5,20 @@ import type { Palette } from '../../theme';
 export const makeStyles = (p: Palette) =>
   StyleSheet.create({
     container: {
+      flex: 1,
       paddingHorizontal: 16,
-      paddingBottom: 24,
+      paddingBottom: 16,
     },
     filterRow: {
       flexDirection: 'row',
       gap: 6,
       marginBottom: 12,
+    },
+    scroll: {
+      flex: 1,
+    },
+    scrollContent: {
+      paddingBottom: 8,
     },
     card: {
       backgroundColor: p.surface,

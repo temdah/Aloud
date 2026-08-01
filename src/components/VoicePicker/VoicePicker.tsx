@@ -1,7 +1,7 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { encodeWav, ensureModelsDownloaded, getEngine, getVoice, withEngine } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import { Chip } from '../Chip';
@@ -117,8 +117,9 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
         <Chip label="Female" selected={gender === 'f'} onPress={() => setGender('f')} />
         <Chip label="Male" selected={gender === 'm'} onPress={() => setGender('m')} />
       </View>
-      <View style={styles.card}>
-        {filtered.map((v, i) => (
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.card}>
+          {filtered.map((v, i) => (
           <Pressable
             key={v.id}
             onPress={() => select(v.id)}
@@ -153,10 +154,11 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
             {value === v.id ? <Icon name="check" size={20} color={p.primary} /> : null}
           </Pressable>
         ))}
-      </View>
-      <Text style={[ty(TYPE.caption, p.textDim), styles.footnote]}>
-        {modelId ? 'Tap a voice to preview · runs locally, no audio leaves the device' : 'Choose a voice model first to preview voices'}
-      </Text>
+        </View>
+        <Text style={[ty(TYPE.caption, p.textDim), styles.footnote]}>
+          {modelId ? 'Tap a voice to preview · runs locally, no audio leaves the device' : 'Choose a voice model first to preview voices'}
+        </Text>
+      </ScrollView>
     </View>
   );
 }
