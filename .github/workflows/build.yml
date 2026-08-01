@@ -3,8 +3,30 @@ name: Build
 on:
   push:
     branches: [main, master]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.github/**'
+      - '.idea/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.codex/**'
+      - 'assets/icon-source/**'
+      - 'scripts/generate-icons.js'
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.github/**'
+      - '.idea/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.codex/**'
+      - 'assets/icon-source/**'
+      - 'scripts/generate-icons.js'
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref.
@@ -20,6 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Version resolution needs the existing release tags.
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -27,9 +52,40 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Read app version
+      - name: Resolve release version
         id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # package.json is the version floor: raise it manually for an intended
+          # minor/major release. Otherwise increment the latest released patch.
+          base_version="$(node -p "require('./package.json').version")"
+          latest_version="$(
+            git tag --list 'v*' \
+              | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)(-[0-9]+)?$/\1/p' \
+              | sort -Vu \
+              | tail -n 1
+          )"
+
+          if [ -n "$latest_version" ]; then
+            IFS=. read -r major minor patch <<< "$latest_version"
+            next_patch="$major.$minor.$((patch + 1))"
+            version="$(printf '%s\n%s\n' "$base_version" "$next_patch" | sort -Vu | tail -n 1)"
+          else
+            version="$base_version"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $version"
+
+      - name: Apply APK version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          node -e "const fs=require('fs'); const p='app.json'; const app=JSON.parse(fs.readFileSync(p,'utf8')); app.expo.version=process.env.RELEASE_VERSION; app.expo.android.versionCode=Number(process.env.ANDROID_VERSION_CODE); fs.writeFileSync(p, JSON.stringify(app, null, 2) + '\n');"
+          echo "APK versionName=$RELEASE_VERSION versionCode=$ANDROID_VERSION_CODE"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -89,7 +145,7 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}-${{ github.run_number }}
+          tag_name: v${{ steps.version.outputs.version }}
           name: Aloud v${{ steps.version.outputs.version }}
           make_latest: true
           files: android/app/build/outputs/apk/release/*.apk
