@@ -224,7 +224,15 @@ function blocksForPage(rawLines, bodyH, stops, pageNo, inToc, boilerplate) {
       continue;
     }
 
-    const isHeading = bodyH > 0 && ln.height >= bodyH * 1.35 && t.length <= 80;
+    // Headings by size OR by a strong structural prefix (Part/Module/Chapter …
+    // + numeral, or dotted section numbers like "1.1 Foo") that same-size bold
+    // titles miss. Structural ones must be short and not end like a sentence.
+    const numberedHeading =
+      /^(part|module|chapter|section|appendix|unit)\s+([ivxlcdm]+|\d+)\b/i.test(t) ||
+      /^\d+\.\d+(\.\d+)*\.?\s+\p{Lu}/u.test(t);
+    const isHeading =
+      (bodyH > 0 && ln.height >= bodyH * 1.35 && t.length <= 80) ||
+      (numberedHeading && t.length <= 100 && !/[.!?]$/.test(t));
     if (isHeading) {
       if (/^contents$|table of contents/i.test(t)) inToc = true;
       flush();
@@ -266,9 +274,10 @@ function canonicalizePage(blocks, base) {
       text += '\n\n';
       out.push({ kind: 'h2', text: b.text, charStart: cs, charEnd: ce, page: b.page, indent: b.indent });
     } else if (b.kind === 'toc') {
-      const full = b.target ? b.title + ' ' + b.target : b.title;
-      const cs = base + text.length; text += full; const ce = base + text.length; text += '\n\n';
-      out.push({ kind: 'toc', title: b.title, target: b.target, charStart: cs, charEnd: ce, page: b.page, indent: b.indent });
+      // Shown in the reader (navigable) but NOT spoken — reading a long, page-
+      // numbered table of contents aloud is noise. Zero-width in the spoken stream.
+      const cs = base + text.length;
+      out.push({ kind: 'toc', title: b.title, target: b.target, charStart: cs, charEnd: cs, page: b.page, indent: b.indent });
     } else if (b.kind === 'pageHeader') {
       // Shown (greyed) but never spoken: no text in the stream, zero-width range.
       const cs = base + text.length;

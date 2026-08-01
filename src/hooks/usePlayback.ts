@@ -463,8 +463,16 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       // Only a single-file book has a real whole-book duration → show the OS
       // scrubber. Per-chunk playback is marked a live stream so the OS hides the
       // (meaningless, constantly-resetting) timeline.
-      player.setActiveForLockScreen(true, lockMetadataRef.current, { ...LOCK_OPTIONS, accentColor, isLiveStream: !singleItem });
+      // Claim WITHOUT artwork first: a bad artwork uri must never stop the media
+      // notification from appearing. Fold artwork in via a non-fatal update after.
+      const { artworkUrl, ...meta } = lockMetadataRef.current;
+      player.setActiveForLockScreen(true, meta, { ...LOCK_OPTIONS, accentColor, isLiveStream: !singleItem });
       lockScreenActiveRef.current = true;
+      if (artworkUrl) {
+        try {
+          player.updateLockScreenMetadata?.(lockMetadataRef.current);
+        } catch {}
+      }
     } catch (e) {
       console.warn('[usePlayback] failed to activate lock-screen controls:', e);
     }

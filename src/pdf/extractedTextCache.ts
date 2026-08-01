@@ -9,7 +9,8 @@ const TEXT_DIR = 'text';
 // v10: inline images. v11: cross-page paragraph merge + smarter dehyphenation.
 // v12: headings get sentence-final punctuation in the spoken stream.
 // v13: standalone bold markdown lines detected as headings.
-const EXTRACTOR_VERSION = 13;
+// v14: pdf TOC no longer spoken; numbered/prefixed section headings detected.
+const EXTRACTOR_VERSION = 14;
 
 type CacheEnvelope = { version: number; doc: ExtractedDocument };
 

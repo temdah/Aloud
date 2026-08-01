@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Button, ScrollView, Text, View } from 'react-native';
 import {
   buildChunks,
+  chunkAudioUri,
   DEFAULT_VOICE,
   encodeWav,
   ensureChunkAudio,
@@ -20,6 +21,7 @@ import {
   type SynthesisStage,
 } from '../../supertonic';
 import { loadExtractedText } from '../../pdf';
+import { usePlaybackContext } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { useTheme } from '../../theme';
 import type { ImportedDocument } from '../../types';
@@ -72,6 +74,7 @@ export default function TextToSpeechDemoScreen() {
   const settingsSteps = useSettingsStore((s) => s.steps);
   const quality = useSettingsStore((s) => s.quality);
   const documents = useDocumentsStore((s) => s.documents);
+  const { clearActiveDoc } = usePlaybackContext();
 
   const [log, setLog] = useState('Voice engine performance lab.\n');
   const [busy, setBusy] = useState(false);
@@ -325,12 +328,21 @@ export default function TextToSpeechDemoScreen() {
     }
     setBusy(true);
     try {
+      // Quiesce the app's background warmer (the reader's active doc persists into
+      // dev mode) so its synthesis doesn't pollute the trace, then let it drain.
+      clearActiveDoc();
+      await sleep(700);
       await ensureLoaded();
       const extracted = loadExtractedText(analyzedDoc.docHash);
       if (!extracted) throw new Error('not extracted');
       const chunks = loadChunks(analyzedDoc.docHash, extracted.text, qualityProfile(quality).unitLen);
       if (chunks.length === 0) throw new Error('no chunks');
       const settings: NarrationSettings = { modelId: modelId!, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality };
+      // Force a fresh synth so there's something to trace (not a cache hit).
+      try {
+        const f = new File(chunkAudioUri(analyzedDoc.docHash, chunks[0].charStart, settings));
+        if (f.exists) f.delete();
+      } catch {}
       append(`\n── Real synth path · chunk 0 (${chunks[0].text.length}c) ──`);
       traceStart();
       const t0 = Date.now();
@@ -339,7 +351,7 @@ export default function TextToSpeechDemoScreen() {
       append(formatTrace(spans));
       append('  ' + '─'.repeat(28));
       append(row('total', ms(Date.now() - t0)));
-      if (spans.length === 0) append('  (chunk 0 already cached — clear its audio to trace a fresh synth)');
+      if (spans.length === 0) append('  (no synth captured)');
     } catch (error) {
       append('SYNTH TRACE ERROR: ' + describe(error));
     } finally {
@@ -387,6 +399,7 @@ export default function TextToSpeechDemoScreen() {
   );
 }
 
+const sleep = (msVal: number) => new Promise<void>((r) => setTimeout(r, msVal));
 const seconds = (msVal: number) => (msVal / 1000).toFixed(2);
 const ms = (msVal: number) => `${Math.round(msVal)} ms`;
 const row = (label: string, value: string) => `  ${label.padEnd(20)} ${value}`;
