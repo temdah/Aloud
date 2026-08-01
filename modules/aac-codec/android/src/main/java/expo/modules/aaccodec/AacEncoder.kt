@@ -147,7 +147,7 @@ internal object AacEncoder {
     return encodeFromSource(source, source.sampleRate, source.channels, dstPath, bitrate)
   }
 
-  // Encode raw 16-bit mono/interleaved PCM bytes -> one .m4a, no temp WAV.
+  // Encode raw 16-bit mono/interleaved PCM bytes
   fun encodePcm(pcm16: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int): Int {
     if (pcm16.isEmpty()) return ERR_NO_INPUT
     return encodeFromSource(ByteArrayPcmSource(pcm16), sampleRate, channels, dstPath, bitrate)
