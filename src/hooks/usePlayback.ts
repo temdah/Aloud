@@ -423,19 +423,26 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
 
+  // Timestamp of the last rate WE applied. The mirror below ignores the player's
+  // rate for a moment afterwards, so our own applications (an in-app speed change,
+  // or a new clip resetting to the default rate before we re-apply) don't get
+  // read back and fight the user's slider.
+  const rateAppliedAtRef = useRef(0);
+
   // Apply the requested playback speed live (cache is rendered at neutral rate).
   useEffect(() => {
     try {
       player.setPlaybackRate(speed, 'high');
+      rateAppliedAtRef.current = Date.now();
     } catch {}
   }, [speed, player]);
 
   // Mirror a notification-driven speed change (the OS speed button cycles the
-  // player's rate directly) back into app state. Only fires on a real divergence.
+  // player's rate directly) back into app state — but not the transient rates we
+  // cause ourselves (guarded by rateAppliedAtRef), which was reverting the slider.
   useEffect(() => {
-    // Only while playing: at load the player can briefly report the default rate
-    // before ours is applied, which must not overwrite `speed`.
     if (!status.isLoaded || !status.playing) return;
+    if (Date.now() - rateAppliedAtRef.current < 1000) return;
     const r = status.playbackRate;
     if (r > 0 && Math.abs(r - speed) > 0.02) {
       const rounded = Math.round(r * 100) / 100;
@@ -516,6 +523,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       player.replace(audiobookUri);
       try {
         player.setPlaybackRate(speed, 'high');
+        rateAppliedAtRef.current = Date.now();
       } catch {}
       audiobookLoadedRef.current = true;
       loadedKeyRef.current = AUDIOBOOK_KEY;
@@ -597,6 +605,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         player.replace(uri);
         try {
           player.setPlaybackRate(speed, 'high');
+          rateAppliedAtRef.current = Date.now();
         } catch {}
         loadedKeyRef.current = chunk.charStart;
         player.play();

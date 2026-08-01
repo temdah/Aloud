@@ -180,7 +180,9 @@ internal object AacEncoder {
       var framesFed = 0L
       val pcm = ByteArray(8192)
 
-      while (true) {
+      var done = false
+      while (!done) {
+        // Feed input (blocks briefly for a free input buffer).
         if (!inputDone) {
           val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
           if (inIndex >= 0) {
@@ -199,30 +201,34 @@ internal object AacEncoder {
           }
         }
 
-        val outIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)
-        when {
-          outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+        // Drain ALL currently-ready output without blocking, so feeding input is
+        // never throttled by an idle output wait. The old one-per-iteration drain
+        // with a 10ms timeout made a whole clip take ~10 s. Only block (for the
+        // remaining frames) once input is fully queued.
+        while (true) {
+          val outIndex = codec.dequeueOutputBuffer(info, if (inputDone) TIMEOUT_US else 0L)
+          if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
             if (muxerStarted) throw IllegalStateException("output format changed twice")
             trackIndex = muxer.addTrack(codec.outputFormat)
             muxer.start()
             muxerStarted = true
+            continue
           }
-          outIndex >= 0 -> {
-            val outBuf = codec.getOutputBuffer(outIndex)!!
-            // Drop the codec-config buffer (MediaMuxer captures CSD from the format).
-            if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) info.size = 0
-            if (info.size > 0 && muxerStarted) {
-              outBuf.position(info.offset)
-              outBuf.limit(info.offset + info.size)
-              muxer.writeSampleData(trackIndex, outBuf, info)
-            }
-            codec.releaseOutputBuffer(outIndex, false)
-            if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-              result = 0
-              break
-            }
+          if (outIndex < 0) break // INFO_TRY_AGAIN_LATER — nothing ready right now
+          val outBuf = codec.getOutputBuffer(outIndex)!!
+          // Drop the codec-config buffer (MediaMuxer captures CSD from the format).
+          if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) info.size = 0
+          if (info.size > 0 && muxerStarted) {
+            outBuf.position(info.offset)
+            outBuf.limit(info.offset + info.size)
+            muxer.writeSampleData(trackIndex, outBuf, info)
           }
-          // INFO_TRY_AGAIN_LATER: nothing ready yet — loop and keep feeding input.
+          codec.releaseOutputBuffer(outIndex, false)
+          if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+            result = 0
+            done = true
+            break
+          }
         }
       }
     } catch (e: Exception) {
