@@ -9,9 +9,20 @@ import { useTheme } from '../theme';
 import type { Chunk } from '../types';
 import { stableHash } from '../utils';
 
-// How many upcoming chunks to pre-synthesize so playback doesn't stall at a
-// boundary while the next chunk is still being generated.
+// Baseline number of upcoming chunks to pre-synthesize so playback doesn't stall
+// at a boundary while the next chunk is still being generated. Adjusted live by
+// prefetchDepth from the measured realtime factor.
 const PREFETCH_AHEAD = 4;
+
+// How many chunks to synthesize ahead, from the measured realtime factor (audio
+// seconds per wall second): build a deep buffer when comfortably ahead of
+// realtime, focus on just the next clip or two when behind.
+function prefetchDepth(rtf: number | null): number {
+  if (rtf == null) return PREFETCH_AHEAD; // no measurement yet
+  if (rtf >= 1.5) return 6;
+  if (rtf >= 1.0) return PREFETCH_AHEAD;
+  return 2;
+}
 // Minimum length (chars) of a mid-chunk "lead" so the first clip isn't a tiny
 // stutter; a shorter remainder merges forward into the next chunk(s).
 const MIN_LEAD = 140;
@@ -594,7 +605,10 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
               await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, next.chunk, settings));
             } catch {}
           }
-          for (let k = 0; k < PREFETCH_AHEAD; k++) {
+          // Depth adapts to how well synthesis is keeping up: deep buffer when
+          // ahead of realtime, just the next clip or two when falling behind.
+          const depth = prefetchDepth(getSynthRtf(modelId));
+          for (let k = 0; k < depth; k++) {
             if (token !== playTokenRef.current) return;
             const ahead = chunks[resumeIdx + k];
             if (!ahead) return;
