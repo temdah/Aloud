@@ -78,10 +78,21 @@ const CHARS_PER_SEC = 14;
 // cached length if we have it, else a cheap char-count estimate. The scrubber is
 // approximately right immediately and converges to exact as clips get cached.
 export function buildTimeline(docHash: string, chunks: Chunk[], s: NarrationSettings): DurationTable {
+  // A completed table is one JSON read instead of one synchronous filesystem
+  // probe per chunk. This is the common path for a prepared or fully played book.
+  const stored = loadDurationTable(docHash, chunks.length, s);
+  if (stored) return stored;
+
   const seconds = new Array<number>(chunks.length);
+  let complete = true;
   for (let i = 0; i < chunks.length; i++) {
-    seconds[i] = readChunkTiming(docHash, chunks[i].charStart, s) ?? Math.max(0.3, chunks[i].text.length / CHARS_PER_SEC);
+    const measured = readChunkTiming(docHash, chunks[i].charStart, s);
+    if (measured == null) complete = false;
+    seconds[i] = measured ?? Math.max(0.3, chunks[i].text.length / CHARS_PER_SEC);
   }
+  // Promote a complete legacy set of timing sidecars so subsequent opens take
+  // the single-file fast path.
+  if (complete && chunks.length > 0) writeDurationTable(docHash, seconds, s);
   return seconds;
 }
 
@@ -164,9 +175,15 @@ export type TimeLocation = {
 
 // Maps an absolute at-speed time to a chunk + neutral offset within its clip
 // (binary search over cumulative offsets).
-export function locateTime(table: DurationTable, speed: number, t: number): TimeLocation | null {
+export function locateTime(
+  table: DurationTable,
+  speed: number,
+  t: number,
+  precomputedOffsets?: readonly number[],
+): TimeLocation | null {
   if (table.length === 0) return null;
-  const offsets = cumulativeOffsetsSec(table, speed);
+  const offsets =
+    precomputedOffsets?.length === table.length ? precomputedOffsets : cumulativeOffsetsSec(table, speed);
   const clamped = Math.max(0, t);
   let lo = 0;
   let hi = offsets.length - 1;

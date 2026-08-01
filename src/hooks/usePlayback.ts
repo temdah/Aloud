@@ -1,7 +1,7 @@
 import { Asset } from 'expo-asset';
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
+import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, Quality, TextToSpeech, VoiceStyle } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
@@ -63,12 +63,6 @@ const STALL_MS = 2000; // a boundary gap longer than this = an audible stall
 const STALL_TRIGGER = 2; // stalls in a session before offering the tip
 const RTF_THRESHOLD = 1.1; // synthesis realtime factor below which we blame the device
 
-function chunkIndexForOffset(chunks: Chunk[], charOffset: number): number {
-  const hit = chunks.findIndex((c) => charOffset >= c.charStart && charOffset < c.charEnd);
-  if (hit >= 0) return hit;
-  return chunks.findIndex((c) => c.charStart >= charOffset);
-}
-
 type Lead = { chunk: Chunk; anchorIdx: number; resumeIdx: number };
 
 // The chunk to actually synthesize + play when starting at `charOffset`:
@@ -78,7 +72,7 @@ type Lead = { chunk: Chunk; anchorIdx: number; resumeIdx: number };
 // `resumeIdx` is the canonical chunk to continue with after this one.
 function buildLead(text: string, chunks: Chunk[], charOffset: number): Lead | null {
   if (chunks.length === 0) return null;
-  const i = chunkIndexForOffset(chunks, charOffset);
+  const i = findChunkIndexForOffset(chunks, charOffset);
   if (i < 0) return null;
   if (charOffset <= chunks[i].charStart) {
     return { chunk: chunks[i], anchorIdx: i, resumeIdx: i + 1 };
@@ -118,7 +112,7 @@ type FastStart = { lead: Lead; remainder: Lead | null };
 // splitting wouldn't help (offset resolves nowhere, or the remainder is tiny).
 function buildFastStart(text: string, chunks: Chunk[], charOffset: number): FastStart | null {
   if (chunks.length === 0) return null;
-  const i = chunkIndexForOffset(chunks, charOffset);
+  const i = findChunkIndexForOffset(chunks, charOffset);
   if (i < 0) return null;
   const startAt = Math.max(charOffset, chunks[i].charStart);
   const chunkEnd = chunks[i].charEnd;
@@ -278,6 +272,12 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang, quality }),
     [modelId, voiceId, speed, steps, lang, quality],
   );
+  // Timeline durations are neutral-rate and their cache ignores speed. Keep a
+  // stable settings object so moving the speed control never probes every chunk.
+  const timelineSettings = useMemo<NarrationSettings>(
+    () => ({ modelId: modelId ?? '', voiceId, speed: 1, steps, lang, quality }),
+    [modelId, voiceId, steps, lang, quality],
+  );
 
   // A full audiobook rendered with these exact settings: play straight from cache
   // (no cold-load) and snap starts to chunk boundaries so every clip is a hit.
@@ -391,8 +391,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // real cached clip lengths where we have them, a char estimate for the rest —
   // so it never delays playback or competes with the clip the user is waiting on.
   useEffect(() => {
-    setDurTable(chunks.length === 0 ? null : buildTimeline(docHash, chunks, settings));
-  }, [docHash, chunks, settings]);
+    setDurTable(chunks.length === 0 ? null : buildTimeline(docHash, chunks, timelineSettings));
+  }, [docHash, chunks, timelineSettings]);
 
   // Warm the clip the user will hear first — the lead for the resume/selected
   // position (or chunk 0) — while the engine is idle and they're still reading,
@@ -400,7 +400,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const warmedRef = useRef<number | null>(null);
   const warmStart = useCallback(
     async (charOffset: number) => {
-      const i = chunkIndexForOffset(chunks, charOffset);
+      const i = findChunkIndexForOffset(chunks, charOffset);
       if (i < 0 || isChunkCached(docHash, chunks[i].charStart, settings)) return;
       const engine = await ensureEngine();
       if (!engine) return;
@@ -506,7 +506,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const neutralForOffset = useCallback(
     (charOffset: number): number => {
       if (!neutralStarts) return 0;
-      const i = chunkIndexForOffset(chunks, charOffset);
+      const i = findChunkIndexForOffset(chunks, charOffset);
       if (i < 0) return 0;
       const c = chunks[i];
       const span = c.charEnd - c.charStart;
@@ -806,7 +806,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const resolveStart = useCallback(
     (charOffset: number): Lead | null => {
       if (fullyRendered) {
-        const i = chunkIndexForOffset(chunks, charOffset);
+        const i = findChunkIndexForOffset(chunks, charOffset);
         if (i < 0) return null;
         return { chunk: chunks[i], anchorIdx: i, resumeIdx: i + 1 };
       }
@@ -825,7 +825,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         }
         ensureAudiobookLoaded();
         seekNeutralAbs(neutralForOffset(charOffset));
-        const i = chunkIndexForOffset(chunks, charOffset);
+        const i = findChunkIndexForOffset(chunks, charOffset);
         if (i >= 0) {
           currentRef.current = chunks[i];
           anchorIndexRef.current = i;
@@ -937,7 +937,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         setEngaged(true);
         return;
       }
-      const loc = locateTime(durTable, speed, sec);
+      const loc = locateTime(durTable, speed, sec, offsets ?? undefined);
       if (!loc) return;
       activeRef.current = true;
       // Fast-start at the dropped position (startFast declines and we fall back to
@@ -952,7 +952,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         playCanonical(loc.index);
       }
     },
-    [durTable, singleItem, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical, startFast, chunks],
+    [durTable, offsets, singleItem, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical, startFast, chunks],
   );
 
   // Map the current clip's position onto the whole-document timeline. The clip may
