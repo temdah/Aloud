@@ -22,6 +22,19 @@ export type VoiceStyleData = {
 export type SynthesisResult = {
   waveform: Float32Array; // mono, [-1, 1]
   durationsSec: number[];
+  diagnostics: SynthesisDiagnostics;
+};
+
+// Shape/size facts needed to compare synthesis runs fairly. Character count
+// alone is misleading because the duration predictor controls latent/audio size.
+export type SynthesisDiagnostics = {
+  inputChars: number;
+  tokenCount: number; // normalized text including the language wrapper
+  predictedSec: number;
+  audioSec: number;
+  latentDim: number;
+  latentLen: number;
+  waveformSamples: number;
 };
 
 export type SynthesisProgress = (currentStep: number, totalSteps: number) => void;

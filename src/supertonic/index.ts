@@ -14,6 +14,6 @@ export type { SupportedLanguage } from './text/languages';
 export { DEFAULT_QUALITY, qualityProfile, QUALITY_LABELS } from './qualityProfile';
 export type { Quality, QualityProfile } from './qualityProfile';
 export { chunkText, buildChunks, ensureChunkAudio, ensureLeadAudio, isChunkCached, isLeadCached, leadAudioFile, chunkAudioUri, isAudiobookCached, audiobookAudioUri, readAudiobookIndex, settingsHash, clearDocumentCache, clearFragmentedCache, documentCacheStats, listCachedProfiles, clearProfileCache, loadChunks, readManifest, prerenderDocument, ensureDurationTable, buildTimeline, loadDurationTable, loadDurationTableFromCache, cumulativeOffsetsSec, totalDurationSec, locateTime, getSynthRtf } from './narration';
-export type { NarrationSettings, PrerenderProgress, PrerenderResult, CachedProfile, ProfileMeta, DurationTable, TimeLocation } from './narration';
+export type { NarrationMetricsReporter, NarrationSettings, NarrationSynthesisMetrics, PrerenderProgress, PrerenderResult, CachedProfile, ProfileMeta, DurationTable, TimeLocation } from './narration';
 export type { ModelDownloadProgress } from './models/modelTypes';
-export type { SupertonicConfig, SynthesisProgress, SynthesisResult, SynthesisStage, SynthesisStageReporter } from './synthesis/synthesisTypes';
+export type { SupertonicConfig, SynthesisDiagnostics, SynthesisProgress, SynthesisResult, SynthesisStage, SynthesisStageReporter } from './synthesis/synthesisTypes';

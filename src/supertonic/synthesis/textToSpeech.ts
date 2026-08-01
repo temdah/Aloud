@@ -103,7 +103,20 @@ export class TextToSpeech {
     });
     onStage?.('vocoder');
 
-    return { waveform: vocoderOut.wav_tts.data as Float32Array, durationsSec };
+    const waveform = vocoderOut.wav_tts.data as Float32Array;
+    return {
+      waveform,
+      durationsSec,
+      diagnostics: {
+        inputChars: text.length,
+        tokenCount: textIds[0].length,
+        predictedSec: durationsSec[0] ?? 0,
+        audioSec: waveform.length / this.sampleRate,
+        latentDim,
+        latentLen,
+        waveformSamples: waveform.length,
+      },
+    };
   }
 
   // Batched stage 1: each text's neutral-rate length in one run. Falls back to

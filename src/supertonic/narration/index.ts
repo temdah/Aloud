@@ -35,4 +35,4 @@ export {
   locateTime,
 } from './durationTable';
 export type { DurationTable, TimeLocation, BuildDurationTableOptions } from './durationTable';
-export type { NarrationSettings } from './narrationTypes';
+export type { NarrationMetricsReporter, NarrationSettings, NarrationSynthesisMetrics } from './narrationTypes';

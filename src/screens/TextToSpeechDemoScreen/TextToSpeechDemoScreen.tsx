@@ -18,6 +18,8 @@ import {
   TextToSpeech,
   VoiceStyle,
   type NarrationSettings,
+  type NarrationSynthesisMetrics,
+  type SynthesisDiagnostics,
   type SynthesisStage,
 } from '../../supertonic';
 import { loadExtractedText } from '../../pdf';
@@ -41,6 +43,8 @@ Doing all of this on a phone, with no network connection and no remote server to
 
 const OUTPUT_FILE = 'tts_perf_output.wav';
 const SUSTAINED_CHUNKS = 5; // chunks (incl. the first) timed for the throughput pass
+const REPEAT_RUNS = 5;
+const PLAYBACK_TIMEOUT_MS = 5000;
 
 const STAGE_LABELS: Record<SynthesisStage, string> = {
   tokenize: 'tokenize',
@@ -59,7 +63,16 @@ type ChunkBench = {
   writeMs: number;
   audioSec: number;
   predictedSec: number;
+  diagnostics: SynthesisDiagnostics;
   uri: string;
+};
+
+type PlaybackBench = {
+  audioSessionMs: number;
+  createMs: number;
+  loadedMs: number | null;
+  playingMs: number | null;
+  timedOut: boolean;
 };
 
 // Voice engine performance lab (Developer tool): "Run benchmark" reports the
@@ -115,7 +128,7 @@ export default function TextToSpeechDemoScreen() {
     let last = Date.now();
     const synthStart = last;
 
-    const { waveform, durationsSec } = await tts.synthesize(
+    const { waveform, durationsSec, diagnostics } = await tts.synthesize(
       text,
       lang,
       voice,
@@ -150,15 +163,44 @@ export default function TextToSpeechDemoScreen() {
       writeMs,
       audioSec: waveform.length / tts.sampleRate,
       predictedSec: durationsSec[0] ?? 0,
+      diagnostics,
       uri: output.uri,
     };
   };
 
-  const play = async (uri: string) => {
+  // Best observable proxy for file-to-sound latency: native player status
+  // reports loaded and playing. It cannot measure speaker hardware latency.
+  const play = async (uri: string): Promise<PlaybackBench> => {
+    const t0 = Date.now();
     await setAudioModeAsync({ playsInSilentMode: true });
+    const audioSessionMs = Date.now() - t0;
+    const createStart = Date.now();
     playerRef.current?.remove?.();
     playerRef.current = createAudioPlayer(uri);
-    playerRef.current.play();
+    const player = playerRef.current;
+    const createMs = Date.now() - createStart;
+    let loadedMs: number | null = player.isLoaded ? Date.now() - t0 : null;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let subscription: { remove: () => void } | null = null;
+      const finish = (playingMs: number | null, timedOut: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        subscription?.remove();
+        resolve({ audioSessionMs, createMs, loadedMs, playingMs, timedOut });
+      };
+      subscription = player.addListener('playbackStatusUpdate', (status) => {
+        const elapsed = Date.now() - t0;
+        if (status.isLoaded && loadedMs == null) loadedMs = elapsed;
+        if (status.error) finish(null, false);
+        else if (status.playing) finish(elapsed, false);
+      });
+      timeout = setTimeout(() => finish(null, true), PLAYBACK_TIMEOUT_MS);
+      player.play();
+    });
   };
 
   const runBenchmark = async () => {
@@ -172,6 +214,7 @@ export default function TextToSpeechDemoScreen() {
       const chunks = buildChunks(SAMPLE_DOC, 300);
       append(`Built ${chunks.length} chunks from ${SAMPLE_DOC.length} chars in ${Date.now() - bcStart} ms.`);
       if (chunks.length === 0) throw new Error('Sample produced no chunks.');
+      append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality}`));
 
       // First chunk = time-to-first-audio. The headline number.
       append(`\n── First chunk (time-to-first-audio) · ${chunks[0].text.length} chars · steps=${steps} ──`);
@@ -182,23 +225,33 @@ export default function TextToSpeechDemoScreen() {
       const firstStep =
         r.stepStarts.length >= 2 ? r.stepStarts[1] - r.stepStarts[0] : denoise;
 
-      append(row(STAGE_LABELS.tokenize, ms(stageMs('tokenize'))));
-      append(row(STAGE_LABELS.duration, ms(stageMs('duration'))));
-      append(row(STAGE_LABELS.textEncoder, ms(stageMs('textEncoder'))));
-      append(row(STAGE_LABELS.initLatent, ms(stageMs('initLatent'))));
-      append(row(`${STAGE_LABELS.denoise} (×${steps})`, `${ms(denoise)}  · ${ms(perStep)}/step, 1st ${ms(firstStep)}`));
-      append(row(STAGE_LABELS.vocoder, ms(stageMs('vocoder'))));
-      append(row('encode WAV', ms(r.encodeMs)));
-      append(row('write file', ms(r.writeMs)));
+      append(stageRow(STAGE_LABELS.tokenize, stageMs('tokenize'), r.synthMs));
+      append(stageRow(STAGE_LABELS.duration, stageMs('duration'), r.synthMs));
+      append(stageRow(STAGE_LABELS.textEncoder, stageMs('textEncoder'), r.synthMs));
+      append(stageRow(STAGE_LABELS.initLatent, stageMs('initLatent'), r.synthMs));
+      append(stageRow(`${STAGE_LABELS.denoise} (×${steps})`, denoise, r.synthMs, `${ms(perStep)}/step, 1st ${ms(firstStep)}`));
+      append(stageRow(STAGE_LABELS.vocoder, stageMs('vocoder'), r.synthMs));
+      append(stageRow('encode WAV', r.encodeMs, firstAudioMsFor(r)));
+      append(stageRow('write file', r.writeMs, firstAudioMsFor(r)));
       append('  ' + '─'.repeat(28));
       append(row('synth total', ms(r.synthMs)));
       const firstAudioMs = r.synthMs + r.encodeMs + r.writeMs;
       append(row('≈ first audio', ms(firstAudioMs)));
       append(row('audio length', `${r.audioSec.toFixed(2)} s  (predicted ${r.predictedSec.toFixed(2)} s)`));
-      append(row('RTF', (r.synthMs / 1000 / Math.max(0.001, r.audioSec)).toFixed(3)));
+      append(row('tokens / samples', `${r.diagnostics.tokenCount} / ${r.diagnostics.waveformSamples.toLocaleString()}`));
+      append(row('latent dim × len', `${r.diagnostics.latentDim} × ${r.diagnostics.latentLen}`));
+      append(row('synth RTF', standardRtf(r.synthMs, r.audioSec).toFixed(3)));
+      append(row('synth throughput', `${throughput(r.synthMs, r.audioSec).toFixed(2)}× realtime`));
 
-      await play(r.uri);
-      append('  (playing first chunk)');
+      const playback = await play(r.uri);
+      append(row('audio session', ms(playback.audioSessionMs)));
+      append(row('player create', ms(playback.createMs)));
+      append(row('player loaded', playback.loadedMs == null ? 'not observed' : ms(playback.loadedMs)));
+      append(row('player playing', playback.playingMs == null ? (playback.timedOut ? `>${PLAYBACK_TIMEOUT_MS} ms` : 'error') : ms(playback.playingMs)));
+      if (playback.playingMs != null) {
+        const tapToPlaying = firstAudioMs + playback.playingMs;
+        append(row('synth → playing', `${ms(tapToPlaying)} · RTF ${standardRtf(tapToPlaying, r.audioSec).toFixed(3)}`));
+      }
 
       // Sustained throughput: do the next few chunks back-to-back. RTF < 1 means
       // synthesis beats realtime, so generate-ahead prefetch can keep up.
@@ -225,6 +278,57 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
+  // Repeat one identical warm synthesis so scheduler noise and thermal drift are
+  // visible. Uses the analyzed document's first chunk when available.
+  const repeatBenchmark = async () => {
+    setBusy(true);
+    try {
+      clearActiveDoc();
+      await sleep(700);
+      await ensureLoaded();
+      let label = 'sample document';
+      let text = buildChunks(SAMPLE_DOC, qualityProfile(quality).unitLen)[0]?.text;
+      if (analyzedDoc) {
+        const extracted = loadExtractedText(analyzedDoc.docHash);
+        const chunk = extracted
+          ? loadChunks(analyzedDoc.docHash, extracted.text, qualityProfile(quality).unitLen)[0]
+          : undefined;
+        if (chunk) {
+          label = analyzedDoc.title;
+          text = chunk.text;
+        }
+      }
+      if (!text) throw new Error('No benchmark chunk available.');
+
+      append(`\n── Warm repeat ×${REPEAT_RUNS} · ${label} · ${text.length} chars ──`);
+      append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality}`));
+      const synthTimes: number[] = [];
+      const denoiseTimes: number[] = [];
+      const rtfs: number[] = [];
+      let audioSec = 0;
+      for (let i = 0; i < REPEAT_RUNS; i++) {
+        const result = await benchChunk(text);
+        const denoiseMs = result.stages.denoise ?? 0;
+        const rtf = standardRtf(result.synthMs, result.audioSec);
+        synthTimes.push(result.synthMs);
+        denoiseTimes.push(denoiseMs);
+        rtfs.push(rtf);
+        audioSec = result.audioSec;
+        append(row(`run ${i + 1}`, `${ms(result.synthMs)} · denoise ${ms(denoiseMs)} · ${result.audioSec.toFixed(2)} s · RTF ${rtf.toFixed(3)}`));
+      }
+      append('  ' + '─'.repeat(28));
+      append(row('synth min / median / max', `${ms(min(synthTimes))} / ${ms(percentile(synthTimes, 0.5))} / ${ms(max(synthTimes))}`));
+      append(row('synth p90', ms(percentile(synthTimes, 0.9))));
+      append(row('denoise median', ms(percentile(denoiseTimes, 0.5))));
+      append(row('RTF median / p90', `${percentile(rtfs, 0.5).toFixed(3)} / ${percentile(rtfs, 0.9).toFixed(3)}`));
+      append(row('audio length', `${audioSec.toFixed(2)} s`));
+    } catch (error) {
+      append('REPEAT BENCHMARK ERROR: ' + describe(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const smokeTest = async () => {
     setBusy(true);
     try {
@@ -233,9 +337,10 @@ export default function TextToSpeechDemoScreen() {
       traceStart();
       const r = await benchChunk(SAMPLE_TEXT);
       append(formatTrace(traceStop()));
-      append(`  synth ${ms(r.synthMs)}, audio ${r.audioSec.toFixed(2)} s, RTF ${(r.synthMs / 1000 / Math.max(0.001, r.audioSec)).toFixed(3)}.`);
-      await play(r.uri);
-      append('  (playing)');
+      append(`  synth ${ms(r.synthMs)}, audio ${r.audioSec.toFixed(2)} s, RTF ${standardRtf(r.synthMs, r.audioSec).toFixed(3)}, throughput ${throughput(r.synthMs, r.audioSec).toFixed(2)}×.`);
+      append(row('latent dim × len', `${r.diagnostics.latentDim} × ${r.diagnostics.latentLen}`));
+      const playback = await play(r.uri);
+      append(row('file → playing', playback.playingMs == null ? 'not observed' : ms(playback.playingMs)));
     } catch (error) {
       append('SMOKE TEST ERROR: ' + describe(error));
     } finally {
@@ -344,13 +449,23 @@ export default function TextToSpeechDemoScreen() {
         if (f.exists) f.delete();
       } catch {}
       append(`\n── Real synth path · chunk 0 (${chunks[0].text.length}c) ──`);
+      append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality} · unit ${qualityProfile(quality).unitLen}`));
       traceStart();
       const t0 = Date.now();
-      await ensureChunkAudio(ttsRef.current!, voiceRef.current!, analyzedDoc.docHash, chunks[0], settings);
+      let metrics: NarrationSynthesisMetrics | null = null;
+      await ensureChunkAudio(
+        ttsRef.current!,
+        voiceRef.current!,
+        analyzedDoc.docHash,
+        chunks[0],
+        settings,
+        (reported) => { metrics = reported; },
+      );
       const spans = traceStop();
       append(formatTrace(spans));
       append('  ' + '─'.repeat(28));
       append(row('total', ms(Date.now() - t0)));
+      if (metrics) append(formatProductionMetrics(metrics));
       if (spans.length === 0) append('  (no synth captured)');
     } catch (error) {
       append('SYNTH TRACE ERROR: ' + describe(error));
@@ -372,6 +487,7 @@ export default function TextToSpeechDemoScreen() {
       </View>
       <View style={styles.row}>
         <Button title="Run benchmark" onPress={runBenchmark} disabled={busy} />
+        <Button title={`Repeat ×${REPEAT_RUNS}`} onPress={repeatBenchmark} disabled={busy} />
         <Button title="Smoke test" onPress={smokeTest} disabled={busy} />
         <Button title="Cold load" onPress={coldLoad} disabled={busy} />
       </View>
@@ -404,6 +520,44 @@ const seconds = (msVal: number) => (msVal / 1000).toFixed(2);
 const ms = (msVal: number) => `${Math.round(msVal)} ms`;
 const row = (label: string, value: string) => `  ${label.padEnd(20)} ${value}`;
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const firstAudioMsFor = (result: ChunkBench) => result.synthMs + result.encodeMs + result.writeMs;
+const standardRtf = (wallMs: number, audioSec: number) => wallMs / 1000 / Math.max(0.001, audioSec);
+const throughput = (wallMs: number, audioSec: number) => audioSec / Math.max(0.001, wallMs / 1000);
+const percent = (part: number, total: number) => `${((part / Math.max(1, total)) * 100).toFixed(1)}%`;
+const min = (values: number[]) => Math.min(...values);
+const max = (values: number[]) => Math.max(...values);
+
+function percentile(values: number[], fraction: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
+  return sorted[index];
+}
+
+function stageRow(label: string, durationMs: number, totalMs: number, detail?: string): string {
+  const suffix = detail ? ` · ${detail}` : '';
+  return row(label, `${ms(durationMs)} · ${percent(durationMs, totalMs)}${suffix}`);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatProductionMetrics(metrics: NarrationSynthesisMetrics): string {
+  return [
+    stageRow('ONNX synth', metrics.synthMs, metrics.totalMs),
+    stageRow('PCM conversion', metrics.pcmMs, metrics.totalMs),
+    stageRow('AAC encoding', metrics.aacMs, metrics.totalMs),
+    row('audio length', `${metrics.audioSec.toFixed(2)} s (predicted ${metrics.predictedSec.toFixed(2)} s)`),
+    row('tokens / samples', `${metrics.tokenCount} / ${metrics.waveformSamples.toLocaleString()}`),
+    row('latent dim × len', `${metrics.latentDim} × ${metrics.latentLen}`),
+    row('AAC output', formatBytes(metrics.outputBytes)),
+    row('standard RTF', standardRtf(metrics.totalMs, metrics.audioSec).toFixed(3)),
+    row('throughput', `${throughput(metrics.totalMs, metrics.audioSec).toFixed(2)}× realtime`),
+  ].join('\n');
+}
 
 // A time-ordered waterfall of tracer spans: start offset, duration (or "mark").
 function formatTrace(spans: Span[]): string {
