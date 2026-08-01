@@ -383,6 +383,32 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     setDurTable(chunks.length === 0 ? null : buildTimeline(docHash, chunks, settings));
   }, [docHash, chunks, settings]);
 
+  // Warm the clip the user will hear first — the lead for the resume/selected
+  // position (or chunk 0) — while the engine is idle and they're still reading,
+  // so pressing play is instant. Dedup means play attaches to this same synth.
+  const warmedRef = useRef<number | null>(null);
+  const warmStart = useCallback(
+    async (charOffset: number) => {
+      const i = chunkIndexForOffset(chunks, charOffset);
+      if (i < 0 || isChunkCached(docHash, chunks[i].charStart, settings)) return;
+      const engine = await ensureEngine();
+      if (!engine) return;
+      const fs = buildFastStart(text, chunks, charOffset);
+      try {
+        if (fs) await withEngine(modelId!, (t) => ensureLeadAudio(t, engine.voice, docHash, fs.lead.chunk, settings));
+        else await withEngine(modelId!, (t) => ensureChunkAudio(t, engine.voice, docHash, chunks[i], settings));
+      } catch {}
+    },
+    [chunks, text, docHash, settings, modelId, ensureEngine],
+  );
+  useEffect(() => {
+    if (!ready || started || fullyRendered || chunks.length === 0 || !modelId) return;
+    const startAt = currentRef.current?.charStart ?? chunks[0].charStart;
+    if (warmedRef.current === startAt) return;
+    warmedRef.current = startAt;
+    void warmStart(startAt);
+  }, [ready, current, started, fullyRendered, chunks, modelId, warmStart]);
+
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
 
