@@ -70,6 +70,21 @@ export function loadDurationTableFromCache(
   return seconds;
 }
 
+// Neutral-rate speaking speed, for estimating a chunk's length before it has
+// been synthesized. Real cached lengths replace the estimate as clips are made.
+const CHARS_PER_SEC = 14;
+
+// The whole-document timeline, built instantly with no engine: each chunk's real
+// cached length if we have it, else a cheap char-count estimate. The scrubber is
+// approximately right immediately and converges to exact as clips get cached.
+export function buildTimeline(docHash: string, chunks: Chunk[], s: NarrationSettings): DurationTable {
+  const seconds = new Array<number>(chunks.length);
+  for (let i = 0; i < chunks.length; i++) {
+    seconds[i] = readChunkTiming(docHash, chunks[i].charStart, s) ?? Math.max(0.3, chunks[i].text.length / CHARS_PER_SEC);
+  }
+  return seconds;
+}
+
 export type BuildDurationTableOptions = {
   onProgress?: (done: number, total: number) => void;
   shouldCancel?: () => boolean;

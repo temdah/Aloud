@@ -1,7 +1,7 @@
 import { Asset } from 'expo-asset';
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureDurationTable, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, loadDurationTableFromCache, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
+import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, Quality, TextToSpeech, VoiceStyle } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import { useDocumentsStore, useSettingsStore } from '../stores';
@@ -46,8 +46,6 @@ function resolveArtworkUrl(): Promise<string | undefined> {
   }
   return artworkPromise;
 }
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // Perf-tip detection thresholds.
 const STALL_MS = 2000; // a boundary gap longer than this = an audible stall
@@ -197,12 +195,6 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // download checks) → drives the reader's re-download prompt.
   const [modelLoadFailed, setModelLoadFailed] = useState(false);
   const [loading, setLoading] = useState(false);
-  // Ref mirror so the background duration-table build can poll "is playback
-  // waiting on a clip right now?" and pause itself while it is.
-  const loadingRef = useRef(false);
-  useEffect(() => {
-    loadingRef.current = loading;
-  }, [loading]);
   const [engaged, setEngaged] = useState(false);
   const [started, setStarted] = useState(false);
   const [current, setCurrent] = useState<Chunk | null>(null);
@@ -384,52 +376,12 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     return { tts, voice };
   }, [modelId, voiceId]);
 
-  // Build the whole-document duration table (timeline). Reads from disk if cached,
-  // else runs the cheap duration predictor over every chunk in the background.
-  // Depends only on model/voice/lang, so a speed/steps change just reloads it.
+  // Whole-document timeline for the scrubber. Built instantly with no engine —
+  // real cached clip lengths where we have them, a char estimate for the rest —
+  // so it never delays playback or competes with the clip the user is waiting on.
   useEffect(() => {
-    let cancelled = false;
-    setDurTable(null);
-    if (!modelId || chunks.length === 0) return;
-    // Fast path: rebuild the timeline from disk (stored table or a full set of
-    // per-chunk timing sidecars) with no engine load. Only a doc with un-cached
-    // chunks falls through to the predictor below.
-    const cached = loadDurationTableFromCache(docHash, chunks, settings);
-    if (cached) {
-      setDurTable(cached);
-      return;
-    }
-    // Predicting the whole document uses the engine, and on a large doc that's a
-    // lot of work — so don't even start until the first audio is playing. This
-    // keeps the timeline (a scrubber nicety) from competing with the clip the
-    // user is waiting to hear, which otherwise made deep-tap starts O(n)-slow.
-    if (!started) return;
-    void (async () => {
-      // Let playback claim the engine first — the timeline is never on the
-      // critical path, so a brief head start avoids the worst first-play contention.
-      await sleep(600);
-      if (cancelled) return;
-      const engine = await ensureEngine();
-      if (!engine || cancelled) return;
-      try {
-        const table = await withEngine(modelId!, (tts) =>
-          ensureDurationTable(tts, engine.voice, docHash, chunks, settings, {
-            shouldCancel: () => cancelled,
-            // Pause between batches while a clip the user is waiting on synthesizes.
-            beforeBatch: async () => {
-              while (loadingRef.current && !cancelled) await sleep(120);
-            },
-          }),
-        );
-        if (table && !cancelled) setDurTable(table);
-      } catch (e) {
-        console.warn('[usePlayback] failed to build duration table:', e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [docHash, chunks, modelId, settings, ensureEngine, started]);
+    setDurTable(chunks.length === 0 ? null : buildTimeline(docHash, chunks, settings));
+  }, [docHash, chunks, settings]);
 
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);

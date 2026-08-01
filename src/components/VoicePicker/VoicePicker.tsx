@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { encodeWav, ensureModelsDownloaded, getEngine, getVoice, withEngine } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
+import { SAMPLE_TEXT } from '../../utils';
 import { Chip } from '../Chip';
 import { Icon } from '../Icon';
 import { Spinner } from '../Spinner';
@@ -19,7 +20,6 @@ export type VoicePickerProps = {
 };
 type GenderFilter = 'all' | 'f' | 'm';
 
-const PREVIEW_SENTENCE = 'Hi, this is how I sound when I read your book aloud.';
 const PREVIEW_FILE = 'voice_preview.wav';
 const PREVIEW_STEPS = 8; // fast enough for an instant-ish on-device preview
 
@@ -69,7 +69,7 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
       if (token !== tokenRef.current) return;
       const voice = await getVoice(modelId, voiceId); // fetches the style file if missing
       if (token !== tokenRef.current) return;
-      const { waveform } = await withEngine(modelId, (t) => t.synthesize(PREVIEW_SENTENCE, lang, voice, PREVIEW_STEPS, 1.05));
+      const { waveform } = await withEngine(modelId, (t) => t.synthesize(SAMPLE_TEXT, lang, voice, PREVIEW_STEPS, 1.05));
       if (token !== tokenRef.current) return;
 
       const out = new File(Paths.cache, PREVIEW_FILE);

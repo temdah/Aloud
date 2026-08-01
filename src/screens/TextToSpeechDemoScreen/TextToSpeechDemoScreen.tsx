@@ -15,11 +15,9 @@ import {
 } from '../../supertonic';
 import { useSettingsStore } from '../../stores';
 import { useTheme } from '../../theme';
+import { SAMPLE_TEXT } from '../../utils';
 import { makeStyles } from './TextToSpeechDemoScreen.styles';
 
-// Short utterance for the quick smoke test.
-const SAMPLE_SENTENCE =
-  'The quick brown fox jumps over the lazy dog, and then it reads a book aloud.';
 
 // Multi-paragraph passage that chunks into 5+ ~300-char chunks, mirroring a real
 // document so the benchmark can measure time-to-first-audio and throughput.
@@ -217,7 +215,7 @@ export default function TextToSpeechDemoScreen() {
     try {
       await ensureLoaded();
       append(`Smoke test: synthesizing one sentence (steps=${steps})...`);
-      const r = await benchChunk(SAMPLE_SENTENCE);
+      const r = await benchChunk(SAMPLE_TEXT);
       append(`  synth ${ms(r.synthMs)}, audio ${r.audioSec.toFixed(2)} s, RTF ${(r.synthMs / 1000 / Math.max(0.001, r.audioSec)).toFixed(3)}.`);
       await play(r.uri);
       append('  (playing)');

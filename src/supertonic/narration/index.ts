@@ -27,6 +27,7 @@ export type { CachedProfile, ProfileMeta } from './audioCache';
 export { readManifest, writeManifest, loadChunks } from './manifest';
 export {
   ensureDurationTable,
+  buildTimeline,
   loadDurationTable,
   loadDurationTableFromCache,
   cumulativeOffsetsSec,
