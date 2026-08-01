@@ -25,6 +25,7 @@ import {
 import { loadExtractedText } from '../../pdf';
 import { usePlaybackContext } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
+import { maxChunkLen } from '../../supertonic/text/sentenceRules';
 import { useTheme } from '../../theme';
 import type { ImportedDocument } from '../../types';
 import { SAMPLE_TEXT, traceMark, traceStart, traceStop, type Span } from '../../utils';
@@ -401,11 +402,18 @@ export default function TextToSpeechDemoScreen() {
     append(row('blocks', Object.entries(kinds).map(([k, n]) => `${k}:${n}`).join('  ') || '(none)'));
 
     const sizes = chunks.map((c) => c.text.length);
-    const max = sizes.length ? Math.max(...sizes) : 0;
-    const min = sizes.length ? Math.min(...sizes) : 0;
+    const cap = maxChunkLen(extracted.text, unitLen);
+    const maxSize = sizes.length ? Math.max(...sizes) : 0;
+    const minSize = sizes.length ? Math.min(...sizes) : 0;
     const avg = sizes.length ? Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length) : 0;
-    const overLong = sizes.filter((s) => s > unitLen * 1.4).length;
-    append(row('chunks (unit ' + unitLen + ')', `${chunks.length}  · avg ${avg} · min ${min} · max ${max} · over-long ${overLong}`));
+    const p95 = percentile(sizes, 0.95);
+    const overCap = sizes.filter((size) => size > cap).length;
+    append(
+      row(
+        `chunks (cap ${cap})`,
+        `${chunks.length}  · avg ${avg} · p95 ${p95} · min ${minSize} · max ${maxSize} · over-cap ${overCap}`,
+      ),
+    );
 
     const headings = extracted.blocks.filter((b) => b.kind === 'h2');
     append(row('headings', String(headings.length)));

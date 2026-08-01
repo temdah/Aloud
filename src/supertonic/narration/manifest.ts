@@ -9,8 +9,8 @@ import { buildChunks } from './textChunker';
 const MANIFEST = 'manifest.json';
 
 // Bump when buildChunks/chunkText changes shape so stale manifests (and their
-// now-stale audio) rebuild. v4: CJK boundaries + language-aware chunk length.
-const CHUNKER_VERSION = 4;
+// now-stale audio) rebuild. v5: hard chunk cap with semantic fallback splits.
+const CHUNKER_VERSION = 5;
 
 export function readManifest(docHash: string): DocumentManifest | null {
   const file = new File(documentCacheDir(docHash), MANIFEST);
