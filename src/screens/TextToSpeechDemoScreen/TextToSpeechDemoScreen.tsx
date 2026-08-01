@@ -7,16 +7,22 @@ import {
   buildChunks,
   DEFAULT_VOICE,
   encodeWav,
+  ensureChunkAudio,
   getEngine,
   getVoice,
   isEngineResident,
+  loadChunks,
+  qualityProfile,
   releaseCurrentEngine,
   TextToSpeech,
   VoiceStyle,
+  type NarrationSettings,
   type SynthesisStage,
 } from '../../supertonic';
-import { useSettingsStore } from '../../stores';
+import { loadExtractedText } from '../../pdf';
+import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { useTheme } from '../../theme';
+import type { ImportedDocument } from '../../types';
 import { SAMPLE_TEXT, traceMark, traceStart, traceStop, type Span } from '../../utils';
 import { makeStyles } from './TextToSpeechDemoScreen.styles';
 
@@ -64,10 +70,13 @@ export default function TextToSpeechDemoScreen() {
   const voiceId = useSettingsStore((s) => s.voiceId);
   const lang = useSettingsStore((s) => s.lang);
   const settingsSteps = useSettingsStore((s) => s.steps);
+  const quality = useSettingsStore((s) => s.quality);
+  const documents = useDocumentsStore((s) => s.documents);
 
   const [log, setLog] = useState('Voice engine performance lab.\n');
   const [busy, setBusy] = useState(false);
   const [steps, setSteps] = useState(settingsSteps);
+  const [analyzedDoc, setAnalyzedDoc] = useState<ImportedDocument | null>(null);
   const ttsRef = useRef<TextToSpeech | null>(null);
   const voiceRef = useRef<VoiceStyle | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
@@ -265,6 +274,79 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
+  // Extraction/reading diagnostics on an already-extracted document: block kinds,
+  // chunk sizes, suspected-missed headings, and a spoken-text preview.
+  const analyzeDoc = (doc: ImportedDocument) => {
+    setAnalyzedDoc(doc);
+    const extracted = loadExtractedText(doc.docHash);
+    if (!extracted) {
+      append(`\n"${doc.title}" — not extracted yet. Open it in the reader once, then retry.`);
+      return;
+    }
+    const unitLen = qualityProfile(quality).unitLen;
+    const chunks = loadChunks(doc.docHash, extracted.text, unitLen);
+    append(`\n══ ${doc.title} (${doc.kind}) ══`);
+    append(row('chars / pages', `${extracted.text.length} / ${extracted.pageCount}`));
+
+    const kinds: Record<string, number> = {};
+    for (const b of extracted.blocks) kinds[b.kind] = (kinds[b.kind] ?? 0) + 1;
+    append(row('blocks', Object.entries(kinds).map(([k, n]) => `${k}:${n}`).join('  ') || '(none)'));
+
+    const sizes = chunks.map((c) => c.text.length);
+    const max = sizes.length ? Math.max(...sizes) : 0;
+    const min = sizes.length ? Math.min(...sizes) : 0;
+    const avg = sizes.length ? Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length) : 0;
+    const overLong = sizes.filter((s) => s > unitLen * 1.4).length;
+    append(row('chunks (unit ' + unitLen + ')', `${chunks.length}  · avg ${avg} · min ${min} · max ${max} · over-long ${overLong}`));
+
+    const headings = extracted.blocks.filter((b) => b.kind === 'h2');
+    append(row('headings', String(headings.length)));
+    // Short paragraph blocks with no terminal punctuation likely SHOULD be
+    // headings (the bold-as-title gap) — surface them.
+    const suspected: string[] = [];
+    for (const b of extracted.blocks) {
+      if (b.kind !== 'p') continue;
+      const t = extracted.text.slice(b.charStart, b.charEnd).trim();
+      if (t.length > 0 && t.length <= 60 && !/[.!?:;]$/.test(t)) suspected.push(t);
+    }
+    append(row('suspected missed headings', String(suspected.length)));
+    suspected.slice(0, 8).forEach((t) => append(`    · ${t}`));
+
+    append('  ── spoken preview ──');
+    append(extracted.text.slice(0, 700).replace(/\n{2,}/g, '\n  ¶ '));
+  };
+
+  // Synthesize chunk 0 of the analyzed doc through the real production path
+  // (ensureChunkAudio → AAC), traced end to end. Only traces a fresh synth.
+  const traceRealSynth = async () => {
+    if (!analyzedDoc) {
+      append('\nAnalyze a document first.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await ensureLoaded();
+      const extracted = loadExtractedText(analyzedDoc.docHash);
+      if (!extracted) throw new Error('not extracted');
+      const chunks = loadChunks(analyzedDoc.docHash, extracted.text, qualityProfile(quality).unitLen);
+      if (chunks.length === 0) throw new Error('no chunks');
+      const settings: NarrationSettings = { modelId: modelId!, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality };
+      append(`\n── Real synth path · chunk 0 (${chunks[0].text.length}c) ──`);
+      traceStart();
+      const t0 = Date.now();
+      await ensureChunkAudio(ttsRef.current!, voiceRef.current!, analyzedDoc.docHash, chunks[0], settings);
+      const spans = traceStop();
+      append(formatTrace(spans));
+      append('  ' + '─'.repeat(28));
+      append(row('total', ms(Date.now() - t0)));
+      if (spans.length === 0) append('  (chunk 0 already cached — clear its audio to trace a fresh synth)');
+    } catch (error) {
+      append('SYNTH TRACE ERROR: ' + describe(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Aloud — performance lab</Text>
@@ -285,6 +367,19 @@ export default function TextToSpeechDemoScreen() {
         <Button title="Copy results" onPress={() => void copyResults()} />
         <Button title="Clear" onPress={() => setLog('')} disabled={busy} />
       </View>
+      {documents.length > 0 ? (
+        <View>
+          <Text style={styles.hint}>Analyze extraction / trace real synth for a document:</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            {documents.slice(0, 12).map((d) => (
+              <Button key={d.docHash} title={d.title.slice(0, 18)} onPress={() => analyzeDoc(d)} disabled={busy} />
+            ))}
+          </View>
+          <View style={styles.row}>
+            <Button title={`Trace real synth${analyzedDoc ? ` · ${analyzedDoc.title.slice(0, 12)}` : ''}`} onPress={() => void traceRealSynth()} disabled={busy || !analyzedDoc} />
+          </View>
+        </View>
+      ) : null}
       <ScrollView style={styles.logBox}>
         <Text selectable style={styles.logText}>{log}</Text>
       </ScrollView>
