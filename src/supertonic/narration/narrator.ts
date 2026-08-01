@@ -4,7 +4,7 @@ import type { Chunk } from '../../types';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
 import type { File } from 'expo-file-system';
-import { encodePcmToM4a } from '../../../modules/aac-codec';
+import { encodeFloatPcmToM4a } from '../../../modules/aac-codec';
 import { stageTimer } from '../../utils/perf';
 import { traceMark, traceOpen } from '../../utils/trace';
 import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile, writeChunkTiming } from './audioCache';
@@ -45,23 +45,16 @@ async function synthesizeToFile(
   const synthStart = Date.now();
   const { waveform, diagnostics } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0, undefined, onStage);
   const synthMs = Date.now() - synthStart;
-  // Float [-1,1] -> 16-bit LE PCM, byte-identical to the old WAV path, so the
-  // cache is unchanged (SYNTH_VERSION stays put).
-  const pcmStart = Date.now();
-  const pcm = new Int16Array(waveform.length);
-  for (let i = 0; i < waveform.length; i++) {
-    const clamped = Math.max(-1, Math.min(1, waveform[i]));
-    pcm[i] = Math.floor(clamped * 32767);
-  }
-  const pcmMs = Date.now() - pcmStart;
-  timer.mark('pcm-convert');
-  traceMark('pcm-convert');
+  // Fuse the Float32 -> PCM16 pass into the native AAC worker. The conversion is
+  // byte-identical to the former JS loop, so existing cache keys remain valid.
   if (file.exists) file.delete();
-  const aacStart = Date.now();
-  await encodePcmToM4a(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), tts.sampleRate, file.uri);
-  const aacMs = Date.now() - aacStart;
-  timer.mark('aac-encode');
-  traceMark('aac-encode');
+  const postprocessStart = Date.now();
+  const encoded = await encodeFloatPcmToM4a(waveform, tts.sampleRate, file.uri);
+  const postprocessMs = Date.now() - postprocessStart;
+  const pcmMs = encoded.pcmMs;
+  const aacMs = Math.max(0, postprocessMs - pcmMs);
+  timer.mark('native-float-to-aac');
+  traceMark('native-float-to-aac');
   endClip();
   const audioSec = waveform.length / tts.sampleRate;
   const totalMs = Date.now() - wallStart;

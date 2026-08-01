@@ -28,6 +28,7 @@ private data class WavInfo(val rate: Int, val channels: Int, val dataLen: Long)
 // the stitched file — the file's REAL clock, which drifts from predicted durations
 // by AAC priming/padding + the inter-clip spacer.
 internal data class ConcatResult(val rc: Int, val startsMs: List<Double>)
+internal data class FloatPcmEncodeResult(val rc: Int, val pcmMs: Double)
 
 // 16-bit PCM byte source for the shared encode loop (WAV files or an in-memory
 // buffer). `read` returns bytes written to dst (up to max), or 0 when exhausted.
@@ -46,6 +47,38 @@ private class ByteArrayPcmSource(private val data: ByteArray) : PcmSource {
     pos += n
     return n
   }
+  override fun close() {}
+}
+
+// Reads the Float32Array's raw little-endian bytes and produces PCM16 directly
+// into the encoder's reusable input buffer. Conversion time is tracked separately
+// so the developer diagnostics can compare it with the former JavaScript pass.
+private class FloatByteArrayPcmSource(data: ByteArray) : PcmSource {
+  private val input = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+  var conversionNanos = 0L
+    private set
+
+  override fun read(dst: ByteArray, max: Int): Int {
+    val sampleCount = minOf(input.remaining() / Float.SIZE_BYTES, max / Short.SIZE_BYTES)
+    if (sampleCount <= 0) return 0
+    val startedAt = System.nanoTime()
+    var out = 0
+    repeat(sampleCount) {
+      val sample = input.getFloat()
+      val clamped = when {
+        sample.isNaN() -> 0.0
+        sample < -1f -> -1.0
+        sample > 1f -> 1.0
+        else -> sample.toDouble()
+      }
+      val pcm = kotlin.math.floor(clamped * 32767.0).toInt()
+      dst[out++] = (pcm and 0xff).toByte()
+      dst[out++] = ((pcm ushr 8) and 0xff).toByte()
+    }
+    conversionNanos += System.nanoTime() - startedAt
+    return out
+  }
+
   override fun close() {}
 }
 
@@ -151,6 +184,17 @@ internal object AacEncoder {
   fun encodePcm(pcm16: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int): Int {
     if (pcm16.isEmpty()) return ERR_NO_INPUT
     return encodeFromSource(ByteArrayPcmSource(pcm16), sampleRate, channels, dstPath, bitrate)
+  }
+
+  // Encode raw Float32 waveform bytes, converting incrementally to PCM16 while
+  // MediaCodec consumes its input. No full PCM copy is allocated in JavaScript.
+  fun encodeFloatPcm(float32Bytes: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int): FloatPcmEncodeResult {
+    if (float32Bytes.isEmpty() || float32Bytes.size % Float.SIZE_BYTES != 0) {
+      return FloatPcmEncodeResult(ERR_NO_INPUT, 0.0)
+    }
+    val source = FloatByteArrayPcmSource(float32Bytes)
+    val rc = encodeFromSource(source, sampleRate, channels, dstPath, bitrate)
+    return FloatPcmEncodeResult(rc, source.conversionNanos / 1_000_000.0)
   }
 
   // Shared MediaCodec + MediaMuxer encode loop, fed by any PcmSource. Deletes a

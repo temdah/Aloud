@@ -30,6 +30,22 @@ export function encodePcmToM4a(pcm16: Uint8Array, sampleRate: number, dstUri: st
   return AacCodecModule.encodePcmToM4a(pcm16, sampleRate, 1, toPath(dstUri), bitrate);
 }
 
+export type FloatPcmEncodeResult = { uri: string; pcmMs: number };
+
+/**
+ * Convert a float waveform to 16-bit PCM and encode it on the native AAC worker.
+ * Passing a byte view avoids an O(samples) conversion on the JavaScript thread.
+ */
+export function encodeFloatPcmToM4a(
+  waveform: Float32Array,
+  sampleRate: number,
+  dstUri: string,
+  bitrate = 64000,
+): Promise<FloatPcmEncodeResult> {
+  const float32Bytes = new Uint8Array(waveform.buffer, waveform.byteOffset, waveform.byteLength);
+  return AacCodecModule.encodeFloatPcmToM4a(float32Bytes, sampleRate, 1, toPath(dstUri), bitrate);
+}
+
 /**
  * Losslessly stitch several AAC `.m4a` files into one continuous `.m4a` — no
  * re-encode (compressed samples are copied and re-muxed). Used to merge a

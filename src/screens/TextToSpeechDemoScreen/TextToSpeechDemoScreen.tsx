@@ -208,18 +208,17 @@ export default function TextToSpeechDemoScreen() {
     setBusy(true);
     try {
       await ensureLoaded();
-      const tts = ttsRef.current!;
 
       // Build-chunks: on a large PDF this happens before any audio can play.
       const bcStart = Date.now();
       const chunks = buildChunks(SAMPLE_DOC, 300);
       append(`Built ${chunks.length} chunks from ${SAMPLE_DOC.length} chars in ${Date.now() - bcStart} ms.`);
-      if (chunks.length === 0) throw new Error('Sample produced no chunks.');
+      const firstChunk = requireValue(chunks[0], 'Sample produced no chunks.');
       append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality}`));
 
       // First chunk = time-to-first-audio. The headline number.
-      append(`\n── First chunk (time-to-first-audio) · ${chunks[0].text.length} chars · steps=${steps} ──`);
-      const r = await benchChunk(chunks[0].text);
+      append(`\n── First chunk (time-to-first-audio) · ${firstChunk.text.length} chars · steps=${steps} ──`);
+      const r = await benchChunk(firstChunk.text);
       const stageMs = (s: SynthesisStage) => r.stages[s] ?? 0;
       const denoise = stageMs('denoise');
       const perStep = steps > 0 ? denoise / steps : 0;
@@ -299,16 +298,16 @@ export default function TextToSpeechDemoScreen() {
           text = chunk.text;
         }
       }
-      if (!text) throw new Error('No benchmark chunk available.');
+      const benchmarkText = requireValue(text, 'No benchmark chunk available.');
 
-      append(`\n── Warm repeat ×${REPEAT_RUNS} · ${label} · ${text.length} chars ──`);
+      append(`\n── Warm repeat ×${REPEAT_RUNS} · ${label} · ${benchmarkText.length} chars ──`);
       append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality}`));
       const synthTimes: number[] = [];
       const denoiseTimes: number[] = [];
       const rtfs: number[] = [];
       let audioSec = 0;
       for (let i = 0; i < REPEAT_RUNS; i++) {
-        const result = await benchChunk(text);
+        const result = await benchChunk(benchmarkText);
         const denoiseMs = result.stages.denoise ?? 0;
         const rtf = standardRtf(result.synthMs, result.audioSec);
         synthTimes.push(result.synthMs);
@@ -354,15 +353,15 @@ export default function TextToSpeechDemoScreen() {
   const coldLoad = async () => {
     setBusy(true);
     try {
-      if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
+      const selectedModelId = requireValue(modelId, 'No voice model selected — pick one in Settings → Voice model.');
       append('\n── Cold load (release + reload) ──');
       await releaseCurrentEngine();
       ttsRef.current = null;
       voiceRef.current = null;
       traceStart();
       const start = Date.now();
-      ttsRef.current = await getEngine(modelId);
-      voiceRef.current = await getVoice(modelId, voiceId || DEFAULT_VOICE);
+      ttsRef.current = await getEngine(selectedModelId);
+      voiceRef.current = await getVoice(selectedModelId, voiceId || DEFAULT_VOICE);
       const total = Date.now() - start;
       append(formatTrace(traceStop()));
       append('  ' + '─'.repeat(28));
@@ -446,17 +445,17 @@ export default function TextToSpeechDemoScreen() {
       clearActiveDoc();
       await sleep(700);
       await ensureLoaded();
-      const extracted = loadExtractedText(analyzedDoc.docHash);
-      if (!extracted) throw new Error('not extracted');
+      const extracted = requireValue(loadExtractedText(analyzedDoc.docHash), 'not extracted');
       const chunks = loadChunks(analyzedDoc.docHash, extracted.text, qualityProfile(quality).unitLen);
-      if (chunks.length === 0) throw new Error('no chunks');
-      const settings: NarrationSettings = { modelId: modelId!, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality };
+      const firstChunk = requireValue(chunks[0], 'no chunks');
+      const selectedModelId = requireValue(modelId, 'No voice model selected.');
+      const settings: NarrationSettings = { modelId: selectedModelId, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality };
       // Force a fresh synth so there's something to trace (not a cache hit).
       try {
-        const f = new File(chunkAudioUri(analyzedDoc.docHash, chunks[0].charStart, settings));
+        const f = new File(chunkAudioUri(analyzedDoc.docHash, firstChunk.charStart, settings));
         if (f.exists) f.delete();
       } catch {}
-      append(`\n── Real synth path · chunk 0 (${chunks[0].text.length}c) ──`);
+      append(`\n── Real synth path · chunk 0 (${firstChunk.text.length}c) ──`);
       append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality} · unit ${qualityProfile(quality).unitLen}`));
       traceStart();
       const t0 = Date.now();
@@ -465,7 +464,7 @@ export default function TextToSpeechDemoScreen() {
         ttsRef.current!,
         voiceRef.current!,
         analyzedDoc.docHash,
-        chunks[0],
+        firstChunk,
         settings,
         (reported) => { metrics = reported; },
       );
@@ -528,6 +527,10 @@ const seconds = (msVal: number) => (msVal / 1000).toFixed(2);
 const ms = (msVal: number) => `${Math.round(msVal)} ms`;
 const row = (label: string, value: string) => `  ${label.padEnd(20)} ${value}`;
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const requireValue = <T,>(value: T | null | undefined, message: string): T => {
+  if (value == null) throw new Error(message);
+  return value;
+};
 const firstAudioMsFor = (result: ChunkBench) => result.synthMs + result.encodeMs + result.writeMs;
 const standardRtf = (wallMs: number, audioSec: number) => wallMs / 1000 / Math.max(0.001, audioSec);
 const throughput = (wallMs: number, audioSec: number) => audioSec / Math.max(0.001, wallMs / 1000);
@@ -556,7 +559,7 @@ function formatBytes(bytes: number): string {
 function formatProductionMetrics(metrics: NarrationSynthesisMetrics): string {
   return [
     stageRow('ONNX synth', metrics.synthMs, metrics.totalMs),
-    stageRow('PCM conversion', metrics.pcmMs, metrics.totalMs),
+    stageRow('PCM conversion (native)', metrics.pcmMs, metrics.totalMs),
     stageRow('AAC encoding', metrics.aacMs, metrics.totalMs),
     row('audio length', `${metrics.audioSec.toFixed(2)} s (predicted ${metrics.predictedSec.toFixed(2)} s)`),
     row('tokens / samples', `${metrics.tokenCount} / ${metrics.waveformSamples.toLocaleString()}`),

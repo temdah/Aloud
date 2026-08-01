@@ -25,6 +25,14 @@ class AacCodecModule : Module() {
       dstPath
     }
 
+    // Convert raw Float32 waveform bytes to PCM and encode them on this worker,
+    // keeping the linear sample pass off the JavaScript thread.
+    AsyncFunction("encodeFloatPcmToM4a") { float32Bytes: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int ->
+      val result = AacEncoder.encodeFloatPcm(float32Bytes, sampleRate, channels, dstPath, bitrate)
+      if (result.rc != 0) throw AacEncodeException(result.rc)
+      mapOf("uri" to dstPath, "pcmMs" to result.pcmMs)
+    }
+
     // Losslessly stitch AAC .m4a files into one continuous .m4a (no re-encode).
     // Resolves each source clip's start offset (ms) in the stitched file.
     AsyncFunction("concatM4a") { srcM4aPaths: List<String>, dstPath: String ->
