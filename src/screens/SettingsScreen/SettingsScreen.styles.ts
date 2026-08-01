@@ -39,8 +39,18 @@ export const makeStyles = (p: Palette) =>
       height: 12,
     },
     groupLabel: {
-      marginBottom: 8,
+      marginBottom: 4,
       marginLeft: 4,
+    },
+    groupHint: {
+      marginBottom: 10,
+      marginLeft: 4,
+    },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 12,
     },
     presetRow: {
       flexDirection: 'row',

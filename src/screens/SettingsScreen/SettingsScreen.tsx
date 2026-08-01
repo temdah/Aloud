@@ -1,12 +1,16 @@
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
-import { ActionDialog, AppBar, Icon, LanguagePicker, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
+import { ActionDialog, AppBar, Chip, Icon, LanguagePicker, ListItem, Sheet, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
 import { documentCacheStats, findModel, languageLabel, QUALITY_LABELS, type Quality } from '../../supertonic';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation } from '../../navigation/navigationTypes';
 import { makeStyles } from './SettingsScreen.styles';
+
+const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.25, 1.5];
+const DEFAULT_SPEED = 1.05;
+const STEP_PRESETS = [4, 5, 6, 8, 10];
 
 export default function SettingsScreen() {
   const { palette: p } = useTheme();
@@ -80,19 +84,23 @@ export default function SettingsScreen() {
               <Text style={ty(TYPE.bodyMedium, p.text)}>Speed</Text>
               <Text style={ty(TYPE.title, p.primary)}>×{speed.toFixed(2)}</Text>
             </View>
-            <View style={styles.sliderWrap}>
-              <Slider value={speed} min={0.9} max={1.5} step={0.05} onChange={setSpeed} ticks={[0.9, 1.0, 1.05, 1.25, 1.5]} />
-            </View>
-            <View style={styles.labelRow}>
-              <Text style={ty(TYPE.mono, p.textDim)}>0.90</Text>
-              <Text style={ty(TYPE.mono, p.textDim)}>default 1.05</Text>
-              <Text style={ty(TYPE.mono, p.textDim)}>1.50</Text>
+            <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.qualityHint]}>How fast the voice reads. Default is ×1.05.</Text>
+            <View style={styles.chipRow}>
+              {SPEED_PRESETS.map((v) => (
+                <Chip
+                  key={v}
+                  label={v === DEFAULT_SPEED ? `×${v.toFixed(2)} · default` : `×${v.toFixed(2)}`}
+                  selected={Math.abs(speed - v) < 0.001}
+                  onPress={() => setSpeed(v)}
+                />
+              ))}
             </View>
           </View>
 
           <View style={styles.spacer} />
 
           <Text style={[ty(TYPE.label, p.textMuted), styles.groupLabel]}>Quality</Text>
+          <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.groupHint]}>How natural the voice sounds versus how fast it starts.</Text>
           <View style={styles.storageCard}>
             {(['fast', 'balanced', 'quality'] as Quality[]).map((q, i) => {
               const label = QUALITY_LABELS[q];
@@ -138,12 +146,10 @@ export default function SettingsScreen() {
               <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.qualityHint]}>
                 Fewer steps generate each clip faster; more sound smoother but start later. The presets above set this for you.
               </Text>
-              <View style={styles.qualitySliderWrap}>
-                <Slider value={steps} min={4} max={10} step={1} onChange={(v) => setSteps(Math.round(v))} ticks={[4, 5, 6, 8, 10]} />
-              </View>
-              <View style={styles.labelRow}>
-                <Text style={ty(TYPE.mono, p.textDim)}>Faster</Text>
-                <Text style={ty(TYPE.mono, p.textDim)}>Smoother</Text>
+              <View style={styles.chipRow}>
+                {STEP_PRESETS.map((v) => (
+                  <Chip key={v} label={`${v}`} selected={steps === v} onPress={() => setSteps(v)} />
+                ))}
               </View>
             </View>
           ) : null}
