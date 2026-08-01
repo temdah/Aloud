@@ -6,6 +6,7 @@ import type { VoiceStyle } from '../synthesis/voiceStyle';
 import type { File } from 'expo-file-system';
 import { encodePcmToM4a } from '../../../modules/aac-codec';
 import { stageTimer } from '../../utils/perf';
+import { traceMark, traceOpen } from '../../utils/trace';
 import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile, writeChunkTiming } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
 import { recordSynthRtf } from './perfStats';
@@ -35,8 +36,13 @@ async function synthesizeToFile(
   // Render at the engine's neutral rate; playback speed is applied live, so the
   // cache is speed-agnostic.
   const timer = stageTimer('synth');
+  const endClip = traceOpen(`synth·${chunk.text.length}c`);
   const wallStart = Date.now();
-  const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0, undefined, timer.mark);
+  const onStage = (stage: string) => {
+    timer.mark(stage);
+    traceMark(stage);
+  };
+  const { waveform } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0, undefined, onStage);
   // Float [-1,1] -> 16-bit LE PCM, byte-identical to the old WAV path, so the
   // cache is unchanged (SYNTH_VERSION stays put).
   const pcm = new Int16Array(waveform.length);
@@ -45,9 +51,12 @@ async function synthesizeToFile(
     pcm[i] = Math.floor(clamped * 32767);
   }
   timer.mark('pcm-convert');
+  traceMark('pcm-convert');
   if (file.exists) file.delete();
   await encodePcmToM4a(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), tts.sampleRate, file.uri);
   timer.mark('aac-encode');
+  traceMark('aac-encode');
+  endClip();
   const audioSec = waveform.length / tts.sampleRate;
   const wallSec = (Date.now() - wallStart) / 1000;
   if (wallSec > 0) recordSynthRtf(settings.modelId, audioSec / wallSec); // sensor for the perf tip

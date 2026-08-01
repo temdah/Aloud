@@ -5,6 +5,7 @@ import { TextToSpeech } from './synthesis/textToSpeech';
 import type { SupertonicConfig, VoiceStyleData } from './synthesis/synthesisTypes';
 import { buildVoiceStyle, VoiceStyle } from './synthesis/voiceStyle';
 import { UnicodeTextProcessor } from './text/unicodeTextProcessor';
+import { traceOpen, traceSpan } from '../utils/trace';
 
 // Loads a model build's config + tokenizer + four ONNX sessions into a TextToSpeech.
 
@@ -43,17 +44,21 @@ export async function loadTextToSpeech(modelId: string): Promise<TextToSpeech> {
   const indexer = (await modelFile(modelId, INDEXER_FILE).json()) as number[];
   const textProcessor = new UnicodeTextProcessor(indexer);
 
-  const create = (name: string) => createSession(ortModelPath(modelId, name));
+  const create = (name: string, label: string) =>
+    traceSpan(`load·${label}`, () => createSession(ortModelPath(modelId, name)));
+  const endLoad = traceOpen('engine-load');
   try {
     const [durationPredictor, textEncoder, vectorEstimator, vocoder] = await Promise.all([
-      create(ONNX_MODEL_FILES.durationPredictor),
-      create(ONNX_MODEL_FILES.textEncoder),
-      create(ONNX_MODEL_FILES.vectorEstimator),
-      create(ONNX_MODEL_FILES.vocoder),
+      create(ONNX_MODEL_FILES.durationPredictor, 'durationPredictor'),
+      create(ONNX_MODEL_FILES.textEncoder, 'textEncoder'),
+      create(ONNX_MODEL_FILES.vectorEstimator, 'vectorEstimator'),
+      create(ONNX_MODEL_FILES.vocoder, 'vocoder'),
     ]);
     return new TextToSpeech(config, textProcessor, { durationPredictor, textEncoder, vectorEstimator, vocoder });
   } catch (e) {
     throw new ModelLoadError(modelId, e);
+  } finally {
+    endLoad();
   }
 }
 
