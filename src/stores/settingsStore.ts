@@ -15,6 +15,9 @@ type SettingsState = {
   steps: number;
   // Playback quality preset — sets the chunk unit length and steps together.
   quality: Quality;
+  // Keep the voice engine loaded for instant starts (uses ~300 MB); off releases
+  // it when idle to save memory on low-RAM devices.
+  keepEngineWarm: boolean;
   // First-run wizard seen (model downloaded before the first play prompt).
   onboarded: boolean;
   // Timestamp the user explicitly accepted the Terms (0 = not yet).
@@ -29,6 +32,7 @@ type SettingsState = {
   setSpeed: (speed: number) => void;
   setSteps: (steps: number) => void;
   setQuality: (quality: Quality) => void;
+  setKeepEngineWarm: (keepEngineWarm: boolean) => void;
   setOnboarded: (onboarded: boolean) => void;
   acceptTerms: () => void;
   suppressPerfTip: () => void;
@@ -44,6 +48,7 @@ export const useSettingsStore = create<SettingsState>()(
       speed: 1.05,
       steps: 5,
       quality: DEFAULT_QUALITY,
+      keepEngineWarm: true,
       onboarded: false,
       termsAcceptedAt: 0,
       perfTipSuppressed: false,
@@ -55,6 +60,7 @@ export const useSettingsStore = create<SettingsState>()(
       setSteps: (steps) => set({ steps }),
       // Picking a preset also sets its steps; Advanced can then override steps alone.
       setQuality: (quality) => set({ quality, steps: qualityProfile(quality).steps }),
+      setKeepEngineWarm: (keepEngineWarm) => set({ keepEngineWarm }),
       setOnboarded: (onboarded) => set({ onboarded }),
       acceptTerms: () => set({ termsAcceptedAt: Date.now() }),
       suppressPerfTip: () => set({ perfTipSuppressed: true }),

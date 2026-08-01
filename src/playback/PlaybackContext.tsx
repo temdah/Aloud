@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { PermissionsAndroid, Platform } from 'react-native';
+import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import { usePlayback, useSleepTimer, type Playback, type SleepTimer } from '../hooks';
-import { DEFAULT_QUALITY, type Quality } from '../supertonic';
+import { DEFAULT_QUALITY, getEngine, isEngineResident, releaseCurrentEngine, type Quality } from '../supertonic';
+import { useSettingsStore } from '../stores';
 import type { Chunk, ImportedDocument } from '../types';
 
 // Everything playback needs to read a document. The Reader registers this on
@@ -64,6 +65,32 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void requestNotificationPermission();
   }, []);
+
+  // Warm the engine ahead of play: as soon as a model is set, and whenever the
+  // app returns to the foreground. getEngine is idempotent, so this is a no-op
+  // when already resident. An idle loaded engine costs RAM, not battery/CPU — so
+  // by default it stays hot; with keepEngineWarm off it's released on background
+  // when nothing is playing, to save memory on low-RAM devices.
+  const modelId = useSettingsStore((s) => s.modelId);
+  const keepEngineWarm = useSettingsStore((s) => s.keepEngineWarm);
+  const keepWarmRef = useRef(keepEngineWarm);
+  keepWarmRef.current = keepEngineWarm;
+  const startedRef = useRef(playback.started);
+  startedRef.current = playback.started;
+
+  useEffect(() => {
+    if (modelId && !isEngineResident(modelId)) void getEngine(modelId).catch(() => {});
+  }, [modelId]);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        if (modelId && !isEngineResident(modelId)) void getEngine(modelId).catch(() => {});
+      } else if (state === 'background' && !keepWarmRef.current && !startedRef.current) {
+        void releaseCurrentEngine().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [modelId]);
 
   // Stable pause ref — the sleep timer captures its callback once.
   const pauseRef = useRef(playback.pause);

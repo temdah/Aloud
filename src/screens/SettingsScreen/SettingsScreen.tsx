@@ -1,6 +1,6 @@
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { ActionDialog, AppBar, Icon, LanguagePicker, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
 import { documentCacheStats, findModel, languageLabel, QUALITY_LABELS, type Quality } from '../../supertonic';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
@@ -24,6 +24,8 @@ export default function SettingsScreen() {
   const setSteps = useSettingsStore((s) => s.setSteps);
   const quality = useSettingsStore((s) => s.quality);
   const setQuality = useSettingsStore((s) => s.setQuality);
+  const keepEngineWarm = useSettingsStore((s) => s.keepEngineWarm);
+  const setKeepEngineWarm = useSettingsStore((s) => s.setKeepEngineWarm);
 
   const documents = useDocumentsStore((s) => s.documents);
 
@@ -157,12 +159,26 @@ export default function SettingsScreen() {
               onPress={() => navigation.navigate('VoiceModel')}
             />
             <ListItem
-              divider={false}
               leading={<View style={styles.leadingMuted}><Icon name="trash" size={16} color={p.textMuted} /></View>}
               title="Cached audio"
               subtitle={cacheLabel}
               trailing={<Icon name="chevR" size={18} color={p.textDim} />}
               onPress={() => navigation.navigate('Storage')}
+            />
+            <ListItem
+              divider={false}
+              leading={<View style={styles.leadingMuted}><Icon name="voice" size={16} color={p.textMuted} /></View>}
+              title="Keep voice engine ready"
+              subtitle="Instant playback. Turn off to free memory on low-RAM devices."
+              trailing={
+                <Switch
+                  value={keepEngineWarm}
+                  onValueChange={setKeepEngineWarm}
+                  trackColor={{ true: p.primary, false: p.border }}
+                  thumbColor={p.surface}
+                />
+              }
+              onPress={() => setKeepEngineWarm(!keepEngineWarm)}
             />
           </View>
         </SettingsSection>
