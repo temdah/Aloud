@@ -3,34 +3,10 @@ import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioP
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, Quality, TextToSpeech, VoiceStyle } from '../supertonic';
-import { ABBREVIATION } from '../supertonic/text/sentenceRules';
+import { buildFastStart, buildLead, prefetchDepth, type Lead } from '../playback/playbackPlanning';
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
-import { stableHash } from '../utils';
-
-// Baseline number of upcoming chunks to pre-synthesize so playback doesn't stall
-// at a boundary while the next chunk is still being generated. Adjusted live by
-// prefetchDepth from the measured realtime factor.
-const PREFETCH_AHEAD = 4;
-
-// How many chunks to synthesize ahead, from the measured realtime factor (audio
-// seconds per wall second): build a deep buffer when comfortably ahead of
-// realtime, focus on just the next clip or two when behind.
-function prefetchDepth(rtf: number | null): number {
-  if (rtf == null) return PREFETCH_AHEAD; // no measurement yet
-  if (rtf >= 1.5) return 6;
-  if (rtf >= 1.0) return PREFETCH_AHEAD;
-  return 2;
-}
-// Minimum length (chars) of a mid-chunk "lead" so the first clip isn't a tiny
-// stutter; a shorter remainder merges forward into the next chunk(s).
-const MIN_LEAD = 140;
-// "Fast lead": on a fresh, not-yet-cached start, synthesize only the first
-// sentence so audio begins in ~1 s; the rest plays after as a "remainder". Only
-// worth it when both the lead and the remainder it leaves are large enough.
-const MIN_FAST_LEAD = 60;
-const MIN_FAST_REMAINDER = 40;
 // Extra OS-notification transport buttons (the Android Media3 notification can't
 // be themed to match the app).
 const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed: true } as const;
@@ -62,72 +38,6 @@ function resolveArtworkUrl(): Promise<string | undefined> {
 const STALL_MS = 2000; // a boundary gap longer than this = an audible stall
 const STALL_TRIGGER = 2; // stalls in a session before offering the tip
 const RTF_THRESHOLD = 1.1; // synthesis realtime factor below which we blame the device
-
-type Lead = { chunk: Chunk; anchorIdx: number; resumeIdx: number };
-
-// The chunk to actually synthesize + play when starting at `charOffset`:
-// - tapping at/before a canonical boundary → that whole chunk (best cache reuse);
-// - tapping mid-chunk → a one-off chunk from the tap point to the chunk end,
-//   merged forward until it's at least MIN_LEAD chars so it plays smoothly.
-// `resumeIdx` is the canonical chunk to continue with after this one.
-function buildLead(text: string, chunks: Chunk[], charOffset: number): Lead | null {
-  if (chunks.length === 0) return null;
-  const i = findChunkIndexForOffset(chunks, charOffset);
-  if (i < 0) return null;
-  if (charOffset <= chunks[i].charStart) {
-    return { chunk: chunks[i], anchorIdx: i, resumeIdx: i + 1 };
-  }
-  let j = i;
-  while (chunks[j].charEnd - charOffset < MIN_LEAD && j + 1 < chunks.length) j++;
-  const charEnd = chunks[j].charEnd;
-  const leadText = text.slice(charOffset, charEnd);
-  const chunk: Chunk = { idx: i, charStart: charOffset, charEnd, text: leadText, pages: [], textHash: stableHash(leadText) };
-  return { chunk, anchorIdx: i, resumeIdx: j + 1 };
-}
-
-// End (exclusive) of the first sentence within [start, end), or `end` if no
-// sentence break is found at least MIN_FAST_LEAD in. Mirrors the chunker's
-// boundary rule (shared sentenceRules): ASCII `.?!` followed by whitespace
-// (skipping abbreviations), or a CJK fullwidth terminator unconditionally.
-function firstSentenceEnd(text: string, start: number, end: number): number {
-  const re = /[.!?。！？]+/g;
-  re.lastIndex = start;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) && m.index < end) {
-    const stop = m.index + m[0].length;
-    if (stop - start < MIN_FAST_LEAD) continue; // too short — keep extending
-    if (!/[。！？]/.test(m[0])) {
-      if (stop < text.length && !/\s/.test(text[stop])) continue; // mid-token dot
-      if (ABBREVIATION.test(text.slice(Math.max(start, m.index - 6), m.index + 1))) continue;
-    }
-    return Math.min(stop, end);
-  }
-  return end;
-}
-
-type FastStart = { lead: Lead; remainder: Lead | null };
-
-// Splits the start of a fresh playback into a short first-sentence "lead" (fast
-// to synthesize) plus the "remainder" of the enclosing chunk. Returns null when
-// splitting wouldn't help (offset resolves nowhere, or the remainder is tiny).
-function buildFastStart(text: string, chunks: Chunk[], charOffset: number): FastStart | null {
-  if (chunks.length === 0) return null;
-  const i = findChunkIndexForOffset(chunks, charOffset);
-  if (i < 0) return null;
-  const startAt = Math.max(charOffset, chunks[i].charStart);
-  const chunkEnd = chunks[i].charEnd;
-  if (chunkEnd - startAt < MIN_FAST_LEAD + MIN_FAST_REMAINDER) return null; // not worth splitting
-  const split = firstSentenceEnd(text, startAt, chunkEnd);
-  if (split >= chunkEnd || chunkEnd - split < MIN_FAST_REMAINDER) return null; // single sentence — no win
-  const mk = (from: number, to: number): Chunk => {
-    const t = text.slice(from, to);
-    return { idx: i, charStart: from, charEnd: to, text: t, pages: [], textHash: stableHash(t) };
-  };
-  return {
-    lead: { chunk: mk(startAt, split), anchorIdx: i, resumeIdx: i + 1 },
-    remainder: { chunk: mk(split, chunkEnd), anchorIdx: i, resumeIdx: i + 1 },
-  };
-}
 
 export type UsePlaybackOptions = {
   docHash: string; // audio-cache namespace for this document
@@ -397,13 +307,14 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // Warm the clip the user will hear first — the lead for the resume/selected
   // position (or chunk 0) — while the engine is idle and they're still reading,
   // so pressing play is instant. Dedup means play attaches to this same synth.
-  const warmedRef = useRef<number | null>(null);
+  const warmedRef = useRef<string | null>(null);
   const warmStart = useCallback(
     async (charOffset: number) => {
+      const token = playTokenRef.current;
       const i = findChunkIndexForOffset(chunks, charOffset);
       if (i < 0 || isChunkCached(docHash, chunks[i].charStart, settings)) return;
       const engine = await ensureEngine();
-      if (!engine) return;
+      if (!engine || token !== playTokenRef.current) return;
       const fs = buildFastStart(text, chunks, charOffset);
       try {
         if (fs) await withEngine(modelId!, (t) => ensureLeadAudio(t, engine.voice, docHash, fs.lead.chunk, settings));
@@ -415,10 +326,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   useEffect(() => {
     if (!ready || started || fullyRendered || chunks.length === 0 || !modelId) return;
     const startAt = currentRef.current?.charStart ?? chunks[0].charStart;
-    if (warmedRef.current === startAt) return;
-    warmedRef.current = startAt;
+    const warmKey = `${docHash}|${settingsHash(settings)}|${startAt}`;
+    if (warmedRef.current === warmKey) return;
+    warmedRef.current = warmKey;
     void warmStart(startAt);
-  }, [ready, current, started, fullyRendered, chunks, modelId, warmStart]);
+  }, [ready, current, started, fullyRendered, chunks, modelId, docHash, settings, warmStart]);
 
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
@@ -614,13 +526,19 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
         // Generate-ahead so boundaries don't stall: a queued remainder first (it
         // plays next), then upcoming canonical chunks. Cached items are skipped.
         void (async () => {
+          let enginePromise: ReturnType<typeof ensureEngine> | null = null;
+          const backgroundEngine = () => {
+            enginePromise ??= ensureEngine();
+            return enginePromise;
+          };
           if (next && !isChunkCached(docHash, next.chunk.charStart, settings)) {
             if (token !== playTokenRef.current) return;
-            const engine = await ensureEngine();
-            if (!engine) return;
+            const engine = await backgroundEngine();
+            if (!engine || token !== playTokenRef.current) return;
             try {
               await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, next.chunk, settings));
             } catch {}
+            if (token !== playTokenRef.current) return;
           }
           // Depth adapts to how well synthesis is keeping up: deep buffer when
           // ahead of realtime, just the next clip or two when falling behind.
@@ -630,8 +548,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
             const ahead = chunks[resumeIdx + k];
             if (!ahead) return;
             if (isChunkCached(docHash, ahead.charStart, settings)) continue;
-            const engine = await ensureEngine();
-            if (!engine) return;
+            const engine = await backgroundEngine();
+            if (!engine || token !== playTokenRef.current) return;
             try {
               await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, ahead, settings));
             } catch {}
@@ -642,8 +560,8 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
             const enclosing = chunks[anchorIdx];
             if (enclosing && !isChunkCached(docHash, enclosing.charStart, settings)) {
               if (token !== playTokenRef.current) return;
-              const engine = await ensureEngine();
-              if (engine) {
+              const engine = await backgroundEngine();
+              if (engine && token === playTokenRef.current) {
                 try {
                   await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, enclosing, settings));
                 } catch {}
