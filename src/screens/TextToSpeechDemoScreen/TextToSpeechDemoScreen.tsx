@@ -1,4 +1,5 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
+import * as Clipboard from 'expo-clipboard';
 import { File, Paths } from 'expo-file-system';
 import { useMemo, useRef, useState } from 'react';
 import { Button, ScrollView, Text, View } from 'react-native';
@@ -9,13 +10,14 @@ import {
   getEngine,
   getVoice,
   isEngineResident,
+  releaseCurrentEngine,
   TextToSpeech,
   VoiceStyle,
   type SynthesisStage,
 } from '../../supertonic';
 import { useSettingsStore } from '../../stores';
 import { useTheme } from '../../theme';
-import { SAMPLE_TEXT } from '../../utils';
+import { SAMPLE_TEXT, traceMark, traceStart, traceStop, type Span } from '../../utils';
 import { makeStyles } from './TextToSpeechDemoScreen.styles';
 
 
@@ -112,6 +114,7 @@ export default function TextToSpeechDemoScreen() {
         const now = Date.now();
         stages[stage] = now - last;
         last = now;
+        traceMark(stage);
       },
     );
     const synthMs = Date.now() - synthStart;
@@ -214,8 +217,10 @@ export default function TextToSpeechDemoScreen() {
     setBusy(true);
     try {
       await ensureLoaded();
-      append(`Smoke test: synthesizing one sentence (steps=${steps})...`);
+      append(`Smoke test: synthesizing the sample (steps=${steps})...`);
+      traceStart();
       const r = await benchChunk(SAMPLE_TEXT);
+      append(formatTrace(traceStop()));
       append(`  synth ${ms(r.synthMs)}, audio ${r.audioSec.toFixed(2)} s, RTF ${(r.synthMs / 1000 / Math.max(0.001, r.audioSec)).toFixed(3)}.`);
       await play(r.uri);
       append('  (playing)');
@@ -223,6 +228,40 @@ export default function TextToSpeechDemoScreen() {
       append('SMOKE TEST ERROR: ' + describe(error));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Release the resident sessions and reload them, tracing each session's load
+  // time — the genuine cold-start cost broken down per ONNX model.
+  const coldLoad = async () => {
+    setBusy(true);
+    try {
+      if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
+      append('\n── Cold load (release + reload) ──');
+      await releaseCurrentEngine();
+      ttsRef.current = null;
+      voiceRef.current = null;
+      traceStart();
+      const start = Date.now();
+      ttsRef.current = await getEngine(modelId);
+      voiceRef.current = await getVoice(modelId, voiceId || DEFAULT_VOICE);
+      const total = Date.now() - start;
+      append(formatTrace(traceStop()));
+      append('  ' + '─'.repeat(28));
+      append(row('total cold load', ms(total)));
+    } catch (error) {
+      append('COLD LOAD ERROR: ' + describe(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyResults = async () => {
+    try {
+      await Clipboard.setStringAsync(log);
+      append('\n(results copied to clipboard)');
+    } catch {
+      append('\n(copy failed)');
     }
   };
 
@@ -240,10 +279,14 @@ export default function TextToSpeechDemoScreen() {
       <View style={styles.row}>
         <Button title="Run benchmark" onPress={runBenchmark} disabled={busy} />
         <Button title="Smoke test" onPress={smokeTest} disabled={busy} />
+        <Button title="Cold load" onPress={coldLoad} disabled={busy} />
+      </View>
+      <View style={styles.row}>
+        <Button title="Copy results" onPress={() => void copyResults()} />
         <Button title="Clear" onPress={() => setLog('')} disabled={busy} />
       </View>
       <ScrollView style={styles.logBox}>
-        <Text style={styles.logText}>{log}</Text>
+        <Text selectable style={styles.logText}>{log}</Text>
       </ScrollView>
     </View>
   );
@@ -253,3 +296,17 @@ const seconds = (msVal: number) => (msVal / 1000).toFixed(2);
 const ms = (msVal: number) => `${Math.round(msVal)} ms`;
 const row = (label: string, value: string) => `  ${label.padEnd(20)} ${value}`;
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+// A time-ordered waterfall of tracer spans: start offset, duration (or "mark").
+function formatTrace(spans: Span[]): string {
+  if (spans.length === 0) return '  (no trace captured)';
+  return spans
+    .slice()
+    .sort((a, b) => a.startMs - b.startMs)
+    .map((s) => {
+      const dur = s.endMs - s.startMs;
+      const at = `${Math.round(s.startMs)}`.padStart(6);
+      return `  @${at}ms  ${dur > 0 ? `+${Math.round(dur)}ms`.padEnd(8) : 'mark    '}${s.label}`;
+    })
+    .join('\n');
+}
