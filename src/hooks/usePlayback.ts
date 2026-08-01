@@ -399,6 +399,11 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
       setDurTable(cached);
       return;
     }
+    // Predicting the whole document uses the engine, and on a large doc that's a
+    // lot of work — so don't even start until the first audio is playing. This
+    // keeps the timeline (a scrubber nicety) from competing with the clip the
+    // user is waiting to hear, which otherwise made deep-tap starts O(n)-slow.
+    if (!started) return;
     void (async () => {
       // Let playback claim the engine first — the timeline is never on the
       // critical path, so a brief head start avoids the worst first-play contention.
@@ -424,7 +429,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
     return () => {
       cancelled = true;
     };
-  }, [docHash, chunks, modelId, settings, ensureEngine]);
+  }, [docHash, chunks, modelId, settings, ensureEngine, started]);
 
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);

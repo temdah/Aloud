@@ -10,8 +10,8 @@ export const DEFAULT_QUALITY: Quality = 'balanced';
 export type QualityProfile = { unitLen: number; steps: number };
 
 const PROFILES: Record<Quality, QualityProfile> = {
-  fast: { unitLen: 120, steps: 4 }, // small self-contained units → fast start, stays ahead on slow phones
-  balanced: { unitLen: 300, steps: 5 }, // == today
+  fast: { unitLen: 120, steps: 5 }, // small self-contained units → stays ahead on slow phones (4 steps sounds bad)
+  balanced: { unitLen: 300, steps: 6 },
   quality: { unitLen: 400, steps: 8 }, // larger units + more steps → smoothest, needs a capable phone
 };
 

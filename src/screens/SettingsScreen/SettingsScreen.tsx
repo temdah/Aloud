@@ -1,5 +1,5 @@
-import { useNavigation } from '@react-navigation/native';
-import { useMemo, useState } from 'react';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { ActionDialog, AppBar, Icon, LanguagePicker, ListItem, Sheet, Slider, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
 import { documentCacheStats, findModel, languageLabel, QUALITY_LABELS, type Quality } from '../../supertonic';
@@ -34,6 +34,11 @@ export default function SettingsScreen() {
 
   const activeModel = findModel(modelId);
 
+  // Re-scan the on-disk cache each time the screen regains focus, so deleting
+  // audio in the Storage screen is reflected here on return.
+  const [cacheVersion, setCacheVersion] = useState(0);
+  useFocusEffect(useCallback(() => setCacheVersion((v) => v + 1), []));
+
   // Total cached audio across every document, for the "Cached audio" subtitle.
   const cacheTotal = useMemo(() => {
     let count = 0;
@@ -44,7 +49,8 @@ export default function SettingsScreen() {
       bytes += s.bytes;
     }
     return { count, bytes };
-  }, [documents]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documents, cacheVersion]);
   const cacheLabel =
     cacheTotal.bytes <= 0
       ? 'No cached audio'
@@ -131,7 +137,7 @@ export default function SettingsScreen() {
                 Fewer steps generate each clip faster; more sound smoother but start later. The presets above set this for you.
               </Text>
               <View style={styles.qualitySliderWrap}>
-                <Slider value={steps} min={4} max={16} step={1} onChange={(v) => setSteps(Math.round(v))} ticks={[4, 5, 8, 12, 16]} />
+                <Slider value={steps} min={4} max={10} step={1} onChange={(v) => setSteps(Math.round(v))} ticks={[4, 5, 6, 8, 10]} />
               </View>
               <View style={styles.labelRow}>
                 <Text style={ty(TYPE.mono, p.textDim)}>Faster</Text>
