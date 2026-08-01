@@ -8,6 +8,8 @@ import type { NarrationSettings } from './narrationTypes';
 
 const ROOT = 'tts';
 export const MIN_CACHED_BYTES = 256; // smaller than this = a failed/empty write
+const directoryCache = new Map<string, Directory>();
+const profileRegistryCache = new Map<string, Record<string, ProfileMeta>>();
 
 // settingsHash is one-way, so this registry maps it back to a readable profile
 // for the "manage cached audio" UI.
@@ -22,8 +24,11 @@ export function settingsHash(s: NarrationSettings): string {
 }
 
 export function documentCacheDir(docHash: string): Directory {
+  const cached = directoryCache.get(docHash);
+  if (cached) return cached;
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (!dir.exists) dir.create({ intermediates: true });
+  directoryCache.set(docHash, dir);
   return dir;
 }
 
@@ -136,8 +141,10 @@ export function isLeadCached(docHash: string, charStart: number, len: number, s:
 }
 
 export function clearDocumentCache(docHash: string): void {
-  const dir = new Directory(Paths.document, ROOT, docHash);
+  const dir = directoryCache.get(docHash) ?? new Directory(Paths.document, ROOT, docHash);
   if (dir.exists) dir.delete();
+  directoryCache.delete(docHash);
+  profileRegistryCache.delete(docHash);
 }
 
 // Clear the loose per-chunk cache (chunk + lead clips, timing sidecars, duration
@@ -166,12 +173,22 @@ function profilesRegistryFile(docHash: string): File {
 }
 
 function readProfilesRegistry(docHash: string): Record<string, ProfileMeta> {
+  const cached = profileRegistryCache.get(docHash);
+  if (cached) return cached;
   const file = new File(new Directory(Paths.document, ROOT, docHash), PROFILES_FILE);
-  if (!file.exists) return {};
+  if (!file.exists) {
+    const empty = {};
+    profileRegistryCache.set(docHash, empty);
+    return empty;
+  }
   try {
-    return JSON.parse(file.textSync()) as Record<string, ProfileMeta>;
+    const registry = JSON.parse(file.textSync()) as Record<string, ProfileMeta>;
+    profileRegistryCache.set(docHash, registry);
+    return registry;
   } catch {
-    return {};
+    const empty = {};
+    profileRegistryCache.set(docHash, empty);
+    return empty;
   }
 }
 
@@ -180,6 +197,7 @@ function writeProfilesRegistry(docHash: string, reg: Record<string, ProfileMeta>
   if (file.exists) file.delete();
   file.create();
   file.write(JSON.stringify(reg));
+  profileRegistryCache.set(docHash, reg);
 }
 
 export function recordCachedProfile(docHash: string, s: NarrationSettings): void {
