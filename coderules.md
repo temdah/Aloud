@@ -95,12 +95,15 @@ PDFReader/
   F1–F5 / M1–M5) is fine; invented names/descriptions/progress are not.
 
 ## 9. Architecture & native dependencies
-- The app runs on React Native's **old architecture** (`newArchEnabled=false`),
-  required by `onnxruntime-react-native` (the TTS engine). **Do not enable the
-  New Architecture.**
-- Therefore New-Architecture-only libraries (`react-native-reanimated` 4,
-  `@gorhom/bottom-sheet`) are **not allowed**. Use built-in `Animated`,
-  `Modal`, and `PanResponder`.
+- The current native baseline uses React Native's **New Architecture**
+  (`newArchEnabled=true` in `app.json`) with `onnxruntime-react-native` 1.24.
+  Do not flip the architecture flag casually: verify model loading, synthesis,
+  background playback, and the local AAC Expo module on a real Android device.
+- **Ask before adding or replacing any native dependency.** Native changes force
+  a prebuild and device rebuild, and may affect ONNX memory use or background
+  playback. Prefer built-in React Native APIs when they meet the requirement.
+- `modules/aac-codec` is an intentional Android native module. It encodes PCM to
+  AAC/M4A and losslessly concatenates completed clips into a full audiobook.
 
 ## 10. Commits & repo hygiene
 - Commit messages use a **Conventional-Commits type with NO scope**:
