@@ -3,7 +3,7 @@ import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioP
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, Quality, TextToSpeech, VoiceStyle } from '../supertonic';
-import { buildFastStart, buildLead, prefetchDepth, type Lead } from '../playback/playbackPlanning';
+import { buildFastStart, buildLead, prefetchDepth, type Lead } from '../playback';
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';

@@ -1,4 +1,4 @@
-import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
+import { findChunkIndexForOffset } from '../supertonic';
 import { ABBREVIATION } from '../supertonic/text/sentenceRules';
 import type { Chunk } from '../types';
 import { stableHash } from '../utils';
