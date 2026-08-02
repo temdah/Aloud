@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec, withEngine } from '../supertonic';
+import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, deleteAudiobookCache, deleteChunkCache, deleteLeadCache, deleteSentenceCache, ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, TextToSpeech, VoiceStyle } from '../supertonic';
 import {
   buildFastStart,
@@ -27,6 +27,8 @@ import { resolvePlaybackArtworkUrl } from '../playback/playbackArtwork';
 import { buildNeutralStarts, neutralTimeForOffset } from '../playback';
 import type { Playback, UsePlaybackOptions } from '../playback';
 import { sentenceTargetAtIndex, sentenceTargetForStart } from '../playback/sentencePlayback';
+import { PlaybackRequestGate } from '../playback/playbackRequestGate';
+import { PlaybackRecoveryGate } from '../playback/playbackRecoveryGate';
 
 export type { Playback, UsePlaybackOptions } from '../playback/playbackTypes';
 // Extra OS-notification transport buttons (the Android Media3 notification can't
@@ -35,6 +37,11 @@ const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed:
 // loadedKeyRef sentinel for "the concatenated audiobook file is loaded" (vs a
 // per-chunk charStart >= 0; -1 means nothing loaded).
 const AUDIOBOOK_KEY = -2;
+
+type RecoverableClip =
+  | { kind: 'sentence'; key: string; sentenceIndex: number }
+  | { kind: 'canonical'; key: string; chunk: Chunk; anchorIdx: number; resumeIdx: number; lead: boolean; next: Lead | null }
+  | { kind: 'audiobook'; key: string };
 
 // Perf-tip detection thresholds.
 const STALL_MS = 2000; // a boundary gap longer than this = an audible stall
@@ -64,6 +71,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   // download checks) → drives the reader's re-download prompt.
   const [modelLoadFailed, setModelLoadFailed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [recoverySignal, setRecoverySignal] = useState(0);
   const [engaged, setEngaged] = useState(false);
   const [started, setStarted] = useState(false);
   const [current, setCurrent] = useState<Chunk | null>(null);
@@ -78,9 +87,11 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   const stallStartRef = useRef<number | null>(null);
   const stallCountRef = useRef(0);
   const [perfWarning, setPerfWarning] = useState(false);
-  // Bumped by every new play/select/pause so a slow in-flight synthesis can tell
-  // it was superseded and must not grab the player.
-  const playTokenRef = useRef(0);
+  // Explicit request ownership prevents stale synthesis and prefetch work from
+  // taking control of the player after pause, seek, or a newer play request.
+  const requestGateRef = useRef<PlaybackRequestGate | null>(null);
+  requestGateRef.current ??= new PlaybackRequestGate();
+  const requestGate = requestGateRef.current;
   // Latest production playback request being measured. The metrics buffer is
   // module-scoped so the developer lab can inspect it after leaving the reader.
   const playbackTraceRef = useRef<number | null>(null);
@@ -98,6 +109,12 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   const pendingSeekRef = useRef<number | null>(null);
   const loadedKeyRef = useRef(-1); // charStart of the audio currently in the player
   const loadedSequenceRef = useRef<'none' | 'canonical' | 'sentence' | 'audiobook'>('none');
+  const loadedClipRef = useRef<RecoverableClip | null>(null);
+  const recoveryGateRef = useRef<PlaybackRecoveryGate | null>(null);
+  recoveryGateRef.current ??= new PlaybackRecoveryGate();
+  const recoveryGate = recoveryGateRef.current;
+  const handledPlayerErrorRef = useRef<string | null>(null);
+  const handledRecoverySignalRef = useRef(0);
   // Whether this player currently owns the OS lock-screen / media notification.
   const lockScreenActiveRef = useRef(false);
   // Latest "now playing" metadata in a ref, so the play callback needn't rebuild
@@ -157,13 +174,15 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     () => !!modelId && audiobook?.status === 'done' && audiobook.profileHash === settingsHash(settings),
     [modelId, audiobook?.status, audiobook?.profileHash, settings],
   );
+  const [audiobookFailed, setAudiobookFailed] = useState(false);
+  useEffect(() => setAudiobookFailed(false), [docHash, settings]);
 
   // When a full render is stitched into one file, play it as ONE media item so
   // the OS notification gets a real whole-book timeline + scrubber. Null if the
   // file isn't there (concat failed / still per-chunk) → normal per-chunk path.
   const audiobookUri = useMemo(
-    () => (fullyRendered && isAudiobookCached(docHash, settings) ? audiobookAudioUri(docHash, settings) : null),
-    [fullyRendered, docHash, settings],
+    () => (!audiobookFailed && fullyRendered && isAudiobookCached(docHash, settings) ? audiobookAudioUri(docHash, settings) : null),
+    [audiobookFailed, fullyRendered, docHash, settings],
   );
   const singleItem = audiobookUri != null;
   const audiobookLoadedRef = useRef(false);
@@ -204,7 +223,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     if (playbackTraceRef.current != null) cancelPlaybackTrace(playbackTraceRef.current);
     playbackTraceRef.current = null;
     boundaryGapRef.current = null;
-    playTokenRef.current++;
+    requestGate.cancel();
     activeRef.current = false;
     finishedHandledRef.current = false;
     player.pause();
@@ -214,6 +233,11 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     currentRef.current = null;
     loadedKeyRef.current = -1;
     loadedSequenceRef.current = 'none';
+    loadedClipRef.current = null;
+    recoveryGate.clear();
+    handledPlayerErrorRef.current = null;
+    handledRecoverySignalRef.current = recoverySignal;
+    setPlaybackError(null);
     anchorIndexRef.current = 0;
     resumeIndexRef.current = 0;
     activeSequenceRef.current = 'canonical';
@@ -225,7 +249,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       playerRef.current?.clearLockScreenControls?.();
     } catch {}
     lockScreenActiveRef.current = false;
-  }, [docHash, player]);
+  }, [docHash, player, recoveryGate, requestGate, recoverySignal]);
 
   // Warm the shared engine when a model is picked. Keyed on modelId only — a voice
   // change reuses the resident engine (the manager caches voices per model).
@@ -276,15 +300,17 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   const warmedRef = useRef<string | null>(null);
   const warmStart = useCallback(
     async (charOffset: number) => {
-      const token = playTokenRef.current;
+      const token = requestGate.current();
       const sentence = sentenceTargetForStart(plan, charOffset);
       if (sentence) {
         if (isSentenceCached(docHash, sentence.anchor, settings)) return;
         const engine = await ensureEngine();
-        if (!engine || token !== playTokenRef.current) return;
+        if (!engine || !requestGate.isCurrent(token)) return;
         try {
-          await withEngine(modelId!, (tts) =>
-            ensureSentenceAudio(tts, engine.voice, docHash, text, sentence.anchor, settings),
+          await withEngine(
+            modelId!,
+            (tts) => ensureSentenceAudio(tts, engine.voice, docHash, text, sentence.anchor, settings),
+            'background',
           );
         } catch {}
         return;
@@ -292,14 +318,14 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       const i = findChunkIndexForOffset(chunks, charOffset);
       if (i < 0 || isChunkCached(docHash, chunks[i].charStart, settings)) return;
       const engine = await ensureEngine();
-      if (!engine || token !== playTokenRef.current) return;
+      if (!engine || !requestGate.isCurrent(token)) return;
       const fs = buildFastStart(text, chunks, charOffset);
       try {
-        if (fs) await withEngine(modelId!, (t) => ensureLeadAudio(t, engine.voice, docHash, fs.lead.chunk, settings));
-        else await withEngine(modelId!, (t) => ensureChunkAudio(t, engine.voice, docHash, chunks[i], settings));
+        if (fs) await withEngine(modelId!, (t) => ensureLeadAudio(t, engine.voice, docHash, fs.lead.chunk, settings), 'background');
+        else await withEngine(modelId!, (t) => ensureChunkAudio(t, engine.voice, docHash, chunks[i], settings), 'background');
       } catch {}
     },
-    [plan, chunks, text, docHash, settings, modelId, ensureEngine],
+    [plan, chunks, text, docHash, settings, modelId, ensureEngine, requestGate],
   );
   useEffect(() => {
     if (!ready || started || fullyRendered || chunks.length === 0 || !modelId) return;
@@ -420,7 +446,9 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
 
   const ensureAudiobookLoaded = useCallback(() => {
     if (!audiobookUri) return;
+    setPlaybackError(null);
     if (!audiobookLoadedRef.current || loadedKeyRef.current !== AUDIOBOOK_KEY) {
+      loadedClipRef.current = { kind: 'audiobook', key: `audiobook:${docHash}:${settingsHash(settings)}` };
       player.replace(audiobookUri);
       try {
         player.setPlaybackRate(speed, 'high');
@@ -430,7 +458,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       loadedKeyRef.current = AUDIOBOOK_KEY;
       loadedSequenceRef.current = 'audiobook';
     }
-  }, [audiobookUri, player, speed]);
+  }, [audiobookUri, docHash, player, settings, speed]);
 
   // Seek the single audiobook file to a neutral-rate absolute time. If it isn't
   // loaded/measured yet, defer via pendingSeekRef (applied by the effect above).
@@ -480,7 +508,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         fastLeadChars: lead ? chunk.text.length : null,
       });
       playbackTraceRef.current = traceId;
-      const token = ++playTokenRef.current;
+      const token = requestGate.begin();
+      setPlaybackError(null);
       activeRef.current = true;
       currentRef.current = chunk;
       activeSequenceRef.current = 'canonical';
@@ -489,6 +518,15 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       resumeIndexRef.current = resumeIdx;
       // Queue the remainder (if any) to play when this clip finishes.
       pendingLeadRef.current = next;
+      loadedClipRef.current = {
+        kind: 'canonical',
+        key: `${lead ? 'lead' : 'chunk'}:${docHash}:${chunk.charStart}:${chunk.text.length}:${settingsHash(settings)}`,
+        chunk,
+        anchorIdx,
+        resumeIdx,
+        lead,
+        next,
+      };
       setCurrent(chunk);
       setEngaged(true);
       setStarted(true); // audio is now actually engaged → MiniPlayer may show
@@ -517,10 +555,10 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           if (!engine) {
             failPlaybackTrace(traceId);
             if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
-            if (token === playTokenRef.current) setLoading(false);
+            if (requestGate.isCurrent(token)) setLoading(false);
             return;
           }
-          if (token !== playTokenRef.current) {
+          if (!requestGate.isCurrent(token)) {
             cancelPlaybackTrace(traceId);
             return; // superseded while loading
           }
@@ -529,7 +567,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
             : await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, chunk, settings, (metrics) => { synthesisMetrics = metrics; }));
           markPlaybackPrepared(traceId, preparationStartedAt, synthesisMetrics);
         }
-        if (token !== playTokenRef.current) {
+        if (!requestGate.isCurrent(token)) {
           cancelPlaybackTrace(traceId);
           return; // superseded
         }
@@ -553,13 +591,13 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
             return enginePromise;
           };
           if (next && !isChunkCached(docHash, next.chunk.charStart, settings)) {
-            if (token !== playTokenRef.current) return;
+            if (!requestGate.isCurrent(token)) return;
             const engine = await backgroundEngine();
-            if (!engine || token !== playTokenRef.current) return;
+            if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, next.chunk, settings));
+              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, next.chunk, settings), 'background');
             } catch {}
-            if (token !== playTokenRef.current) return;
+            if (!requestGate.isCurrent(token)) return;
           }
           // Depth adapts to how well synthesis is keeping up: deep buffer when
           // ahead of realtime, just the next clip or two when falling behind.
@@ -567,14 +605,14 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           const depth = prefetchDepth(synthThroughput);
           recordPrefetchDepth(depth, synthThroughput);
           for (let k = 0; k < depth; k++) {
-            if (token !== playTokenRef.current) return;
+            if (!requestGate.isCurrent(token)) return;
             const ahead = chunks[resumeIdx + k];
             if (!ahead) return;
             if (isChunkCached(docHash, ahead.charStart, settings)) continue;
             const engine = await backgroundEngine();
-            if (!engine || token !== playTokenRef.current) return;
+            if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, ahead, settings));
+              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, ahead, settings), 'background');
             } catch {}
           }
           // Cache it now, lowest priority, so re-tapping this chunk later plays
@@ -582,11 +620,11 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           if (lead) {
             const enclosing = chunks[anchorIdx];
             if (enclosing && !isChunkCached(docHash, enclosing.charStart, settings)) {
-              if (token !== playTokenRef.current) return;
+              if (!requestGate.isCurrent(token)) return;
               const engine = await backgroundEngine();
-              if (engine && token === playTokenRef.current) {
+              if (engine && requestGate.isCurrent(token)) {
                 try {
-                  await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, enclosing, settings));
+                  await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, enclosing, settings), 'background');
                 } catch {}
               }
             }
@@ -595,11 +633,15 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       } catch (e) {
         failPlaybackTrace(traceId);
         if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
-        if (token === playTokenRef.current) setLoading(false);
+        if (requestGate.isCurrent(token)) {
+          setLoading(false);
+          setPlaybackError('This section could not be prepared for playback.');
+          setRecoverySignal((value) => value + 1);
+        }
         console.warn('[usePlayback] failed to play chunk at', chunk.charStart, e);
       }
     },
-    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen, modelId, cancelPendingPlaybackTrace],
+    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen, modelId, cancelPendingPlaybackTrace, requestGate],
   );
 
   const playSentence = useCallback(
@@ -609,7 +651,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       cancelPendingPlaybackTrace();
       const traceId = startPlaybackTrace({ kind: 'sentence', chars: target.chunk.text.length });
       playbackTraceRef.current = traceId;
-      const token = ++playTokenRef.current;
+      const token = requestGate.begin();
+      setPlaybackError(null);
       activeRef.current = true;
       activeSequenceRef.current = 'sentence';
       sentenceIndexRef.current = sentenceIndex;
@@ -617,6 +660,11 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       anchorIndexRef.current = target.canonicalIndex;
       resumeIndexRef.current = target.nextCanonicalIndex;
       pendingLeadRef.current = null;
+      loadedClipRef.current = {
+        kind: 'sentence',
+        key: `sentence:${docHash}:${target.anchor.id}:${sentenceSettingsHash(settings)}`,
+        sentenceIndex,
+      };
       setCurrent(target.chunk);
       setEngaged(true);
       setStarted(true);
@@ -637,10 +685,10 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           if (!engine) {
             failPlaybackTrace(traceId);
             if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
-            if (token === playTokenRef.current) setLoading(false);
+            if (requestGate.isCurrent(token)) setLoading(false);
             return;
           }
-          if (token !== playTokenRef.current) {
+          if (!requestGate.isCurrent(token)) {
             cancelPlaybackTrace(traceId);
             return;
           }
@@ -651,7 +699,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           );
           markPlaybackPrepared(traceId, preparationStartedAt, synthesisMetrics);
         }
-        if (token !== playTokenRef.current) {
+        if (!requestGate.isCurrent(token)) {
           cancelPlaybackTrace(traceId);
           return;
         }
@@ -673,16 +721,18 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           recordPrefetchDepth(depth, synthThroughput);
           let enginePromise: ReturnType<typeof ensureEngine> | null = null;
           for (let offset = 1; offset <= depth; offset++) {
-            if (token !== playTokenRef.current) return;
+            if (!requestGate.isCurrent(token)) return;
             const ahead = sentenceTargetAtIndex(plan, sentenceIndex + offset);
             if (!ahead) return;
             if (isSentenceCached(docHash, ahead.anchor, settings)) continue;
             enginePromise ??= ensureEngine();
             const engine = await enginePromise;
-            if (!engine || token !== playTokenRef.current) return;
+            if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(modelId!, (tts) =>
-                ensureSentenceAudio(tts, engine.voice, docHash, text, ahead.anchor, settings),
+              await withEngine(
+                modelId!,
+                (tts) => ensureSentenceAudio(tts, engine.voice, docHash, text, ahead.anchor, settings),
+                'background',
               );
             } catch {}
           }
@@ -690,11 +740,15 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       } catch (error) {
         failPlaybackTrace(traceId);
         if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
-        if (token === playTokenRef.current) setLoading(false);
+        if (requestGate.isCurrent(token)) {
+          setLoading(false);
+          setPlaybackError('This sentence could not be prepared for playback.');
+          setRecoverySignal((value) => value + 1);
+        }
         console.warn('[usePlayback] failed to play sentence at', target.anchor.charStart, error);
       }
     },
-    [plan, cancelPendingPlaybackTrace, docHash, settings, player, ensureEngine, modelId, text, speed, claimLockScreen],
+    [plan, cancelPendingPlaybackTrace, docHash, settings, player, ensureEngine, modelId, text, speed, claimLockScreen, requestGate],
   );
 
   const playCanonical = useCallback(
@@ -704,6 +758,81 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     },
     [chunks, playChunkObject],
   );
+
+  const recoverLoadedClip = useCallback(
+    (userInitiated = false) => {
+      const clip = loadedClipRef.current;
+      if (!clip) {
+        setPlaybackError('Playback failed before an audio section could be identified.');
+        return;
+      }
+
+      if (userInitiated) recoveryGate.reset(clip.key);
+      if (!recoveryGate.claim(clip.key)) {
+        activeRef.current = false;
+        setLoading(false);
+        player.pause();
+        setPlaybackError('Audio still could not be played after rebuilding this section.');
+        return;
+      }
+
+      requestGate.cancel();
+      player.pause();
+      setLoading(false);
+      setPlaybackError(null);
+
+      if (clip.kind === 'sentence') {
+        const target = sentenceTargetAtIndex(plan, clip.sentenceIndex);
+        if (!target) {
+          setPlaybackError('The sentence is no longer available for playback.');
+          return;
+        }
+        deleteSentenceCache(docHash, target.anchor, settings);
+        void playSentence(clip.sentenceIndex);
+        return;
+      }
+
+      if (clip.kind === 'canonical') {
+        if (clip.lead) deleteLeadCache(docHash, clip.chunk.charStart, clip.chunk.text.length, settings);
+        else deleteChunkCache(docHash, clip.chunk.charStart, settings);
+        void playChunkObject(clip.chunk, clip.anchorIdx, clip.resumeIdx, { lead: clip.lead, next: clip.next });
+        return;
+      }
+
+      deleteAudiobookCache(docHash, settings);
+      setAudiobookFailed(true);
+      audiobookLoadedRef.current = false;
+      loadedKeyRef.current = -1;
+      loadedSequenceRef.current = 'none';
+      const index = Math.max(0, Math.min(anchorIndexRef.current, chunks.length - 1));
+      const chunk = chunks[index];
+      if (chunk) void playChunkObject(chunk, index, index + 1);
+      else setPlaybackError('The audiobook is empty and cannot be played.');
+    },
+    [chunks, docHash, plan, playChunkObject, playSentence, player, recoveryGate, requestGate, settings],
+  );
+
+  // Native decode/load failures arrive asynchronously through player status.
+  // Handle each error transition once: invalidate its cache identity and rebuild
+  // the clip, but never enter an automatic retry loop.
+  useEffect(() => {
+    if (!status.error) {
+      handledPlayerErrorRef.current = null;
+      return;
+    }
+    const errorKey = `${loadedClipRef.current?.key ?? 'unknown'}:${status.error}`;
+    if (handledPlayerErrorRef.current === errorKey) return;
+    handledPlayerErrorRef.current = errorKey;
+    recoverLoadedClip(false);
+  }, [status.error, recoverLoadedClip]);
+
+  useEffect(() => {
+    if (recoverySignal === 0 || handledRecoverySignalRef.current === recoverySignal) return;
+    handledRecoverySignalRef.current = recoverySignal;
+    recoverLoadedClip(false);
+  }, [recoverySignal, recoverLoadedClip]);
+
+  const retry = useCallback(() => recoverLoadedClip(true), [recoverLoadedClip]);
 
   useEffect(() => {
     if (singleItem) {
@@ -875,12 +1004,12 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
 
   const pause = useCallback(() => {
     activeRef.current = false;
-    playTokenRef.current++; // cancel any in-flight load so it can't auto-start
+    requestGate.cancel(); // cancel any in-flight load so it can't auto-start
     cancelPendingPlaybackTrace();
     boundaryGapRef.current = null;
     setLoading(false);
     player.pause();
-  }, [player, cancelPendingPlaybackTrace]);
+  }, [player, cancelPendingPlaybackTrace, requestGate]);
 
   const toggle = useCallback(() => {
     if (status.playing) pause();
@@ -948,7 +1077,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       const lead = sentence ? null : resolveStart(charOffset);
       if (!sentence && !lead) return;
       if (stopCurrent) {
-        playTokenRef.current++;
+    requestGate.cancel();
         cancelPendingPlaybackTrace();
         boundaryGapRef.current = null;
         activeRef.current = false;
@@ -974,7 +1103,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       }
       setEngaged(true);
     },
-    [singleItem, plan, resolveStart, player, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, chunks, cancelPendingPlaybackTrace],
+    [singleItem, plan, resolveStart, player, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, chunks, cancelPendingPlaybackTrace, requestGate],
   );
 
   const select = useCallback((charOffset: number) => setSelection(charOffset, true), [setSelection]);
@@ -1009,7 +1138,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   // Hard stop (the "Stop" action): halt audio, drop the selection, release the OS
   // controls so nothing lingers in the notification.
   const stop = useCallback(() => {
-    playTokenRef.current++;
+    requestGate.cancel();
     cancelPendingPlaybackTrace();
     boundaryGapRef.current = null;
     activeRef.current = false;
@@ -1025,6 +1154,10 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     currentRef.current = null;
     loadedKeyRef.current = -1;
     loadedSequenceRef.current = 'none';
+    loadedClipRef.current = null;
+    recoveryGate.clear();
+    handledPlayerErrorRef.current = null;
+    setPlaybackError(null);
     activeSequenceRef.current = 'canonical';
     sentenceIndexRef.current = -1;
     pendingLeadRef.current = null;
@@ -1033,12 +1166,12 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       playerRef.current?.clearLockScreenControls?.();
     } catch {}
     lockScreenActiveRef.current = false;
-  }, [player, cancelPendingPlaybackTrace]);
+  }, [player, cancelPendingPlaybackTrace, recoveryGate, requestGate]);
 
   // Soft stop (mini-player's square): halt audio + release the notification, but
   // KEEP selection/position/`started` so play resumes in place.
   const halt = useCallback(() => {
-    playTokenRef.current++; // cancel any in-flight load so it can't auto-start
+    requestGate.cancel(); // cancel any in-flight load so it can't auto-start
     cancelPendingPlaybackTrace();
     boundaryGapRef.current = null;
     activeRef.current = false;
@@ -1048,7 +1181,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       playerRef.current?.clearLockScreenControls?.();
     } catch {}
     lockScreenActiveRef.current = false;
-  }, [player, cancelPendingPlaybackTrace]);
+  }, [player, cancelPendingPlaybackTrace, requestGate]);
 
   const seek = useCallback(
     (fraction: number) => {
@@ -1139,6 +1272,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     docDurationSec,
     timelineReady: durTable != null,
     perfWarning,
+    error: playbackError,
+    retry,
     toggle,
     play,
     pause,

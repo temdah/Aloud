@@ -6,12 +6,14 @@ import { ensureModelsDownloaded } from './models/modelDownloader';
 import type { TextToSpeech } from './synthesis/textToSpeech';
 import type { VoiceStyle } from './synthesis/voiceStyle';
 import { loadTextToSpeech, loadVoiceStyle } from './textToSpeechLoader';
+import { InferenceQueue, type InferencePriority, type InferenceQueueSnapshot } from './inferenceQueue';
 
 type Engine = { modelId: string; tts: TextToSpeech; voices: Map<string, VoiceStyle> };
 
 let engine: Engine | null = null;
 // Dedupes concurrent loads of the same model (playback + duration table + prefetch).
 let pending: { modelId: string; promise: Promise<Engine> } | null = null;
+const inferenceQueue = new InferenceQueue();
 
 let inFlight = 0;
 let idleResolvers: Array<() => void> = [];
@@ -69,15 +71,25 @@ export async function getVoice(modelId: string, voiceId: string): Promise<VoiceS
 }
 
 // Runs inference with in-flight tracking so a model swap waits before releasing.
-export async function withEngine<T>(modelId: string, fn: (tts: TextToSpeech) => Promise<T>): Promise<T> {
-  const tts = await getEngine(modelId);
-  inFlight++;
-  try {
-    return await fn(tts);
-  } finally {
-    inFlight--;
-    noteIdle();
-  }
+export function withEngine<T>(
+  modelId: string,
+  fn: (tts: TextToSpeech) => Promise<T>,
+  priority: InferencePriority = 'foreground',
+): Promise<T> {
+  return inferenceQueue.enqueue(async () => {
+    const tts = await getEngine(modelId);
+    inFlight++;
+    try {
+      return await fn(tts);
+    } finally {
+      inFlight--;
+      noteIdle();
+    }
+  }, priority);
+}
+
+export function getInferenceQueueSnapshot(): InferenceQueueSnapshot {
+  return inferenceQueue.snapshot();
 }
 
 export function isEngineResident(modelId: string): boolean {

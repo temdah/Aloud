@@ -80,6 +80,19 @@ export function chunkAudioUri(docHash: string, charStart: number, s: NarrationSe
   return chunkAudioFile(docHash, charStart, s).uri;
 }
 
+function deleteFile(file: File): void {
+  try {
+    if (file.exists) file.delete();
+  } catch {
+    // Best effort: a following synthesis can still overwrite a readable path.
+  }
+}
+
+export function deleteChunkCache(docHash: string, charStart: number, s: NarrationSettings): void {
+  deleteFile(chunkAudioFile(docHash, charStart, s));
+  deleteFile(chunkTimingFile(docHash, charStart, s));
+}
+
 export function sentenceAudioFile(docHash: string, anchor: SentenceAnchor, s: NarrationSettings): File {
   return new File(documentCacheDir(docHash), `${sentenceCacheBaseName(anchor, s)}.m4a`);
 }
@@ -110,6 +123,11 @@ export function writeSentenceTiming(
   writeTiming(sentenceTimingFile(docHash, anchor, s), seconds);
 }
 
+export function deleteSentenceCache(docHash: string, anchor: SentenceAnchor, s: NarrationSettings): void {
+  deleteFile(sentenceAudioFile(docHash, anchor, s));
+  deleteFile(sentenceTimingFile(docHash, anchor, s));
+}
+
 // A fully-rendered book is stitched into one `book-<hash>.m4a`. `book-` can't
 // collide with a chunk name (chunks start with a numeric charStart), and
 // hashFromFileName still recovers the profile, so manage-cache groups it normally.
@@ -124,6 +142,11 @@ export function isAudiobookCached(docHash: string, s: NarrationSettings): boolea
 
 export function audiobookAudioUri(docHash: string, s: NarrationSettings): string {
   return audiobookFile(docHash, s).uri;
+}
+
+export function deleteAudiobookCache(docHash: string, s: NarrationSettings): void {
+  deleteFile(audiobookFile(docHash, s));
+  deleteFile(audiobookIndexFile(docHash, s));
 }
 
 // Real per-chunk start offsets in the stitched file (the muxer's clock, which
@@ -169,6 +192,10 @@ export function leadAudioFile(docHash: string, charStart: number, len: number, s
 export function isLeadCached(docHash: string, charStart: number, len: number, s: NarrationSettings): boolean {
   const file = leadAudioFile(docHash, charStart, len, s);
   return file.exists && file.size > MIN_CACHED_BYTES;
+}
+
+export function deleteLeadCache(docHash: string, charStart: number, len: number, s: NarrationSettings): void {
+  deleteFile(leadAudioFile(docHash, charStart, len, s));
 }
 
 export function clearDocumentCache(docHash: string): void {

@@ -16,14 +16,17 @@ export {
   isLeadCached,
   leadAudioFile,
   chunkAudioUri,
+  deleteChunkCache,
   sentenceAudioFile,
   sentenceTimingFile,
   isSentenceCached,
   sentenceAudioUri,
   readSentenceTiming,
   writeSentenceTiming,
+  deleteSentenceCache,
   isAudiobookCached,
   audiobookAudioUri,
+  deleteAudiobookCache,
   readAudiobookIndex,
   clearDocumentCache,
   documentCacheStats,
@@ -34,6 +37,7 @@ export {
   recordSentenceCachedProfile,
   listCachedProfiles,
   clearProfileCache,
+  deleteLeadCache,
 } from './audioCache';
 export type { CachedProfile, ProfileMeta } from './audioCache';
 export { readManifest, writeManifest, loadChunks, loadNarrationPlan } from './manifest';

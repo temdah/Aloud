@@ -31,6 +31,8 @@ export type Playback = {
   docDurationSec: number;
   timelineReady: boolean;
   perfWarning: boolean;
+  error: string | null;
+  retry: () => void;
   toggle: () => void;
   play: () => void;
   pause: () => void;

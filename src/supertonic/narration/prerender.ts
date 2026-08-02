@@ -2,11 +2,8 @@
 // per-chunk clips (we always favour the single file). Idempotent — returns early
 // if the stitched file already exists; a cancelled run keeps its per-chunk clips.
 import type { Chunk } from '../../types';
-import type { TextToSpeech } from '../synthesis/textToSpeech';
-import type { VoiceStyle } from '../synthesis/voiceStyle';
 import { concatM4a } from '../../../modules/aac-codec';
 import { audiobookFile, chunkAudioFile, isAudiobookCached, isChunkCached, writeAudiobookIndex } from './audioCache';
-import { ensureChunkAudio } from './narrator';
 import type { NarrationSettings } from './narrationTypes';
 
 export type PrerenderProgress = { done: number; total: number };
@@ -14,21 +11,19 @@ export type PrerenderProgress = { done: number; total: number };
 export type PrerenderResult = { completed: boolean; done: number };
 
 export type PrerenderOptions = {
-  tts: TextToSpeech;
-  voice: VoiceStyle;
   docHash: string;
   chunks: Chunk[];
   settings: NarrationSettings;
+  ensureAudio: (chunk: Chunk) => Promise<void>;
   onProgress?: (p: PrerenderProgress) => void;
   shouldCancel?: () => boolean;
 };
 
 export async function prerenderDocument({
-  tts,
-  voice,
   docHash,
   chunks,
   settings,
+  ensureAudio,
   onProgress,
   shouldCancel,
 }: PrerenderOptions): Promise<PrerenderResult> {
@@ -44,7 +39,7 @@ export async function prerenderDocument({
   for (const chunk of chunks) {
     if (shouldCancel?.()) return { completed: false, done };
     if (!isChunkCached(docHash, chunk.charStart, settings)) {
-      await ensureChunkAudio(tts, voice, docHash, chunk, settings);
+      await ensureAudio(chunk);
     }
     done += 1;
     onProgress?.({ done, total });

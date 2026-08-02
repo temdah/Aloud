@@ -721,6 +721,16 @@ export default function ReaderScreen() {
       <ActionDialog open={menu} onClose={() => setMenu(false)} title={doc?.title} actions={menuActions} />
 
       <ActionDialog
+        open={playback.error != null}
+        title="Playback stopped"
+        message={playback.error ?? undefined}
+        actions={[
+          { label: 'Rebuild and retry', variant: 'filled', onPress: playback.retry },
+          { label: 'Stop playback', variant: 'ghost', onPress: playback.stop },
+        ]}
+      />
+
+      <ActionDialog
         open={modelErrorOpen}
         onClose={() => setModelErrorOpen(false)}
         title="Voice model looks damaged"
