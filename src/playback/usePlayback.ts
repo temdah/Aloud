@@ -1,8 +1,8 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDevicePerformanceSnapshot } from '../../modules/device-performance';
-import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, deleteAudiobookCache, deleteChunkCache, deleteLeadCache, deleteSentenceCache, ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec, withEngine } from '../supertonic';
-import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, VoiceStyle } from '../supertonic';
+import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, deleteAudiobookCache, deleteChunkCache, deleteLeadCache, deleteSentenceCache, findChunkIndexForOffset, getEngine, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec } from '../supertonic';
+import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics } from '../supertonic';
 import {
   buildFastStart,
   buildLead,
@@ -18,6 +18,7 @@ import {
   neutralTimeForOffset,
   PlaybackRecoveryGate,
   PlaybackRequestGate,
+  PlaybackSynthesizer,
   prefetchDepth,
   recordBoundaryGap,
   recordPrefetchDepth,
@@ -164,6 +165,10 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang, quality, tone }),
     [modelId, voiceId, speed, steps, lang, quality, tone],
   );
+  const synthesizer = useMemo(
+    () => modelId ? new PlaybackSynthesizer({ docHash, documentText: text, settings }) : null,
+    [docHash, text, modelId, settings],
+  );
   // Timeline durations are neutral-rate and their cache ignores speed. Keep a
   // stable settings object so moving the speed control never probes every chunk.
   const timelineSettings = useMemo<NarrationSettings>(
@@ -288,13 +293,6 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     };
   }, [modelId, fullyRendered, keepEngineWarm]);
 
-  // Resolve the current voice on demand; inference acquires its own engine lease.
-  const ensureEngine = useCallback(async (): Promise<{ voice: VoiceStyle } | null> => {
-    if (!modelId) return null;
-    const voice = await getVoice(modelId, voiceId);
-    return { voice };
-  }, [modelId, voiceId]);
-
   // Whole-document timeline for the scrubber. Built instantly with no engine —
   // real cached clip lengths where we have them, a char estimate for the rest —
   // so it never delays playback or competes with the clip the user is waiting on.
@@ -310,29 +308,26 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       const token = requestGate.current();
       const sentence = sentenceTargetForStart(plan, charOffset);
       if (sentence) {
-        if (isSentenceCached(docHash, sentence.anchor, settings)) return;
-        const engine = await ensureEngine();
-        if (!engine || !requestGate.isCurrent(token)) return;
+        if (!synthesizer || isSentenceCached(docHash, sentence.anchor, settings)) return;
         try {
-          await withEngine(
-            modelId!,
-            (tts) => ensureSentenceAudio(tts, engine.voice, docHash, text, sentence.anchor, settings),
-            'background',
-          );
+          await synthesizer.prepareSentence(sentence.anchor, {
+            priority: 'background',
+            shouldContinue: () => requestGate.isCurrent(token),
+          });
         } catch {}
         return;
       }
       const i = findChunkIndexForOffset(chunks, charOffset);
-      if (i < 0 || isChunkCached(docHash, chunks[i].charStart, settings)) return;
-      const engine = await ensureEngine();
-      if (!engine || !requestGate.isCurrent(token)) return;
+      if (!synthesizer || i < 0 || isChunkCached(docHash, chunks[i].charStart, settings)) return;
       const fs = buildFastStart(text, chunks, charOffset);
       try {
-        if (fs) await withEngine(modelId!, (t) => ensureLeadAudio(t, engine.voice, docHash, text, fs.lead.chunk, settings), 'background');
-        else await withEngine(modelId!, (t) => ensureChunkAudio(t, engine.voice, docHash, text, chunks[i], settings), 'background');
+        await synthesizer.prepareChunk(fs?.lead.chunk ?? chunks[i], fs ? 'lead' : 'canonical', {
+          priority: 'background',
+          shouldContinue: () => requestGate.isCurrent(token),
+        });
       } catch {}
     },
-    [plan, chunks, text, docHash, settings, modelId, ensureEngine, requestGate],
+    [plan, chunks, text, docHash, settings, synthesizer, requestGate],
   );
   useEffect(() => {
     if (!keepEngineWarm || !ready || started || fullyRendered || chunks.length === 0 || !modelId) return;
@@ -558,20 +553,21 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           setLoading(true);
           const preparationStartedAt = Date.now();
           let synthesisMetrics: NarrationSynthesisMetrics | null = null;
-          const engine = await ensureEngine();
-          if (!engine) {
+          if (!synthesizer) {
             failPlaybackTrace(traceId);
             if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
             if (requestGate.isCurrent(token)) setLoading(false);
             return;
           }
-          if (!requestGate.isCurrent(token)) {
+          const prepared = await synthesizer.prepareChunk(chunk, lead ? 'lead' : 'canonical', {
+            onMetrics: (metrics) => { synthesisMetrics = metrics; },
+            shouldContinue: () => requestGate.isCurrent(token),
+          });
+          if (!prepared) {
             cancelPlaybackTrace(traceId);
-            return; // superseded while loading
+            return;
           }
-          uri = lead
-            ? await withEngine(modelId!, (tts) => ensureLeadAudio(tts, engine.voice, docHash, text, chunk, settings, (metrics) => { synthesisMetrics = metrics; }))
-            : await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, chunk, settings, (metrics) => { synthesisMetrics = metrics; }));
+          uri = prepared;
           markPlaybackPrepared(traceId, preparationStartedAt, synthesisMetrics);
         }
         if (!requestGate.isCurrent(token)) {
@@ -592,17 +588,13 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         // Generate-ahead so boundaries don't stall: a queued remainder first (it
         // plays next), then upcoming canonical chunks. Cached items are skipped.
         void (async () => {
-          let enginePromise: ReturnType<typeof ensureEngine> | null = null;
-          const backgroundEngine = () => {
-            enginePromise ??= ensureEngine();
-            return enginePromise;
-          };
+          if (!synthesizer) return;
           if (next && !isChunkCached(docHash, next.chunk.charStart, settings)) {
-            if (!requestGate.isCurrent(token)) return;
-            const engine = await backgroundEngine();
-            if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, next.chunk, settings), 'background');
+              await synthesizer.prepareChunk(next.chunk, 'canonical', {
+                priority: 'background',
+                shouldContinue: () => requestGate.isCurrent(token),
+              });
             } catch {}
             if (!requestGate.isCurrent(token)) return;
           }
@@ -616,10 +608,11 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
             const ahead = chunks[resumeIdx + k];
             if (!ahead) return;
             if (isChunkCached(docHash, ahead.charStart, settings)) continue;
-            const engine = await backgroundEngine();
-            if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, ahead, settings), 'background');
+              await synthesizer.prepareChunk(ahead, 'canonical', {
+                priority: 'background',
+                shouldContinue: () => requestGate.isCurrent(token),
+              });
             } catch {}
           }
           // Cache it now, lowest priority, so re-tapping this chunk later plays
@@ -627,13 +620,12 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           if (lead) {
             const enclosing = chunks[anchorIdx];
             if (enclosing && !isChunkCached(docHash, enclosing.charStart, settings)) {
-              if (!requestGate.isCurrent(token)) return;
-              const engine = await backgroundEngine();
-              if (engine && requestGate.isCurrent(token)) {
-                try {
-                  await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, enclosing, settings), 'background');
-                } catch {}
-              }
+              try {
+                await synthesizer.prepareChunk(enclosing, 'canonical', {
+                  priority: 'background',
+                  shouldContinue: () => requestGate.isCurrent(token),
+                });
+              } catch {}
             }
           }
         })();
@@ -648,7 +640,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         console.warn('[usePlayback] failed to play chunk at', chunk.charStart, e);
       }
     },
-    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen, modelId, cancelPendingPlaybackTrace, requestGate, text],
+    [chunks, docHash, player, settings, speed, synthesizer, claimLockScreen, modelId, cancelPendingPlaybackTrace, requestGate],
   );
 
   const playSentence = useCallback(
@@ -688,22 +680,21 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           setLoading(true);
           const preparationStartedAt = Date.now();
           let synthesisMetrics: NarrationSynthesisMetrics | null = null;
-          const engine = await ensureEngine();
-          if (!engine) {
+          if (!synthesizer) {
             failPlaybackTrace(traceId);
             if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
             if (requestGate.isCurrent(token)) setLoading(false);
             return;
           }
-          if (!requestGate.isCurrent(token)) {
+          const prepared = await synthesizer.prepareSentence(target.anchor, {
+            onMetrics: (metrics) => { synthesisMetrics = metrics; },
+            shouldContinue: () => requestGate.isCurrent(token),
+          });
+          if (!prepared) {
             cancelPlaybackTrace(traceId);
             return;
           }
-          uri = await withEngine(modelId!, (tts) =>
-            ensureSentenceAudio(tts, engine.voice, docHash, text, target.anchor, settings, (metrics) => {
-              synthesisMetrics = metrics;
-            }),
-          );
+          uri = prepared;
           markPlaybackPrepared(traceId, preparationStartedAt, synthesisMetrics);
         }
         if (!requestGate.isCurrent(token)) {
@@ -723,24 +714,20 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         setLoading(false);
 
         void (async () => {
+          if (!synthesizer) return;
           const synthThroughput = getSynthRtf(modelId);
           const depth = prefetchDepth(synthThroughput, classifyDevicePressure(getDevicePerformanceSnapshot()));
           recordPrefetchDepth(depth, synthThroughput);
-          let enginePromise: ReturnType<typeof ensureEngine> | null = null;
           for (let offset = 1; offset <= depth; offset++) {
             if (!requestGate.isCurrent(token)) return;
             const ahead = sentenceTargetAtIndex(plan, sentenceIndex + offset);
             if (!ahead) return;
             if (isSentenceCached(docHash, ahead.anchor, settings)) continue;
-            enginePromise ??= ensureEngine();
-            const engine = await enginePromise;
-            if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(
-                modelId!,
-                (tts) => ensureSentenceAudio(tts, engine.voice, docHash, text, ahead.anchor, settings),
-                'background',
-              );
+              await synthesizer.prepareSentence(ahead.anchor, {
+                priority: 'background',
+                shouldContinue: () => requestGate.isCurrent(token),
+              });
             } catch {}
           }
         })();
@@ -755,7 +742,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         console.warn('[usePlayback] failed to play sentence at', target.anchor.charStart, error);
       }
     },
-    [plan, cancelPendingPlaybackTrace, docHash, settings, player, ensureEngine, modelId, text, speed, claimLockScreen, requestGate],
+    [plan, cancelPendingPlaybackTrace, docHash, settings, player, synthesizer, modelId, speed, claimLockScreen, requestGate],
   );
 
   const playCanonical = useCallback(
