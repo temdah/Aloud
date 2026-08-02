@@ -9,6 +9,8 @@ export { ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio } from './narrat
 export { clearNarrationPerfCounters, getNarrationPerfCounters, getSynthRtf } from './perfStats';
 export { prerenderDocument } from './prerender';
 export type { PrerenderOptions, PrerenderProgress, PrerenderResult } from './prerender';
+export { planProsody } from './prosodyPlanner';
+export type { ProsodyBoundary, ProsodyPlan } from './prosodyTypes';
 export {
   chunkAudioFile,
   chunkTimingFile,

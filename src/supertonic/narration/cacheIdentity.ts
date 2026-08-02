@@ -3,8 +3,9 @@ import { stableHash } from '../../utils/hash';
 import type { NarrationSettings } from './narrationTypes';
 
 // Bump when synthesis changes the audio produced for otherwise-identical input.
-// v3 removed speed from synthesis; v4 moved output from WAV to AAC.
-const SYNTH_VERSION = 4;
+// v3 removed speed from synthesis; v4 moved output from WAV to AAC; v5 adds
+// punctuation-aware cadence cues and deterministic trailing pauses.
+const SYNTH_VERSION = 5;
 
 export function settingsHash(settings: NarrationSettings): string {
   return stableHash(
@@ -17,7 +18,7 @@ export function settingsHash(settings: NarrationSettings): string {
 // remain included and still separate genuinely different audio.
 export function sentenceSettingsHash(settings: NarrationSettings): string {
   return stableHash(
-    `sentence-v1|${settings.modelId}|${settings.voiceId}|${settings.steps}|${settings.lang}`,
+    `sentence-v2|${settings.modelId}|${settings.voiceId}|${settings.steps}|${settings.lang}`,
   );
 }
 

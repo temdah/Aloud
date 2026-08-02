@@ -5,6 +5,7 @@ import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, TextT
 import {
   buildFastStart,
   buildLead,
+  buildNeutralStarts,
   cancelPlaybackTrace,
   failPlaybackTrace,
   finishPlaybackTrace,
@@ -12,25 +13,26 @@ import {
   markPlaybackPlayerLoaded,
   markPlaybackPlayerRequested,
   markPlaybackPrepared,
+  neutralTimeForOffset,
+  PlaybackRecoveryGate,
+  PlaybackRequestGate,
   prefetchDepth,
   recordBoundaryGap,
   recordPrefetchDepth,
+  resolvePlaybackArtworkUrl,
+  sentenceTargetAtIndex,
+  sentenceTargetForStart,
   startPlaybackTrace,
   type Lead,
+  type Playback,
   type PlaybackCacheDecision,
   type PlaybackRequestKind,
+  type UsePlaybackOptions,
 } from '../playback';
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
-import { resolvePlaybackArtworkUrl } from '../playback/playbackArtwork';
-import { buildNeutralStarts, neutralTimeForOffset } from '../playback';
-import type { Playback, UsePlaybackOptions } from '../playback';
-import { sentenceTargetAtIndex, sentenceTargetForStart } from '../playback/sentencePlayback';
-import { PlaybackRequestGate } from '../playback/playbackRequestGate';
-import { PlaybackRecoveryGate } from '../playback/playbackRecoveryGate';
-
-export type { Playback, UsePlaybackOptions } from '../playback/playbackTypes';
+export type { Playback, UsePlaybackOptions } from '../playback';
 // Extra OS-notification transport buttons (the Android Media3 notification can't
 // be themed to match the app).
 const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed: true } as const;
@@ -321,8 +323,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       if (!engine || !requestGate.isCurrent(token)) return;
       const fs = buildFastStart(text, chunks, charOffset);
       try {
-        if (fs) await withEngine(modelId!, (t) => ensureLeadAudio(t, engine.voice, docHash, fs.lead.chunk, settings), 'background');
-        else await withEngine(modelId!, (t) => ensureChunkAudio(t, engine.voice, docHash, chunks[i], settings), 'background');
+        if (fs) await withEngine(modelId!, (t) => ensureLeadAudio(t, engine.voice, docHash, text, fs.lead.chunk, settings), 'background');
+        else await withEngine(modelId!, (t) => ensureChunkAudio(t, engine.voice, docHash, text, chunks[i], settings), 'background');
       } catch {}
     },
     [plan, chunks, text, docHash, settings, modelId, ensureEngine, requestGate],
@@ -563,8 +565,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
             return; // superseded while loading
           }
           uri = lead
-            ? await withEngine(modelId!, (tts) => ensureLeadAudio(tts, engine.voice, docHash, chunk, settings, (metrics) => { synthesisMetrics = metrics; }))
-            : await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, chunk, settings, (metrics) => { synthesisMetrics = metrics; }));
+            ? await withEngine(modelId!, (tts) => ensureLeadAudio(tts, engine.voice, docHash, text, chunk, settings, (metrics) => { synthesisMetrics = metrics; }))
+            : await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, chunk, settings, (metrics) => { synthesisMetrics = metrics; }));
           markPlaybackPrepared(traceId, preparationStartedAt, synthesisMetrics);
         }
         if (!requestGate.isCurrent(token)) {
@@ -595,7 +597,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
             const engine = await backgroundEngine();
             if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, next.chunk, settings), 'background');
+              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, next.chunk, settings), 'background');
             } catch {}
             if (!requestGate.isCurrent(token)) return;
           }
@@ -612,7 +614,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
             const engine = await backgroundEngine();
             if (!engine || !requestGate.isCurrent(token)) return;
             try {
-              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, ahead, settings), 'background');
+              await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, ahead, settings), 'background');
             } catch {}
           }
           // Cache it now, lowest priority, so re-tapping this chunk later plays
@@ -624,7 +626,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
               const engine = await backgroundEngine();
               if (engine && requestGate.isCurrent(token)) {
                 try {
-                  await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, enclosing, settings), 'background');
+                  await withEngine(modelId!, (tts) => ensureChunkAudio(tts, engine.voice, docHash, text, enclosing, settings), 'background');
                 } catch {}
               }
             }
@@ -641,7 +643,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         console.warn('[usePlayback] failed to play chunk at', chunk.charStart, e);
       }
     },
-    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen, modelId, cancelPendingPlaybackTrace, requestGate],
+    [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen, modelId, cancelPendingPlaybackTrace, requestGate, text],
   );
 
   const playSentence = useCallback(

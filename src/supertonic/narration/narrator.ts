@@ -19,6 +19,9 @@ import {
 } from './audioCache';
 import type { NarrationMetricsReporter, NarrationSettings, NarrationSynthesisMetrics } from './narrationTypes';
 import { recordDeduplicatedSynthesis, recordSynthesisStarted, recordSynthRtf } from './perfStats';
+import { planProsody } from './prosodyPlanner';
+import type { ProsodyPlan } from './prosodyTypes';
+import { silenceSampleCount } from './silenceSamples';
 
 // Coalesce concurrent synthesis of the same clip. Without this, a chunk being
 // prefetched in the background and then reached by playback runs TWO full ONNX
@@ -38,38 +41,50 @@ function dedupeSynth(key: string, run: () => Promise<string>): Promise<string> {
   return p;
 }
 
+function planChunkProsody(documentText: string, chunk: Pick<Chunk, 'text' | 'charStart' | 'charEnd'>): ProsodyPlan {
+  const sourceMatches =
+    chunk.charEnd <= documentText.length &&
+    documentText.slice(chunk.charStart, chunk.charEnd).trim() === chunk.text.trim();
+  return sourceMatches
+    ? planProsody(documentText, chunk.charStart, chunk.charEnd)
+    : planProsody(chunk.text, 0, chunk.text.length);
+}
+
 async function synthesizeToFile(
   tts: TextToSpeech,
   voice: VoiceStyle,
   file: File,
-  unit: Pick<Chunk, 'text'>,
+  unit: ProsodyPlan,
   settings: NarrationSettings,
 ): Promise<{ uri: string; neutralSec: number; metrics: NarrationSynthesisMetrics }> {
   recordSynthesisStarted();
   // Render at the engine's neutral rate; playback speed is applied live, so the
   // cache is speed-agnostic.
   const timer = stageTimer('synth');
-  const endClip = traceOpen(`synth·${unit.text.length}c`);
+  const endClip = traceOpen(`synth·${unit.synthesisText.length}c`);
   const wallStart = Date.now();
   const onStage = (stage: string) => {
     timer.mark(stage);
     traceMark(stage);
   };
   const synthStart = Date.now();
-  const { waveform, diagnostics } = await tts.synthesize(unit.text, settings.lang, voice, settings.steps, 1.0, undefined, onStage);
+  const { waveform, diagnostics } = await tts.synthesize(unit.synthesisText, settings.lang, voice, settings.steps, 1.0, undefined, onStage);
   const synthMs = Date.now() - synthStart;
-  // Fuse the Float32 -> PCM16 pass into the native AAC worker. The conversion is
-  // byte-identical to the former JS loop, so existing cache keys remain valid.
+  const trailingSilenceSamples = silenceSampleCount(tts.sampleRate, unit.trailingPauseMs);
+  // Fuse Float32 -> PCM16 and the planned silence tail into the native AAC worker
+  // so JavaScript never copies the full waveform just to add a pause.
   if (file.exists) file.delete();
   const postprocessStart = Date.now();
-  const encoded = await encodeFloatPcmToM4a(waveform, tts.sampleRate, file.uri);
+  const encoded = await encodeFloatPcmToM4a(waveform, tts.sampleRate, file.uri, 64000, trailingSilenceSamples);
   const postprocessMs = Date.now() - postprocessStart;
   const pcmMs = encoded.pcmMs;
   const aacMs = Math.max(0, postprocessMs - pcmMs);
   timer.mark('native-float-to-aac');
   traceMark('native-float-to-aac');
   endClip();
-  const audioSec = waveform.length / tts.sampleRate;
+  const pauseSec = unit.trailingPauseMs / 1000;
+  const outputSamples = waveform.length + trailingSilenceSamples;
+  const audioSec = outputSamples / tts.sampleRate;
   const totalMs = Date.now() - wallStart;
   const wallSec = totalMs / 1000;
   if (wallSec > 0) recordSynthRtf(settings.modelId, audioSec / wallSec); // sensor for the perf tip
@@ -79,9 +94,12 @@ async function synthesizeToFile(
   timer.done();
   return {
     uri: file.uri,
-    neutralSec: diagnostics.audioSec,
+    neutralSec: audioSec,
     metrics: {
       ...diagnostics,
+      predictedSec: diagnostics.predictedSec + pauseSec,
+      audioSec,
+      waveformSamples: outputSamples,
       synthMs,
       pcmMs,
       aacMs,
@@ -95,6 +113,7 @@ export async function ensureChunkAudio(
   tts: TextToSpeech,
   voice: VoiceStyle,
   docHash: string,
+  documentText: string,
   chunk: Chunk,
   settings: NarrationSettings,
   onMetrics?: NarrationMetricsReporter,
@@ -107,7 +126,8 @@ export async function ensureChunkAudio(
 
   return dedupeSynth(file.uri, async () => {
     if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri; // landed while queued
-    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, chunk, settings);
+    const prosody = planChunkProsody(documentText, chunk);
+    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings);
     // Persist the clip length so the document timeline can rebuild from cache.
     writeChunkTiming(docHash, chunk.charStart, settings, neutralSec);
     onMetrics?.(metrics);
@@ -121,6 +141,7 @@ export async function ensureLeadAudio(
   tts: TextToSpeech,
   voice: VoiceStyle,
   docHash: string,
+  documentText: string,
   chunk: Chunk,
   settings: NarrationSettings,
   onMetrics?: NarrationMetricsReporter,
@@ -129,7 +150,8 @@ export async function ensureLeadAudio(
   if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
   return dedupeSynth(file.uri, async () => {
     if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
-    const { uri, metrics } = await synthesizeToFile(tts, voice, file, chunk, settings);
+    const prosody = planChunkProsody(documentText, chunk);
+    const { uri, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings);
     onMetrics?.(metrics);
     return uri;
   });
@@ -150,8 +172,8 @@ export async function ensureSentenceAudio(
 
   return dedupeSynth(file.uri, async () => {
     if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
-    const text = documentText.slice(anchor.charStart, anchor.charEnd);
-    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, { text }, settings);
+    const prosody = planProsody(documentText, anchor.charStart, anchor.charEnd);
+    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings);
     writeSentenceTiming(docHash, anchor, settings, neutralSec);
     onMetrics?.(metrics);
     return uri;

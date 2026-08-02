@@ -9,6 +9,7 @@ export type { SentencePlaybackTarget } from './sentencePlaybackTypes';
 export { PlaybackRequestGate } from './playbackRequestGate';
 export type { PlaybackRequestId } from './playbackRequestGate';
 export { PlaybackRecoveryGate } from './playbackRecoveryGate';
+export { resolvePlaybackArtworkUrl } from './playbackArtwork';
 export {
   cancelPlaybackTrace,
   clearPlaybackDiagnostics,

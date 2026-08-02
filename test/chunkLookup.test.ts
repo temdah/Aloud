@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { findChunkIndexForOffset } from '../src/supertonic/narration/chunkLookup';
-import type { Chunk } from '../src/types/document';
+import type { Chunk } from '../src/types';
 
 const chunks: Chunk[] = [
   { idx: 0, text: 'abcd', charStart: 2, charEnd: 6, pages: [], textHash: 'a' },

@@ -53,14 +53,22 @@ private class ByteArrayPcmSource(private val data: ByteArray) : PcmSource {
 // Reads the Float32Array's raw little-endian bytes and produces PCM16 directly
 // into the encoder's reusable input buffer. Conversion time is tracked separately
 // so the developer diagnostics can compare it with the former JavaScript pass.
-private class FloatByteArrayPcmSource(data: ByteArray) : PcmSource {
+private class FloatByteArrayPcmSource(data: ByteArray, trailingSilenceSamples: Int) : PcmSource {
   private val input = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+  private var silenceSamplesRemaining = trailingSilenceSamples.coerceAtLeast(0)
   var conversionNanos = 0L
     private set
 
   override fun read(dst: ByteArray, max: Int): Int {
     val sampleCount = minOf(input.remaining() / Float.SIZE_BYTES, max / Short.SIZE_BYTES)
-    if (sampleCount <= 0) return 0
+    if (sampleCount <= 0) {
+      val silentSamples = minOf(silenceSamplesRemaining, max / Short.SIZE_BYTES)
+      if (silentSamples <= 0) return 0
+      val silentBytes = silentSamples * Short.SIZE_BYTES
+      java.util.Arrays.fill(dst, 0, silentBytes, 0.toByte())
+      silenceSamplesRemaining -= silentSamples
+      return silentBytes
+    }
     val startedAt = System.nanoTime()
     var out = 0
     repeat(sampleCount) {
@@ -188,11 +196,18 @@ internal object AacEncoder {
 
   // Encode raw Float32 waveform bytes, converting incrementally to PCM16 while
   // MediaCodec consumes its input. No full PCM copy is allocated in JavaScript.
-  fun encodeFloatPcm(float32Bytes: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int): FloatPcmEncodeResult {
+  fun encodeFloatPcm(
+    float32Bytes: ByteArray,
+    sampleRate: Int,
+    channels: Int,
+    dstPath: String,
+    bitrate: Int,
+    trailingSilenceFrames: Int
+  ): FloatPcmEncodeResult {
     if (float32Bytes.isEmpty() || float32Bytes.size % Float.SIZE_BYTES != 0) {
       return FloatPcmEncodeResult(ERR_NO_INPUT, 0.0)
     }
-    val source = FloatByteArrayPcmSource(float32Bytes)
+    val source = FloatByteArrayPcmSource(float32Bytes, trailingSilenceFrames * channels)
     val rc = encodeFromSource(source, sampleRate, channels, dstPath, bitrate)
     return FloatPcmEncodeResult(rc, source.conversionNanos / 1_000_000.0)
   }

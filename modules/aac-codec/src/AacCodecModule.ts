@@ -9,6 +9,7 @@ type AacCodecNativeModule = {
     channels: number,
     dstPath: string,
     bitrate: number,
+    trailingSilenceFrames: number,
   ): Promise<{ uri: string; pcmMs: number }>;
   /** Resolves each source clip's start offset (ms) in the stitched file. */
   concatM4a(srcM4aPaths: string[], dstPath: string): Promise<number[]>;

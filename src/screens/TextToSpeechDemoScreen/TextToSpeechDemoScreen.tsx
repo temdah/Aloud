@@ -14,6 +14,7 @@ import {
   getVoice,
   isEngineResident,
   loadChunks,
+  planProsody,
   qualityProfile,
   releaseCurrentEngine,
   clearNarrationPerfCounters,
@@ -497,6 +498,8 @@ export default function TextToSpeechDemoScreen() {
       } catch {}
       append(`\n── Real synth path · chunk 0 (${firstChunk.text.length}c) ──`);
       append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality} · unit ${qualityProfile(quality).unitLen}`));
+      const prosody = planProsody(extracted.text, firstChunk.charStart, firstChunk.charEnd);
+      append(row('prosody', `${prosody.boundary} · ${prosody.trailingPauseMs} ms trailing pause`));
       traceStart();
       const t0 = Date.now();
       let metrics: NarrationSynthesisMetrics | null = null;
@@ -504,6 +507,7 @@ export default function TextToSpeechDemoScreen() {
         ttsRef.current!,
         voiceRef.current!,
         analyzedDoc.docHash,
+        extracted.text,
         firstChunk,
         settings,
         (reported) => { metrics = reported; },

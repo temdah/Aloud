@@ -6,7 +6,7 @@ import type { Chunk } from '../types';
 
 export type PrerenderContextValue = {
   activeDocHash: string | null;
-  start: (docHash: string, chunks: Chunk[], settings: NarrationSettings) => void;
+  start: (docHash: string, documentText: string, chunks: Chunk[], settings: NarrationSettings) => void;
   cancel: (docHash: string) => void;
 };
 
@@ -21,7 +21,7 @@ export function PrerenderProvider({ children }: { children: ReactNode }) {
   const cancelRef = useRef(false);
 
   const start = useCallback(
-    (docHash: string, chunks: Chunk[], settings: NarrationSettings) => {
+    (docHash: string, documentText: string, chunks: Chunk[], settings: NarrationSettings) => {
       if (busyRef.current) return; // one render at a time
       if (!settings.modelId || chunks.length === 0) return;
       const total = chunks.length;
@@ -41,7 +41,7 @@ export function PrerenderProvider({ children }: { children: ReactNode }) {
             ensureAudio: (chunk) =>
               withEngine(
                 settings.modelId,
-                async (tts) => { await ensureChunkAudio(tts, voice, docHash, chunk, settings); },
+                async (tts) => { await ensureChunkAudio(tts, voice, docHash, documentText, chunk, settings); },
                 'background',
               ),
             onProgress: ({ done }) => setAudiobook(docHash, { done, total, status: 'running', profileHash }),

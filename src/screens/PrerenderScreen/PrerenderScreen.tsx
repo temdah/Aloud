@@ -72,7 +72,7 @@ export default function PrerenderScreen() {
   const [langSheet, setLangSheet] = useState(false);
   const [confirmReprofile, setConfirmReprofile] = useState(false);
 
-  const prerender = usePrerender(docId, chunks);
+  const prerender = usePrerender(docId, pdfText.document?.text ?? '', chunks);
   const running = prerender.status === 'running';
 
   // Used to pad the scroll content so the start button clears the floating pill.

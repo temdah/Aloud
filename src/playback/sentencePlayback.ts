@@ -1,5 +1,5 @@
 import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
-import type { NarrationPlan } from '../supertonic/narration/narrationPlanTypes';
+import type { NarrationPlan } from '../supertonic';
 import type { SentenceAnchor } from '../types/document';
 import type { SentencePlaybackTarget } from './sentencePlaybackTypes';
 
