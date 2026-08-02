@@ -1,6 +1,9 @@
 import { Directory, File, Paths } from 'expo-file-system';
-import { stableHash } from '../../utils';
+import type { SentenceAnchor } from '../../types';
+import { sentenceCacheBaseName, sentenceSettingsHash, settingsHash } from './cacheIdentity';
 import type { NarrationSettings } from './narrationTypes';
+
+export { settingsHash } from './cacheIdentity';
 
 // Per-document TTS cache (documentDirectory/tts/<docHash>/). Files are keyed on
 // (charStart, settingsHash), NOT array index, so re-chunking doesn't invalidate
@@ -11,17 +14,9 @@ export const MIN_CACHED_BYTES = 256; // smaller than this = a failed/empty write
 const directoryCache = new Map<string, Directory>();
 const profileRegistryCache = new Map<string, Record<string, ProfileMeta>>();
 
-// settingsHash is one-way, so this registry maps it back to a readable profile
+// Cache hashes are one-way, so this registry maps them back to readable profiles
 // for the "manage cached audio" UI.
 const PROFILES_FILE = 'profiles.json';
-
-// Bump when synthesis changes the audio for the same settings. v3: speed no
-// longer baked in (applied live). v4: AAC (.m4a) instead of WAV (~10× smaller).
-const SYNTH_VERSION = 4;
-
-export function settingsHash(s: NarrationSettings): string {
-  return stableHash(`v${SYNTH_VERSION}|${s.modelId}|${s.voiceId}|${s.steps}|${s.lang}|${s.quality}`);
-}
 
 export function documentCacheDir(docHash: string): Directory {
   const cached = directoryCache.get(docHash);
@@ -48,8 +43,7 @@ export function chunkTimingFile(docHash: string, charStart: number, s: Narration
 // Lets the document timeline rebuild from cached audio with no engine pass.
 type ChunkTiming = { seconds: number };
 
-export function readChunkTiming(docHash: string, charStart: number, s: NarrationSettings): number | null {
-  const file = chunkTimingFile(docHash, charStart, s);
+function readTiming(file: File): number | null {
   if (!file.exists) return null;
   try {
     const parsed = JSON.parse(file.textSync()) as ChunkTiming;
@@ -59,15 +53,22 @@ export function readChunkTiming(docHash: string, charStart: number, s: Narration
   }
 }
 
-export function writeChunkTiming(docHash: string, charStart: number, s: NarrationSettings, seconds: number): void {
-  const file = chunkTimingFile(docHash, charStart, s);
+function writeTiming(file: File, seconds: number): void {
   try {
     if (file.exists) file.delete();
     file.create();
     file.write(JSON.stringify({ seconds } satisfies ChunkTiming));
   } catch {
-    // Non-fatal: the timeline just falls back to the duration predictor.
+    // Non-fatal: callers can fall back to the duration predictor.
   }
+}
+
+export function readChunkTiming(docHash: string, charStart: number, s: NarrationSettings): number | null {
+  return readTiming(chunkTimingFile(docHash, charStart, s));
+}
+
+export function writeChunkTiming(docHash: string, charStart: number, s: NarrationSettings, seconds: number): void {
+  writeTiming(chunkTimingFile(docHash, charStart, s), seconds);
 }
 
 export function isChunkCached(docHash: string, charStart: number, s: NarrationSettings): boolean {
@@ -77,6 +78,36 @@ export function isChunkCached(docHash: string, charStart: number, s: NarrationSe
 
 export function chunkAudioUri(docHash: string, charStart: number, s: NarrationSettings): string {
   return chunkAudioFile(docHash, charStart, s).uri;
+}
+
+export function sentenceAudioFile(docHash: string, anchor: SentenceAnchor, s: NarrationSettings): File {
+  return new File(documentCacheDir(docHash), `${sentenceCacheBaseName(anchor, s)}.m4a`);
+}
+
+export function sentenceTimingFile(docHash: string, anchor: SentenceAnchor, s: NarrationSettings): File {
+  return new File(documentCacheDir(docHash), `${sentenceCacheBaseName(anchor, s)}.timing.json`);
+}
+
+export function isSentenceCached(docHash: string, anchor: SentenceAnchor, s: NarrationSettings): boolean {
+  const file = sentenceAudioFile(docHash, anchor, s);
+  return file.exists && file.size > MIN_CACHED_BYTES;
+}
+
+export function sentenceAudioUri(docHash: string, anchor: SentenceAnchor, s: NarrationSettings): string {
+  return sentenceAudioFile(docHash, anchor, s).uri;
+}
+
+export function readSentenceTiming(docHash: string, anchor: SentenceAnchor, s: NarrationSettings): number | null {
+  return readTiming(sentenceTimingFile(docHash, anchor, s));
+}
+
+export function writeSentenceTiming(
+  docHash: string,
+  anchor: SentenceAnchor,
+  s: NarrationSettings,
+  seconds: number,
+): void {
+  writeTiming(sentenceTimingFile(docHash, anchor, s), seconds);
 }
 
 // A fully-rendered book is stitched into one `book-<hash>.m4a`. `book-` can't
@@ -147,17 +178,15 @@ export function clearDocumentCache(docHash: string): void {
   profileRegistryCache.delete(docHash);
 }
 
-// Clear the loose per-chunk cache (chunk + lead clips, timing sidecars, duration
-// table) but KEEP fully-rendered audiobooks (`book-*`) and the profile registry.
-// Used when re-chunking (e.g. a quality change) invalidates chunk boundaries but
-// the stitched audiobook is still valid audio.
+// Clear chunk/lead clips, their timing sidecars, and the duration table. Stable
+// sentence audio survives re-chunking, alongside full audiobooks and profiles.
 export function clearFragmentedCache(docHash: string): void {
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (!dir.exists) return;
   for (const entry of dir.list()) {
     if (!(entry instanceof File)) continue;
     const name = fileName(entry.uri);
-    if (name.startsWith('book-') || name === PROFILES_FILE) continue;
+    if (name.startsWith('book-') || name.startsWith('sentence-') || name === PROFILES_FILE) continue;
     try {
       entry.delete();
     } catch {}
@@ -201,7 +230,14 @@ function writeProfilesRegistry(docHash: string, reg: Record<string, ProfileMeta>
 }
 
 export function recordCachedProfile(docHash: string, s: NarrationSettings): void {
-  const hash = settingsHash(s);
+  recordProfile(docHash, settingsHash(s), s);
+}
+
+export function recordSentenceCachedProfile(docHash: string, s: NarrationSettings): void {
+  recordProfile(docHash, sentenceSettingsHash(s), s);
+}
+
+function recordProfile(docHash: string, hash: string, s: NarrationSettings): void {
   const reg = readProfilesRegistry(docHash);
   if (reg[hash]) return;
   reg[hash] = { modelId: s.modelId, voiceId: s.voiceId, steps: s.steps, lang: s.lang };

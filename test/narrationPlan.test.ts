@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createNarrationPlan } from '../src/supertonic';
-import type { Chunk } from '../src/types';
+import { createNarrationPlan } from '../src/supertonic/narration/narrationPlan';
+import type { Chunk } from '../src/types/document';
 
 test('createNarrationPlan keeps canonical text, chunks, and sentence offsets together', () => {
   const text = 'First sentence. Second sentence!';
@@ -13,8 +13,9 @@ test('createNarrationPlan keeps canonical text, chunks, and sentence offsets tog
 
   assert.equal(plan.text, text);
   assert.equal(plan.chunks, chunks);
-  assert.deepEqual(plan.sentences, [
-    { charStart: 0, charEnd: 15 },
-    { charStart: 16, charEnd: 32 },
+  assert.deepEqual(plan.sentences.map(({ ordinal, charStart, charEnd }) => ({ ordinal, charStart, charEnd })), [
+    { ordinal: 0, charStart: 0, charEnd: 15 },
+    { ordinal: 1, charStart: 16, charEnd: 32 },
   ]);
+  assert.ok(plan.sentences.every((sentence) => sentence.id.includes(sentence.textHash)));
 });

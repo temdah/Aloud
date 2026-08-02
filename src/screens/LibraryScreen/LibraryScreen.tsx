@@ -10,7 +10,7 @@ import { loadExtractedText } from '../../pdf';
 import { usePlaybackContext } from '../../playback';
 import type { ActiveDoc } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, createNarrationPlan, documentCacheStats, loadChunks, qualityProfile } from '../../supertonic';
+import { clearDocumentCache, documentCacheStats, loadNarrationPlan, qualityProfile } from '../../supertonic';
 import { COVER_PALETTE, ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
 import type { Book, ImportedDocument } from '../../types';
@@ -104,10 +104,9 @@ export default function LibraryScreen() {
     }
     const rp = renderProfile[docId];
     const effQuality = rp?.quality ?? settings.quality;
-    const chunks = loadChunks(docId, extracted.text, qualityProfile(effQuality).unitLen);
     const active: ActiveDoc = {
       doc,
-      plan: createNarrationPlan(extracted.text, chunks),
+      plan: loadNarrationPlan(docId, extracted.text, qualityProfile(effQuality).unitLen),
       modelId: rp?.modelId ?? settings.modelId,
       voiceId: rp?.voiceId ?? settings.voiceId,
       speed: rp?.speed ?? settings.speed,

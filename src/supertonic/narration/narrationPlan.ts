@@ -1,5 +1,5 @@
 import type { Chunk } from '../../types';
-import { sentenceSpans } from '../text/segmentation';
+import { buildSentenceAnchors } from './sentenceAnchors';
 import type { NarrationPlan } from './narrationPlanTypes';
 
 export const EMPTY_NARRATION_PLAN: NarrationPlan = {
@@ -12,6 +12,6 @@ export function createNarrationPlan(text: string, chunks: Chunk[]): NarrationPla
   return {
     text,
     chunks,
-    sentences: sentenceSpans(text),
+    sentences: buildSentenceAnchors(text),
   };
 }

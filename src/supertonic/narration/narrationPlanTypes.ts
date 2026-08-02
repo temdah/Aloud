@@ -1,5 +1,4 @@
-import type { Chunk } from '../../types';
-import type { SentenceSpan } from '../text/segmentationTypes';
+import type { Chunk, SentenceAnchor } from '../../types';
 
 // Canonical document input shared by the reader and playback. Keeping text,
 // chunks, and sentence offsets together prevents consumers from mixing data
@@ -7,5 +6,5 @@ import type { SentenceSpan } from '../text/segmentationTypes';
 export type NarrationPlan = {
   text: string;
   chunks: Chunk[];
-  sentences: SentenceSpan[];
+  sentences: SentenceAnchor[];
 };

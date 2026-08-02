@@ -1,6 +1,6 @@
 import type { SleepTimer } from '../hooks';
-import type { NarrationPlan } from '../supertonic';
-import type { Quality } from '../supertonic';
+import type { NarrationPlan } from '../supertonic/narration/narrationPlanTypes';
+import type { Quality } from '../supertonic/qualityProfile';
 import type { ImportedDocument } from '../types';
 import type { Playback } from './playbackTypes';
 

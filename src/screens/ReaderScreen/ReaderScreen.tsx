@@ -8,7 +8,7 @@ import { usePlaybackContext } from '../../playback';
 import { clearExtractedImages, type ExtractedBlock } from '../../pdf';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, createNarrationPlan, deleteModel, findModel, isChunkCached, languageLabel, loadChunks, qualityProfile } from '../../supertonic';
+import { clearDocumentCache, deleteModel, EMPTY_NARRATION_PLAN, findModel, isChunkCached, languageLabel, loadNarrationPlan, qualityProfile } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './ReaderScreen.styles';
@@ -107,17 +107,14 @@ export default function ReaderScreen() {
   // Canonical chunk list (playback order + char ranges into document.text). The
   // same string drives chunk boundaries and rendered sentences, so char offsets
   // join them.
-  const chunks = useMemo(
+  const narrationPlan = useMemo(
     () =>
       status === 'ready' && doc && document?.text
-        ? loadChunks(doc.docHash, document.text, qualityProfile(effQuality).unitLen)
-        : [],
+        ? loadNarrationPlan(doc.docHash, document.text, qualityProfile(effQuality).unitLen)
+        : EMPTY_NARRATION_PLAN,
     [status, doc?.docHash, document?.text, effQuality],
   );
-  const narrationPlan = useMemo(
-    () => createNarrationPlan(document?.text ?? '', chunks),
-    [document?.text, chunks],
-  );
+  const chunks = narrationPlan.chunks;
 
   // Playback lives in a global provider so audio + transport survive leaving this
   // screen (mini player elsewhere). The reader registers the open document.

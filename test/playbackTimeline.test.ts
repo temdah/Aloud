@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildNeutralStarts, neutralTimeForOffset } from '../src/playback';
-import type { Chunk } from '../src/types';
+import { buildNeutralStarts, neutralTimeForOffset } from '../src/playback/playbackTimeline';
+import type { Chunk } from '../src/types/document';
 
 const chunks: Chunk[] = [
   { idx: 0, charStart: 0, charEnd: 10, text: '0123456789', pages: [], textHash: 'a' },
