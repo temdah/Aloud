@@ -231,29 +231,31 @@ function profilesRegistryFile(docHash: string): File {
 function readProfilesRegistry(docHash: string): Record<string, ProfileMeta> {
   const cached = profileRegistryCache.get(docHash);
   if (cached) return cached;
-  const file = new File(new Directory(Paths.document, ROOT, docHash), PROFILES_FILE);
-  if (!file.exists) {
-    const empty = {};
-    profileRegistryCache.set(docHash, empty);
-    return empty;
-  }
   try {
+    const file = new File(new Directory(Paths.document, ROOT, docHash), PROFILES_FILE);
+    if (!file.exists) {
+      const empty = {};
+      profileRegistryCache.set(docHash, empty);
+      return empty;
+    }
     const registry = JSON.parse(file.textSync()) as Record<string, ProfileMeta>;
     profileRegistryCache.set(docHash, registry);
     return registry;
   } catch {
-    const empty = {};
-    profileRegistryCache.set(docHash, empty);
-    return empty;
+    return {};
   }
 }
 
 function writeProfilesRegistry(docHash: string, reg: Record<string, ProfileMeta>): void {
-  const file = profilesRegistryFile(docHash);
-  if (file.exists) file.delete();
-  file.create();
-  file.write(JSON.stringify(reg));
-  profileRegistryCache.set(docHash, reg);
+  try {
+    const file = profilesRegistryFile(docHash);
+    if (file.exists) file.delete();
+    file.create();
+    file.write(JSON.stringify(reg));
+    profileRegistryCache.set(docHash, reg);
+  } catch {
+    profileRegistryCache.delete(docHash);
+  }
 }
 
 export function recordCachedProfile(docHash: string, s: NarrationSettings): void {
@@ -267,8 +269,10 @@ export function recordSentenceCachedProfile(docHash: string, s: NarrationSetting
 function recordProfile(docHash: string, hash: string, s: NarrationSettings): void {
   const reg = readProfilesRegistry(docHash);
   if (reg[hash]) return;
-  reg[hash] = { modelId: s.modelId, voiceId: s.voiceId, steps: s.steps, lang: s.lang, tone: s.tone };
-  writeProfilesRegistry(docHash, reg);
+  writeProfilesRegistry(docHash, {
+    ...reg,
+    [hash]: { modelId: s.modelId, voiceId: s.voiceId, steps: s.steps, lang: s.lang, tone: s.tone },
+  });
 }
 
 // settingsHash is base36 (no dashes) and always the final dash-segment, across
@@ -318,8 +322,9 @@ export function clearProfileCache(docHash: string, hash: string): void {
   }
   const reg = readProfilesRegistry(docHash);
   if (reg[hash]) {
-    delete reg[hash];
-    writeProfilesRegistry(docHash, reg);
+    const next = { ...reg };
+    delete next[hash];
+    writeProfilesRegistry(docHash, next);
   }
 }
 

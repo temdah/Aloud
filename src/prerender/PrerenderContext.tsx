@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ensureChunkAudio, getEngine, getVoice, prerenderDocument, settingsHash, withEngine } from '../supertonic';
+import { ensureChunkAudio, getVoice, prerenderDocument, settingsHash, withEngine } from '../supertonic';
 import type { NarrationSettings } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
@@ -32,7 +32,6 @@ export function PrerenderProvider({ children }: { children: ReactNode }) {
       setAudiobook(docHash, { done: 0, total, status: 'running', profileHash });
       void (async () => {
         try {
-          await getEngine(settings.modelId);
           const voice = await getVoice(settings.modelId, settings.voiceId);
           const result = await prerenderDocument({
             docHash,

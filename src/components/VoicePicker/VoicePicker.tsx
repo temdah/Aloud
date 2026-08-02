@@ -2,7 +2,7 @@ import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-aud
 import { File, Paths } from 'expo-file-system';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { encodeWav, ensureModelsDownloaded, getEngine, getVoice, withEngine } from '../../supertonic';
+import { encodeWav, ensureModelsDownloaded, getVoice, withEngine } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import { SAMPLE_TEXT } from '../../utils';
 import { Chip } from '../Chip';
@@ -65,17 +65,18 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
     setPlaying(null);
     setBusy(voiceId);
     try {
-      const tts = await getEngine(modelId); // shared resident engine
-      if (token !== tokenRef.current) return;
       const voice = await getVoice(modelId, voiceId); // fetches the style file if missing
       if (token !== tokenRef.current) return;
-      const { waveform } = await withEngine(modelId, (t) => t.synthesize(SAMPLE_TEXT, lang, voice, PREVIEW_STEPS, 1.05));
+      const { waveform, sampleRate } = await withEngine(modelId, async (tts) => ({
+        ...(await tts.synthesize(SAMPLE_TEXT, lang, voice, PREVIEW_STEPS, 1.05)),
+        sampleRate: tts.sampleRate,
+      }));
       if (token !== tokenRef.current) return;
 
       const out = new File(Paths.cache, PREVIEW_FILE);
       if (out.exists) out.delete();
       out.create();
-      out.write(encodeWav(waveform, tts.sampleRate));
+      out.write(encodeWav(waveform, sampleRate));
 
       await setAudioModeAsync({ playsInSilentMode: true });
       if (token !== tokenRef.current) return;
@@ -87,7 +88,7 @@ export function VoicePicker({ value, onChange, modelId, lang = 'en' }: VoicePick
       setBusy(null);
       setPlaying(voiceId);
       // No status hook on a ref-held player, so clear "playing" on a timer.
-      const audioMs = (waveform.length / tts.sampleRate) * 1000;
+      const audioMs = (waveform.length / sampleRate) * 1000;
       stopTimerRef.current = setTimeout(() => {
         if (token === tokenRef.current) setPlaying(null);
       }, audioMs + 400);

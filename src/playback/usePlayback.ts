@@ -2,7 +2,7 @@ import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioP
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDevicePerformanceSnapshot } from '../../modules/device-performance';
 import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, deleteAudiobookCache, deleteChunkCache, deleteLeadCache, deleteSentenceCache, ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec, withEngine } from '../supertonic';
-import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, TextToSpeech, VoiceStyle } from '../supertonic';
+import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, VoiceStyle } from '../supertonic';
 import {
   buildFastStart,
   buildLead,
@@ -179,6 +179,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     [modelId, audiobook?.status, audiobook?.profileHash, settings],
   );
   const [audiobookFailed, setAudiobookFailed] = useState(false);
+  const keepEngineWarm = useSettingsStore((s) => s.keepEngineWarm);
   useEffect(() => setAudiobookFailed(false), [docHash, settings]);
 
   // When a full render is stitched into one file, play it as ONE media item so
@@ -268,6 +269,10 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       setReady(true); // cached audiobook: skip the cold-load, read clips directly
       return;
     }
+    if (!keepEngineWarm) {
+      setReady(true);
+      return;
+    }
     setReady(false);
     getEngine(modelId)
       .then(() => {
@@ -281,15 +286,13 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     return () => {
       cancelled = true;
     };
-  }, [modelId, fullyRendered]);
+  }, [modelId, fullyRendered, keepEngineWarm]);
 
-  // Resolve the shared engine's tts + current voice on demand (null if no model).
-  // Cheap once warm; inference goes through `withEngine` for swap safety.
-  const ensureEngine = useCallback(async (): Promise<{ tts: TextToSpeech; voice: VoiceStyle } | null> => {
+  // Resolve the current voice on demand; inference acquires its own engine lease.
+  const ensureEngine = useCallback(async (): Promise<{ voice: VoiceStyle } | null> => {
     if (!modelId) return null;
-    const tts = await getEngine(modelId);
     const voice = await getVoice(modelId, voiceId);
-    return { tts, voice };
+    return { voice };
   }, [modelId, voiceId]);
 
   // Whole-document timeline for the scrubber. Built instantly with no engine —
@@ -332,7 +335,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     [plan, chunks, text, docHash, settings, modelId, ensureEngine, requestGate],
   );
   useEffect(() => {
-    if (!ready || started || fullyRendered || chunks.length === 0 || !modelId) return;
+    if (!keepEngineWarm || !ready || started || fullyRendered || chunks.length === 0 || !modelId) return;
     const startAt = currentRef.current?.charStart ?? chunks[0].charStart;
     const sentence = sentenceTargetForStart(plan, startAt);
     const warmKey = sentence
@@ -341,7 +344,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     if (warmedRef.current === warmKey) return;
     warmedRef.current = warmKey;
     void warmStart(startAt);
-  }, [ready, current, started, fullyRendered, chunks, modelId, docHash, settings, plan, warmStart]);
+  }, [keepEngineWarm, ready, current, started, fullyRendered, chunks, modelId, docHash, settings, plan, warmStart]);
 
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);

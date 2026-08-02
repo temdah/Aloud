@@ -3,6 +3,7 @@ import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import { DEFAULT_NARRATION_TONE, DEFAULT_QUALITY, EMPTY_NARRATION_PLAN, getEngine, isEngineResident, MIN_SYNTHESIS_STEPS, releaseCurrentEngine } from '../supertonic';
 import { useSettingsStore } from '../stores';
 import type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
+import { resolveWarmEngineModel, shouldReleaseEngineOnBackground } from './engineWarmPolicy';
 import { usePlayback } from './usePlayback';
 import { useSleepTimer } from './useSleepTimer';
 
@@ -41,31 +42,43 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     void requestNotificationPermission();
   }, []);
 
-  // Warm the engine ahead of play: as soon as a model is set, and whenever the
-  // app returns to the foreground. getEngine is idempotent, so this is a no-op
-  // when already resident. An idle loaded engine costs RAM, not battery/CPU — so
-  // by default it stays hot; with keepEngineWarm off it's released on background
-  // when nothing is playing, to save memory on low-RAM devices.
-  const modelId = useSettingsStore((s) => s.modelId);
+  // Warm the active document's pinned model rather than the latest global choice.
+  const defaultModelId = useSettingsStore((s) => s.modelId);
   const keepEngineWarm = useSettingsStore((s) => s.keepEngineWarm);
+  const warmModelId = resolveWarmEngineModel(defaultModelId, activeDoc?.modelId ?? null);
   const keepWarmRef = useRef(keepEngineWarm);
   keepWarmRef.current = keepEngineWarm;
-  const startedRef = useRef(playback.started);
-  startedRef.current = playback.started;
+  const warmModelRef = useRef(warmModelId);
+  warmModelRef.current = warmModelId;
+  const activityRef = useRef({ playing: playback.playing, loading: playback.loading });
+  activityRef.current = { playing: playback.playing, loading: playback.loading };
 
   useEffect(() => {
-    if (modelId && !isEngineResident(modelId)) void getEngine(modelId).catch(() => {});
-  }, [modelId]);
+    if (keepEngineWarm && warmModelId && !isEngineResident(warmModelId)) {
+      void getEngine(warmModelId).catch(() => {});
+    }
+  }, [keepEngineWarm, warmModelId]);
+  useEffect(() => {
+    if (keepEngineWarm) return;
+    const { playing, loading } = activityRef.current;
+    if (!playing && !loading) void releaseCurrentEngine().catch(() => {});
+  }, [keepEngineWarm]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        if (modelId && !isEngineResident(modelId)) void getEngine(modelId).catch(() => {});
-      } else if (state === 'background' && !keepWarmRef.current && !startedRef.current) {
-        void releaseCurrentEngine().catch(() => {});
+        const modelId = warmModelRef.current;
+        if (keepWarmRef.current && modelId && !isEngineResident(modelId)) {
+          void getEngine(modelId).catch(() => {});
+        }
+      } else if (state === 'background') {
+        const { playing, loading } = activityRef.current;
+        if (shouldReleaseEngineOnBackground(keepWarmRef.current, playing, loading)) {
+          void releaseCurrentEngine().catch(() => {});
+        }
       }
     });
     return () => sub.remove();
-  }, [modelId]);
+  }, []);
 
   // Stable pause ref — the sleep timer captures its callback once.
   const pauseRef = useRef(playback.pause);

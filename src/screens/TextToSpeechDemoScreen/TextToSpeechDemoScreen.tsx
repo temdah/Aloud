@@ -22,6 +22,7 @@ import {
   clearNarrationPerfCounters,
   TextToSpeech,
   VoiceStyle,
+  withEngine,
   type NarrationSettings,
   type NarrationSynthesisMetrics,
   type SynthesisDiagnostics,
@@ -135,6 +136,7 @@ export default function TextToSpeechDemoScreen() {
   const [analyzedDoc, setAnalyzedDoc] = useState<ImportedDocument | null>(null);
   const ttsRef = useRef<TextToSpeech | null>(null);
   const voiceRef = useRef<VoiceStyle | null>(null);
+  const engineProfileRef = useRef<string | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
 
   const append = (line: string) => {
@@ -147,7 +149,8 @@ export default function TextToSpeechDemoScreen() {
   const ensureLoaded = async () => {
     if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
     const v = voiceId || DEFAULT_VOICE;
-    if (isEngineResident(modelId) && ttsRef.current && voiceRef.current) {
+    const profile = `${modelId}:${v}`;
+    if (isEngineResident(modelId) && engineProfileRef.current === profile && ttsRef.current && voiceRef.current) {
       append('Sessions already loaded (warm) — skipping cold load.');
       return;
     }
@@ -159,37 +162,41 @@ export default function TextToSpeechDemoScreen() {
     // Shared engine — reuses playback's resident sessions, no second copy.
     ttsRef.current = await getEngine(modelId);
     voiceRef.current = await getVoice(modelId, v);
+    engineProfileRef.current = profile;
     append(`  ${resident ? 'attached' : 'sessions loaded'} in ${seconds(Date.now() - start)} s  (sampleRate=${ttsRef.current.sampleRate}).`);
   };
 
   // Synthesize one chunk, capturing per-stage + encode/write timings and writing
   // the WAV so it can be played later. Does not play.
   const benchChunk = async (text: string): Promise<ChunkBench> => {
-    const tts = ttsRef.current!;
+    const selectedModelId = requireValue(modelId, 'No voice model selected.');
     const voice = voiceRef.current!;
     const stages: Record<string, number> = {};
     const stepStarts: number[] = [];
     let last = Date.now();
     const synthStart = last;
 
-    const { waveform, durationsSec, diagnostics } = await tts.synthesize(
-      text,
-      lang,
-      voice,
-      steps,
-      1.0, // neutral rate, matching the real cache path
-      () => stepStarts.push(Date.now()),
-      (stage) => {
-        const now = Date.now();
-        stages[stage] = now - last;
-        last = now;
-        traceMark(stage);
-      },
-    );
+    const { waveform, durationsSec, diagnostics, sampleRate } = await withEngine(selectedModelId, async (tts) => ({
+      ...(await tts.synthesize(
+        text,
+        lang,
+        voice,
+        steps,
+        1.0,
+        () => stepStarts.push(Date.now()),
+        (stage) => {
+          const now = Date.now();
+          stages[stage] = now - last;
+          last = now;
+          traceMark(stage);
+        },
+      )),
+      sampleRate: tts.sampleRate,
+    }));
     const synthMs = Date.now() - synthStart;
 
     const encStart = Date.now();
-    const bytes = encodeWav(waveform, tts.sampleRate);
+    const bytes = encodeWav(waveform, sampleRate);
     const encodeMs = Date.now() - encStart;
 
     const wrStart = Date.now();
@@ -205,7 +212,7 @@ export default function TextToSpeechDemoScreen() {
       synthMs,
       encodeMs,
       writeMs,
-      audioSec: waveform.length / tts.sampleRate,
+      audioSec: waveform.length / sampleRate,
       predictedSec: durationsSec[0] ?? 0,
       diagnostics,
       uri: output.uri,
@@ -401,10 +408,12 @@ export default function TextToSpeechDemoScreen() {
       await releaseCurrentEngine();
       ttsRef.current = null;
       voiceRef.current = null;
+      engineProfileRef.current = null;
       traceStart();
       const start = Date.now();
       ttsRef.current = await getEngine(selectedModelId);
       voiceRef.current = await getVoice(selectedModelId, voiceId || DEFAULT_VOICE);
+      engineProfileRef.current = `${selectedModelId}:${voiceId || DEFAULT_VOICE}`;
       const total = Date.now() - start;
       append(formatTrace(traceStop()));
       append('  ' + '─'.repeat(28));
@@ -505,14 +514,16 @@ export default function TextToSpeechDemoScreen() {
       traceStart();
       const t0 = Date.now();
       let metrics: NarrationSynthesisMetrics | null = null;
-      await ensureChunkAudio(
-        ttsRef.current!,
-        voiceRef.current!,
-        analyzedDoc.docHash,
-        extracted.text,
-        firstChunk,
-        settings,
-        (reported) => { metrics = reported; },
+      await withEngine(selectedModelId, (tts) =>
+        ensureChunkAudio(
+          tts,
+          voiceRef.current!,
+          analyzedDoc.docHash,
+          extracted.text,
+          firstChunk,
+          settings,
+          (reported) => { metrics = reported; },
+        ),
       );
       const spans = traceStop();
       append(formatTrace(spans));
