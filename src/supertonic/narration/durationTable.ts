@@ -4,7 +4,7 @@
 // speed is a live divisor, so the table only rebuilds on model/voice/lang change.
 import { File } from 'expo-file-system';
 import type { Chunk } from '../../types';
-import { stableHash } from '../../utils/hash';
+import { stableHash } from '../../utils';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
 import { documentCacheDir, readChunkTiming } from './audioCache';

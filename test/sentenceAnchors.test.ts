@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createNarrationPlan } from '../src/supertonic/narration/narrationPlan';
-import { buildSentenceAnchors, MAX_SENTENCE_ANCHOR_CHARS } from '../src/supertonic/narration/sentenceAnchors';
-import { buildChunks } from '../src/supertonic/narration/textChunker';
+import { createNarrationPlan } from '../src/supertonic';
+import { buildSentenceAnchors, MAX_SENTENCE_ANCHOR_CHARS } from '../src/supertonic';
+import { buildChunks } from '../src/supertonic';
 
 test('sentence identities remain stable when canonical chunk size changes', () => {
   const text = 'A short opening. A longer second sentence provides enough text to cross a small chunk boundary. Final line.';

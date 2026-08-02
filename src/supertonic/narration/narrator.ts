@@ -6,7 +6,7 @@ import type { VoiceStyle } from '../synthesis/voiceStyle';
 import type { File } from 'expo-file-system';
 import { encodeFloatPcmToM4a } from '../../../modules/aac-codec';
 import { stageTimer } from '../../utils/perf';
-import { traceMark, traceOpen } from '../../utils/trace';
+import { traceMark, traceOpen } from '../../utils';
 import {
   chunkAudioFile,
   leadAudioFile,

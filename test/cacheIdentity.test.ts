@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sentenceCacheBaseName, sentenceSettingsHash, settingsHash } from '../src/supertonic/narration/cacheIdentity';
+import { sentenceCacheBaseName, sentenceSettingsHash, settingsHash } from '../src/supertonic';
 import type { NarrationSettings } from '../src/supertonic';
 
 const settings: NarrationSettings = {

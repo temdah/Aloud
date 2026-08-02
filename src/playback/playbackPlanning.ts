@@ -1,7 +1,7 @@
-import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
+import { findChunkIndexForOffset } from '../supertonic';
 import { firstSentenceEnd } from '../supertonic/text/segmentation';
 import type { Chunk } from '../types';
-import { stableHash } from '../utils/hash';
+import { stableHash } from '../utils';
 import type { FastStart, Lead } from './playbackPlanningTypes';
 
 const PREFETCH_AHEAD = 4;

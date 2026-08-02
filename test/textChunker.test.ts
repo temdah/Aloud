@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chunkText } from '../src/supertonic/narration/textChunker';
+import { chunkText } from '../src/supertonic';
 
 test('chunkText preserves exact source offsets around trimmed whitespace', () => {
   const text = '  First sentence.\n\n  Second sentence!  ';

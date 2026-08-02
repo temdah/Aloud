@@ -1,5 +1,5 @@
 import type { SentenceAnchor } from '../../types';
-import { stableHash } from '../../utils/hash';
+import { stableHash } from '../../utils';
 import type { NarrationSettings } from './narrationTypes';
 
 // Bump when synthesis changes the audio produced for otherwise-identical input.

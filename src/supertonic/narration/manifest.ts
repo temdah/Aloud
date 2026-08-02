@@ -1,6 +1,6 @@
 import { File } from 'expo-file-system';
 import type { Chunk, DocumentManifest } from '../../types';
-import { stableHash } from '../../utils/hash';
+import { stableHash } from '../../utils';
 import { clearDocumentCache, clearFragmentedCache, documentCacheDir } from './audioCache';
 import { createNarrationPlan } from './narrationPlan';
 import type { NarrationPlan } from './narrationPlanTypes';

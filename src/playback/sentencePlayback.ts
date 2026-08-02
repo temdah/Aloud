@@ -1,6 +1,6 @@
-import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
+import { findChunkIndexForOffset } from '../supertonic';
 import type { NarrationPlan } from '../supertonic';
-import type { SentenceAnchor } from '../types/document';
+import type { SentenceAnchor } from '../types';
 import type { SentencePlaybackTarget } from './sentencePlaybackTypes';
 
 export function findSentenceIndexForOffset(sentences: readonly SentenceAnchor[], charOffset: number): number {

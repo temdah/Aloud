@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createNarrationPlan } from '../src/supertonic/narration/narrationPlan';
+import { createNarrationPlan } from '../src/supertonic';
 import type { Chunk } from '../src/types';
 
 test('createNarrationPlan keeps canonical text, chunks, and sentence offsets together', () => {

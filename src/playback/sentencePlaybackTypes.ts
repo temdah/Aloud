@@ -1,4 +1,4 @@
-import type { Chunk, SentenceAnchor } from '../types/document';
+import type { Chunk, SentenceAnchor } from '../types';
 
 export type SentencePlaybackTarget = {
   sentenceIndex: number;
