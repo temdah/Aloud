@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
 // Wall-clock countdown firing `onFire` once. Tracks an absolute deadline (not a
 // tick count) so it stays accurate when the JS timer is throttled in the
 // background — the "stop after N minutes with the screen off" case.

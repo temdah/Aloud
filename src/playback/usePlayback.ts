@@ -30,11 +30,11 @@ import {
   type PlaybackCacheDecision,
   type PlaybackRequestKind,
   type UsePlaybackOptions,
-} from '../playback';
+} from './core';
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
-export type { Playback, UsePlaybackOptions } from '../playback';
+export type { Playback, UsePlaybackOptions } from './core';
 // Extra OS-notification transport buttons (the Android Media3 notification can't
 // be themed to match the app).
 const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed: true } as const;

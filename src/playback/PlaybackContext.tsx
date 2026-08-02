@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
-import { usePlayback, useSleepTimer } from '../hooks';
 import { DEFAULT_NARRATION_TONE, DEFAULT_QUALITY, EMPTY_NARRATION_PLAN, getEngine, isEngineResident, MIN_SYNTHESIS_STEPS, releaseCurrentEngine } from '../supertonic';
 import { useSettingsStore } from '../stores';
 import type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
+import { usePlayback } from './usePlayback';
+import { useSleepTimer } from './useSleepTimer';
 
 export type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
 
