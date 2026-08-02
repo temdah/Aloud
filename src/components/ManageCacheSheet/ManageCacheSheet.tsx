@@ -15,7 +15,7 @@ import { ty, TYPE, useTheme } from '../../theme';
 import { Button } from '../Button';
 import { IconButton } from '../IconButton';
 import { Sheet } from '../Sheet';
-import { voiceLabel } from '../VoicePicker/voiceCatalog';
+import { voiceLabel } from '../VoicePicker';
 import { makeStyles } from './ManageCacheSheet.styles';
 
 export type ManageCacheSheetProps = {

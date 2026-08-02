@@ -44,7 +44,7 @@ export function isAcademicDocument(documentText: string): boolean {
     if (ACADEMIC_TERMS.has(word)) matchedTerms.add(word);
     if (matchedTerms.size >= 4) return true;
   }
-  const citations = (sample.match(/\[[0-9,;\s-]+\]|\bet\s+al\./gi) ?? []).length;
+  const citations = (sample.match(/\[[0-9,;\s-]+]|\bet\s+al\./gi) ?? []).length;
   return matchedTerms.size + Math.min(3, citations) >= 5;
 }
 
