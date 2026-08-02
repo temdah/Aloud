@@ -2,7 +2,7 @@ export { chunkText, buildChunks } from './textChunker';
 export type { RawChunk } from './textChunker';
 export { findChunkIndexForOffset } from './chunkLookup';
 export { ensureChunkAudio, ensureLeadAudio } from './narrator';
-export { getSynthRtf } from './perfStats';
+export { clearNarrationPerfCounters, getNarrationPerfCounters, getSynthRtf } from './perfStats';
 export { prerenderDocument } from './prerender';
 export type { PrerenderOptions, PrerenderProgress, PrerenderResult } from './prerender';
 export {

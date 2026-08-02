@@ -5,6 +5,8 @@
 
 const EMA_ALPHA = 0.3;
 const rtfByModel = new Map<string, number>();
+let synthesesStarted = 0;
+let deduplicatedWaiters = 0;
 
 export function recordSynthRtf(modelId: string, rtf: number): void {
   if (!modelId || !Number.isFinite(rtf) || rtf <= 0) return;
@@ -15,4 +17,21 @@ export function recordSynthRtf(modelId: string, rtf: number): void {
 export function getSynthRtf(modelId: string | null): number | null {
   if (!modelId) return null;
   return rtfByModel.get(modelId) ?? null;
+}
+
+export function recordSynthesisStarted(): void {
+  synthesesStarted += 1;
+}
+
+export function recordDeduplicatedSynthesis(): void {
+  deduplicatedWaiters += 1;
+}
+
+export function getNarrationPerfCounters(): { synthesesStarted: number; deduplicatedWaiters: number } {
+  return { synthesesStarted, deduplicatedWaiters };
+}
+
+export function clearNarrationPerfCounters(): void {
+  synthesesStarted = 0;
+  deduplicatedWaiters = 0;
 }

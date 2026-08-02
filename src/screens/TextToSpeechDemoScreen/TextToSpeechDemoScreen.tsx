@@ -10,11 +10,13 @@ import {
   encodeWav,
   ensureChunkAudio,
   getEngine,
+  getNarrationPerfCounters,
   getVoice,
   isEngineResident,
   loadChunks,
   qualityProfile,
   releaseCurrentEngine,
+  clearNarrationPerfCounters,
   TextToSpeech,
   VoiceStyle,
   type NarrationSettings,
@@ -22,8 +24,9 @@ import {
   type SynthesisDiagnostics,
   type SynthesisStage,
 } from '../../supertonic';
+import { getDevicePerformanceSnapshot } from '../../../modules/device-performance';
 import { loadExtractedText } from '../../pdf';
-import { usePlaybackContext } from '../../playback';
+import { clearPlaybackDiagnostics, getPlaybackDiagnostics, usePlaybackContext } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { maxChunkLen } from '../../supertonic/text/sentenceRules';
 import { useTheme } from '../../theme';
@@ -92,8 +95,9 @@ const TEST_ITINERARY = [
   ['Smoke test', 'Confirm that the selected model can synthesize and play audio.'],
   ['Analyze a document', 'Check extraction, headings, chunk sizes, and the hard chunk cap.'],
   ['Trace real synthesis', 'Measure the production Float32 → native AAC path on the selected document.'],
-  ['Warm repeat ×5', 'Measure normal warm-engine variance and thermal drift on one representative chunk.'],
-  ['Run benchmark', 'Measure time-to-first-audio and sustained multi-chunk throughput.'],
+  ['Run clean benchmark', 'Measure time-to-first-audio and sustained throughput before deliberately heating the device.'],
+  ['Trace reader playback', 'Reset the trace, play in the reader, stop, start from the next sentence, cross several boundaries, then report it here.'],
+  ['Warm repeat ×5', 'Stress the warm engine last to expose variance and thermal drift.'],
   ['Cold load', 'Measure model loading last; it deliberately releases the warm engine.'],
   ['Copy results', 'Export the complete log for comparison with the previous build.'],
 ] as const;
@@ -124,7 +128,7 @@ export default function TextToSpeechDemoScreen() {
 
   const [log, setLog] = useState('Voice engine performance lab.\n');
   const [busy, setBusy] = useState(false);
-  const [steps, setSteps] = useState(settingsSteps);
+  const [steps, setSteps] = useState(Math.max(5, settingsSteps));
   const [analyzedDoc, setAnalyzedDoc] = useState<ImportedDocument | null>(null);
   const ttsRef = useRef<TextToSpeech | null>(null);
   const voiceRef = useRef<VoiceStyle | null>(null);
@@ -135,7 +139,8 @@ export default function TextToSpeechDemoScreen() {
     setLog((prev) => prev + line + '\n');
   };
 
-  // First use pays the genuine cold-load cost; later runs reuse it (warm).
+  // First use pays the genuine cold-load cost; later runs either reuse local
+  // references or attach to the shared resident engine without claiming a cold load.
   const ensureLoaded = async () => {
     if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
     const v = voiceId || DEFAULT_VOICE;
@@ -143,12 +148,15 @@ export default function TextToSpeechDemoScreen() {
       append('Sessions already loaded (warm) — skipping cold load.');
       return;
     }
-    append(`Cold-loading ONNX sessions (${modelId}, voice ${v})...`);
+    const resident = isEngineResident(modelId);
+    append(resident
+      ? `Attaching to resident ONNX sessions (${modelId}, voice ${v})...`
+      : `Cold-loading ONNX sessions (${modelId}, voice ${v})...`);
     const start = Date.now();
     // Shared engine — reuses playback's resident sessions, no second copy.
     ttsRef.current = await getEngine(modelId);
     voiceRef.current = await getVoice(modelId, v);
-    append(`  sessions loaded in ${seconds(Date.now() - start)} s  (sampleRate=${ttsRef.current.sampleRate}).`);
+    append(`  ${resident ? 'attached' : 'sessions loaded'} in ${seconds(Date.now() - start)} s  (sampleRate=${ttsRef.current.sampleRate}).`);
   };
 
   // Synthesize one chunk, capturing per-stage + encode/write timings and writing
@@ -513,6 +521,67 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
+  const resetPlaybackTrace = () => {
+    clearPlaybackDiagnostics();
+    clearNarrationPerfCounters();
+    append('\nProduction playback trace reset. Open the reader and run Test 5 now.');
+  };
+
+  const reportPlaybackTrace = () => {
+    const diagnostics = getPlaybackDiagnostics();
+    const counters = getNarrationPerfCounters();
+    const device = getDevicePerformanceSnapshot();
+    const completed = diagnostics.traces.filter((trace) => trace.outcome === 'playing');
+    const tapTimes = completed.flatMap((trace) => trace.playerPlayingMs == null ? [] : [trace.playerPlayingMs]);
+    const queueTimes = completed.flatMap((trace) => trace.queueWaitMs == null ? [] : [trace.queueWaitMs]);
+    const decisions: Record<string, number> = {};
+    for (const trace of diagnostics.traces) {
+      const key = trace.cacheDecision ?? 'no-decision';
+      decisions[key] = (decisions[key] ?? 0) + 1;
+    }
+    const fastLeadChars = diagnostics.traces.flatMap((trace) => trace.fastLeadChars == null ? [] : [trace.fastLeadChars]);
+    const gapTimes = diagnostics.boundaryGaps.map((gap) => gap.durationMs);
+    const cachedGapTimes = diagnostics.boundaryGaps.filter((gap) => gap.nextWasCached).map((gap) => gap.durationMs);
+    const missedGapTimes = diagnostics.boundaryGaps.filter((gap) => !gap.nextWasCached).map((gap) => gap.durationMs);
+    const depths = diagnostics.prefetch.map((sample) => sample.depth);
+    const throughputs = diagnostics.prefetch.flatMap((sample) => sample.synthThroughput == null ? [] : [sample.synthThroughput]);
+
+    append('\n── Production reader playback ──');
+    append(row('requests', `${diagnostics.traces.length} · playing ${completed.length} · cancelled ${diagnostics.traces.filter((t) => t.outcome === 'cancelled').length} · errors ${diagnostics.traces.filter((t) => t.outcome === 'error').length}`));
+    append(row('cache decisions', Object.entries(decisions).map(([key, count]) => `${key}:${count}`).join('  ') || '(none)'));
+    append(row('tap → playing p50/p95', tapTimes.length ? `${ms(percentile(tapTimes, 0.5))} / ${ms(percentile(tapTimes, 0.95))}` : '(no completed requests)'));
+    append(row('queue wait p50/p95', queueTimes.length ? `${ms(percentile(queueTimes, 0.5))} / ${ms(percentile(queueTimes, 0.95))}` : '(no synthesis requests)'));
+    append(row('fast-lead chars', fastLeadChars.length ? `median ${Math.round(percentile(fastLeadChars, 0.5))} · min ${min(fastLeadChars)} · max ${max(fastLeadChars)}` : '(none)'));
+    append(row('boundary gap p50/p95', gapTimes.length ? `${ms(percentile(gapTimes, 0.5))} / ${ms(percentile(gapTimes, 0.95))} · max ${ms(max(gapTimes))}` : '(none crossed)'));
+    append(row('cached boundary gaps', summarizeDurations(cachedGapTimes)));
+    append(row('uncached boundary gaps', summarizeDurations(missedGapTimes)));
+    append(row('prefetch depth', depths.length ? `median ${percentile(depths, 0.5)} · min ${min(depths)} · max ${max(depths)}` : '(none)'));
+    append(row('synth throughput', throughputs.length ? `median ${percentile(throughputs, 0.5).toFixed(2)}× realtime` : '(not available)'));
+    append(row('actual syntheses', String(counters.synthesesStarted)));
+    append(row('deduplicated waits', String(counters.deduplicatedWaiters)));
+
+    append('  ── latest request waterfalls ──');
+    diagnostics.traces.slice(-10).forEach((trace) => {
+      append(`  #${trace.id} ${trace.kind} · ${trace.chars}c · ${trace.cacheDecision ?? 'no decision'} · ${trace.outcome}`);
+      append(`    cache ${optionalMs(trace.cacheDecisionMs)} · queue ${optionalMs(trace.queueWaitMs)} · ready ${optionalMs(trace.prepareMs)} · loaded ${optionalMs(trace.playerLoadedMs)} · playing ${optionalMs(trace.playerPlayingMs)}`);
+      if (trace.synthesis) {
+        append(`    synth ${ms(trace.synthesis.synthMs)} · PCM ${ms(trace.synthesis.pcmMs)} · AAC ${ms(trace.synthesis.aacMs)} · production total ${ms(trace.synthesis.totalMs)}`);
+      }
+    });
+
+    append('  ── device state ──');
+    if (!device) {
+      append('  Native device diagnostics unavailable in this build. Rebuild the APK to enable them.');
+    } else {
+      append(row('thermal status', thermalStatusLabel(device.thermalStatus)));
+      append(row('battery', `${optionalNumber(device.batteryPercent, '%')} · ${optionalNumber(device.batteryTemperatureC, ' °C')} · saver ${device.powerSaveMode ? 'on' : 'off'}`));
+      append(row('memory available', `${formatBytes(device.availableMemoryBytes)} / ${formatBytes(device.totalMemoryBytes)} · low ${device.lowMemory ? 'yes' : 'no'}`));
+      append(row('memory threshold', formatBytes(device.memoryThresholdBytes)));
+      append(row('app memory class', `${device.appMemoryClassMb} MB · large ${device.largeAppMemoryClassMb} MB`));
+      append(row('CPU cores', String(device.cpuCores)));
+    }
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -522,7 +591,7 @@ export default function TextToSpeechDemoScreen() {
       <Text style={styles.eyebrow}>Developer tools</Text>
       <Text style={styles.title}>Voice engine performance lab</Text>
       <Text style={styles.hint}>
-        Install a voice model first. Tests use {voiceId || DEFAULT_VOICE}, language {lang}, and the selected quality profile. Keep synthesis at five steps for baseline measurements.
+        Install a voice model first. Tests use {voiceId || DEFAULT_VOICE}, language {lang}, and the selected quality profile. Five steps is the fast-profile minimum; keep the selected profile's configured value unless deliberately comparing steps.
       </Text>
       <Text style={styles.status}>{busy ? 'Test running — controls locked' : 'Ready to test'}</Text>
 
@@ -544,7 +613,7 @@ export default function TextToSpeechDemoScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Synthesis steps</Text>
-        <Text style={styles.sectionHint}>Baseline: five steps. Change this only when deliberately comparing synthesis quality.</Text>
+        <Text style={styles.sectionHint}>Fast minimum: five steps. The {quality} profile defaults to {qualityProfile(quality).steps}; change it only for a deliberate quality comparison.</Text>
         <View style={styles.actionCard}>
           <Text style={styles.stepValue}>Current value: {steps}</Text>
           <View style={styles.stepButtons}>
@@ -552,10 +621,10 @@ export default function TextToSpeechDemoScreen() {
               <Button
                 title="Decrease"
                 color={palette.primary}
-                onPress={() => setSteps((current) => Math.max(1, current - 1))}
-                disabled={busy}
+                onPress={() => setSteps((current) => Math.max(5, current - 1))}
+                disabled={busy || steps <= 5}
               />
-              <Text style={styles.actionDescription}>Lowers inference work, but values below five are not valid quality baselines.</Text>
+              <Text style={styles.actionDescription}>Lowers inference work. The lab will not run fewer than five denoising steps.</Text>
             </View>
             <View style={styles.stepButton}>
               <Button
@@ -619,24 +688,42 @@ export default function TextToSpeechDemoScreen() {
         <DevAction
           styles={styles}
           order="Test 4"
-          title={`Warm repeat ×${REPEAT_RUNS}`}
-          description="Synthesizes the same chunk five times with resident sessions to expose median, P90, scheduler noise, and thermal drift."
-          color={palette.primary}
-          onPress={() => void repeatBenchmark()}
-          disabled={busy}
-        />
-        <DevAction
-          styles={styles}
-          order="Test 5"
-          title="Run benchmark"
-          description="Measures first-audio latency and sustained throughput across several chunks of the built-in sample document."
+          title="Run clean benchmark"
+          description="Measures first-audio latency and sustained throughput before the warm-repeat stress pass heats or throttles the device."
           color={palette.primary}
           onPress={() => void runBenchmark()}
           disabled={busy}
         />
         <DevAction
           styles={styles}
-          order="Test 6 · run last"
+          order="Test 5 · setup"
+          title="Reset playback trace"
+          description="Clears production playback timings. Then open the reader, play a paragraph, stop, start from its next sentence, and let playback cross at least five boundaries."
+          color={palette.primary}
+          onPress={resetPlaybackTrace}
+          disabled={busy}
+        />
+        <DevAction
+          styles={styles}
+          order="Test 5 · report"
+          title="Report playback trace"
+          description="After the reader scenario, reports real cache decisions, synthesis and queue time, player startup, boundary gaps, prefetch depth, redundant work, and device state."
+          color={palette.primary}
+          onPress={reportPlaybackTrace}
+          disabled={busy}
+        />
+        <DevAction
+          styles={styles}
+          order="Test 6"
+          title={`Warm repeat ×${REPEAT_RUNS}`}
+          description="Runs the repeated warm synthesis stress pass after clean measurements to expose median, P90, scheduler noise, and thermal drift."
+          color={palette.primary}
+          onPress={() => void repeatBenchmark()}
+          disabled={busy}
+        />
+        <DevAction
+          styles={styles}
+          order="Test 7 · run last"
           title="Cold load"
           description="Releases the resident ONNX sessions and times a complete reload. Run last because it intentionally destroys the warm baseline."
           color={palette.primary}
@@ -650,7 +737,7 @@ export default function TextToSpeechDemoScreen() {
         <Text style={styles.sectionHint}>Copy the log before clearing it. The console itself scrolls independently.</Text>
         <DevAction
           styles={styles}
-          order="Test 7 · export"
+          order="Test 8 · export"
           title="Copy results"
           description="Copies the entire measurement log to the clipboard so it can be saved or compared with another build."
           color={palette.primary}
@@ -688,6 +775,20 @@ const throughput = (wallMs: number, audioSec: number) => audioSec / Math.max(0.0
 const percent = (part: number, total: number) => `${((part / Math.max(1, total)) * 100).toFixed(1)}%`;
 const min = (values: number[]) => Math.min(...values);
 const max = (values: number[]) => Math.max(...values);
+const optionalMs = (value: number | null) => value == null ? '—' : ms(value);
+const optionalNumber = (value: number | null, suffix: string) => value == null ? 'unknown' : `${value.toFixed(1)}${suffix}`;
+
+const THERMAL_STATUS = ['none', 'light', 'moderate', 'severe', 'critical', 'emergency', 'shutdown'] as const;
+
+function thermalStatusLabel(status: number | null): string {
+  if (status == null) return 'unavailable (Android < 10)';
+  return THERMAL_STATUS[status] ?? `unknown (${status})`;
+}
+
+function summarizeDurations(values: number[]): string {
+  if (values.length === 0) return '(none)';
+  return `${values.length} · p50 ${ms(percentile(values, 0.5))} · p95 ${ms(percentile(values, 0.95))}`;
+}
 
 function percentile(values: number[], fraction: number): number {
   if (values.length === 0) return 0;

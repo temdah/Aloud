@@ -9,7 +9,7 @@ import { stageTimer } from '../../utils/perf';
 import { traceMark, traceOpen } from '../../utils';
 import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile, writeChunkTiming } from './audioCache';
 import type { NarrationMetricsReporter, NarrationSettings, NarrationSynthesisMetrics } from './narrationTypes';
-import { recordSynthRtf } from './perfStats';
+import { recordDeduplicatedSynthesis, recordSynthesisStarted, recordSynthRtf } from './perfStats';
 
 // Coalesce concurrent synthesis of the same clip. Without this, a chunk being
 // prefetched in the background and then reached by playback runs TWO full ONNX
@@ -20,7 +20,10 @@ const inFlight = new Map<string, Promise<string>>();
 
 function dedupeSynth(key: string, run: () => Promise<string>): Promise<string> {
   const existing = inFlight.get(key);
-  if (existing) return existing;
+  if (existing) {
+    recordDeduplicatedSynthesis();
+    return existing;
+  }
   const p = run().finally(() => inFlight.delete(key));
   inFlight.set(key, p);
   return p;
@@ -33,6 +36,7 @@ async function synthesizeToFile(
   chunk: Chunk,
   settings: NarrationSettings,
 ): Promise<{ uri: string; neutralSec: number; metrics: NarrationSynthesisMetrics }> {
+  recordSynthesisStarted();
   // Render at the engine's neutral rate; playback speed is applied live, so the
   // cache is speed-agnostic.
   const timer = stageTimer('synth');
