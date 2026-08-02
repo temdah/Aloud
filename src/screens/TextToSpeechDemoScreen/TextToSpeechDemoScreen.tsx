@@ -76,6 +76,38 @@ type PlaybackBench = {
   timedOut: boolean;
 };
 
+type ScreenStyles = ReturnType<typeof makeStyles>;
+
+type DevActionProps = {
+  styles: ScreenStyles;
+  order: string;
+  title: string;
+  description: string;
+  color: string;
+  onPress: () => void;
+  disabled?: boolean;
+};
+
+const TEST_ITINERARY = [
+  ['Smoke test', 'Confirm that the selected model can synthesize and play audio.'],
+  ['Analyze a document', 'Check extraction, headings, chunk sizes, and the hard chunk cap.'],
+  ['Trace real synthesis', 'Measure the production Float32 → native AAC path on the selected document.'],
+  ['Warm repeat ×5', 'Measure normal warm-engine variance and thermal drift on one representative chunk.'],
+  ['Run benchmark', 'Measure time-to-first-audio and sustained multi-chunk throughput.'],
+  ['Cold load', 'Measure model loading last; it deliberately releases the warm engine.'],
+  ['Copy results', 'Export the complete log for comparison with the previous build.'],
+] as const;
+
+function DevAction({ styles, order, title, description, color, onPress, disabled }: DevActionProps) {
+  return (
+    <View style={styles.actionCard}>
+      <Text style={styles.actionOrder}>{order}</Text>
+      <Button title={title} color={color} onPress={onPress} disabled={disabled} />
+      <Text style={styles.actionDescription}>{description}</Text>
+    </View>
+  );
+}
+
 // Voice engine performance lab (Developer tool): "Run benchmark" reports the
 // cold-start latency breakdown + time-to-first-audio + a throughput pass;
 // "Smoke test" is a quick single-sentence synth+play liveness check.
@@ -482,43 +514,162 @@ export default function TextToSpeechDemoScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Aloud — performance lab</Text>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={styles.eyebrow}>Developer tools</Text>
+      <Text style={styles.title}>Voice engine performance lab</Text>
       <Text style={styles.hint}>
-        Install the voice in Settings → voice model first. Uses the selected voice ({voiceId || DEFAULT_VOICE}) and language ({lang}).
+        Install a voice model first. Tests use {voiceId || DEFAULT_VOICE}, language {lang}, and the selected quality profile. Keep synthesis at five steps for baseline measurements.
       </Text>
-      <View style={styles.row}>
-        <Button title="- steps" onPress={() => setSteps((s) => Math.max(1, s - 1))} disabled={busy} />
-        <Text style={styles.steps}>steps: {steps}</Text>
-        <Button title="+ steps" onPress={() => setSteps((s) => s + 1)} disabled={busy} />
+      <Text style={styles.status}>{busy ? 'Test running — controls locked' : 'Ready to test'}</Text>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Test itinerary</Text>
+        <Text style={styles.sectionHint}>Run these in order so warm-engine and cold-load results remain comparable.</Text>
+        <View style={styles.itinerary}>
+          {TEST_ITINERARY.map(([title, description], index) => (
+            <View key={title} style={styles.itineraryItem}>
+              <Text style={styles.itineraryNumber}>{index + 1}</Text>
+              <View style={styles.itineraryBody}>
+                <Text style={styles.itineraryTitle}>{title}</Text>
+                <Text style={styles.itineraryDescription}>{description}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
       </View>
-      <View style={styles.row}>
-        <Button title="Run benchmark" onPress={runBenchmark} disabled={busy} />
-        <Button title={`Repeat ×${REPEAT_RUNS}`} onPress={repeatBenchmark} disabled={busy} />
-        <Button title="Smoke test" onPress={smokeTest} disabled={busy} />
-        <Button title="Cold load" onPress={coldLoad} disabled={busy} />
-      </View>
-      <View style={styles.row}>
-        <Button title="Copy results" onPress={() => void copyResults()} />
-        <Button title="Clear" onPress={() => setLog('')} disabled={busy} />
-      </View>
-      {documents.length > 0 ? (
-        <View>
-          <Text style={styles.hint}>Analyze extraction / trace real synth for a document:</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-            {documents.slice(0, 12).map((d) => (
-              <Button key={d.docHash} title={d.title.slice(0, 18)} onPress={() => analyzeDoc(d)} disabled={busy} />
-            ))}
-          </View>
-          <View style={styles.row}>
-            <Button title={`Trace real synth${analyzedDoc ? ` · ${analyzedDoc.title.slice(0, 12)}` : ''}`} onPress={() => void traceRealSynth()} disabled={busy || !analyzedDoc} />
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Synthesis steps</Text>
+        <Text style={styles.sectionHint}>Baseline: five steps. Change this only when deliberately comparing synthesis quality.</Text>
+        <View style={styles.actionCard}>
+          <Text style={styles.stepValue}>Current value: {steps}</Text>
+          <View style={styles.stepButtons}>
+            <View style={styles.stepButton}>
+              <Button
+                title="Decrease"
+                color={palette.primary}
+                onPress={() => setSteps((current) => Math.max(1, current - 1))}
+                disabled={busy}
+              />
+              <Text style={styles.actionDescription}>Lowers inference work, but values below five are not valid quality baselines.</Text>
+            </View>
+            <View style={styles.stepButton}>
+              <Button
+                title="Increase"
+                color={palette.primary}
+                onPress={() => setSteps((current) => current + 1)}
+                disabled={busy}
+              />
+              <Text style={styles.actionDescription}>Adds denoising passes to compare slower, higher-step synthesis.</Text>
+            </View>
           </View>
         </View>
-      ) : null}
-      <ScrollView style={styles.logBox}>
-        <Text selectable style={styles.logText}>{log}</Text>
-      </ScrollView>
-    </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Run tests</Text>
+        <Text style={styles.sectionHint}>Each action writes its measurements to the results console at the bottom.</Text>
+        <DevAction
+          styles={styles}
+          order="Test 1"
+          title="Smoke test"
+          description="Synthesizes and plays one short sample. Start here to verify that the engine, voice, file output, and player all work."
+          color={palette.primary}
+          onPress={() => void smokeTest()}
+          disabled={busy}
+        />
+
+        <Text style={styles.sectionTitle}>Choose a document</Text>
+        <Text style={styles.sectionHint}>Test 2 analyzes text only. Select the large PDF and the small document separately.</Text>
+        {documents.length > 0 ? (
+          documents.slice(0, 12).map((document) => (
+            <DevAction
+              key={document.docHash}
+              styles={styles}
+              order="Test 2"
+              title={`Analyze · ${document.title.slice(0, 28)}`}
+              description={`Reports extraction, headings, chunk distribution, P95 size, and over-cap count for “${document.title}”.`}
+              color={palette.primary}
+              onPress={() => analyzeDoc(document)}
+              disabled={busy}
+            />
+          ))
+        ) : (
+          <Text style={styles.emptyDocuments}>Import a PDF, Markdown, or DOCX document before running document-specific tests.</Text>
+        )}
+        {analyzedDoc ? <Text style={styles.selectedDocument}>Selected: {analyzedDoc.title}</Text> : null}
+
+        <DevAction
+          styles={styles}
+          order="Test 3"
+          title="Trace real synthesis"
+          description={
+            analyzedDoc
+              ? `Deletes chunk 0 for “${analyzedDoc.title}”, then measures the complete production synthesis and native AAC path.`
+              : 'Analyze a document first. This test then measures its first chunk through the production AAC path.'
+          }
+          color={palette.primary}
+          onPress={() => void traceRealSynth()}
+          disabled={busy || !analyzedDoc}
+        />
+        <DevAction
+          styles={styles}
+          order="Test 4"
+          title={`Warm repeat ×${REPEAT_RUNS}`}
+          description="Synthesizes the same chunk five times with resident sessions to expose median, P90, scheduler noise, and thermal drift."
+          color={palette.primary}
+          onPress={() => void repeatBenchmark()}
+          disabled={busy}
+        />
+        <DevAction
+          styles={styles}
+          order="Test 5"
+          title="Run benchmark"
+          description="Measures first-audio latency and sustained throughput across several chunks of the built-in sample document."
+          color={palette.primary}
+          onPress={() => void runBenchmark()}
+          disabled={busy}
+        />
+        <DevAction
+          styles={styles}
+          order="Test 6 · run last"
+          title="Cold load"
+          description="Releases the resident ONNX sessions and times a complete reload. Run last because it intentionally destroys the warm baseline."
+          color={palette.primary}
+          onPress={() => void coldLoad()}
+          disabled={busy}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Results</Text>
+        <Text style={styles.sectionHint}>Copy the log before clearing it. The console itself scrolls independently.</Text>
+        <DevAction
+          styles={styles}
+          order="Test 7 · export"
+          title="Copy results"
+          description="Copies the entire measurement log to the clipboard so it can be saved or compared with another build."
+          color={palette.primary}
+          onPress={() => void copyResults()}
+        />
+        <DevAction
+          styles={styles}
+          order="Utility"
+          title="Clear results"
+          description="Clears only the visible developer log. It does not remove model files or the narration cache."
+          color={palette.danger}
+          onPress={() => setLog('')}
+          disabled={busy}
+        />
+        <ScrollView style={styles.logBox} nestedScrollEnabled>
+          <Text selectable style={styles.logText}>{log}</Text>
+        </ScrollView>
+      </View>
+    </ScrollView>
   );
 }
 
