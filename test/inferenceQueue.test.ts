@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { InferenceQueue } from '../src/supertonic/inferenceQueue';
+import { InferenceQueue } from '../src/supertonic';
 
 test('InferenceQueue serializes work and prioritizes foreground waiters', async () => {
   const queue = new InferenceQueue();

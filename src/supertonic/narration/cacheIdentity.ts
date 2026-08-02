@@ -1,5 +1,5 @@
 import type { SentenceAnchor } from '../../types';
-import { stableHash } from '../../utils/hash';
+import { stableHash } from '../../utils';
 import { normalizeSynthesisSteps } from '../qualityProfile';
 import { normalizeNarrationTone } from './tonePlanner';
 import type { NarrationSettings } from './narrationTypes';

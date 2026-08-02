@@ -1,5 +1,5 @@
 import type { ExtractedBlock, ExtractedDocument, ExtractedSentence } from '../pdf';
-import { sentenceSpans } from '../supertonic/text/segmentation';
+import { sentenceSpans } from '../supertonic';
 
 // Assembles format-agnostic blocks (from the markdown/docx extractors) into the
 // canonical ExtractedDocument the reader + chunker consume, with exact char

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { firstSentenceEnd, sentenceBoundaries, sentenceSpans } from '../src/supertonic/text/segmentation';
+import { firstSentenceEnd, sentenceBoundaries, sentenceSpans } from '../src/supertonic';
 
 test('sentenceBoundaries shares abbreviation, paragraph, and CJK rules', () => {
   const text = 'Smith et al. 2019 agreed. Heading\n\n下一句。 Final sentence!';

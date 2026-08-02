@@ -1,7 +1,6 @@
-import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
-import { firstSentenceEnd } from '../supertonic/text/segmentation';
+import { findChunkIndexForOffset, firstSentenceEnd } from '../supertonic';
 import type { Chunk } from '../types';
-import { stableHash } from '../utils/hash';
+import { stableHash } from '../utils';
 import type { FastStart, Lead } from './playbackPlanningTypes';
 import type { DevicePlaybackSnapshot, DevicePressure } from './devicePlaybackPolicyTypes';
 

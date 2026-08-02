@@ -1,4 +1,4 @@
-import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
+import { findChunkIndexForOffset } from '../supertonic';
 import type { Chunk } from '../types';
 
 // Builds neutral-rate starts plus a final end marker. Real stitched-file starts

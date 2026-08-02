@@ -5,8 +5,7 @@ import { ActionDialog, AppBar, Chip, Icon, IconButton, LanguagePicker, ManageCac
 import { usePageGeometry, usePdfText } from '../../hooks';
 import { File } from 'expo-file-system';
 import { usePlaybackContext } from '../../playback';
-import { clearExtractedImages, type ExtractedBlock } from '../../pdf';
-import { deleteExtractedText } from '../../pdf/extractedTextCache';
+import { clearExtractedImages, deleteExtractedText, type ExtractedBlock } from '../../pdf';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { clearDocumentCache, deleteModel, EMPTY_NARRATION_PLAN, findModel, isChunkCached, languageLabel, loadNarrationPlan, qualityProfile } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';

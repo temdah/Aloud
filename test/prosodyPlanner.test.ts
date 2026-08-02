@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { planProsody } from '../src/supertonic/narration/prosodyPlanner';
-import { silenceSampleCount } from '../src/supertonic/narration/silenceSamples';
+import { planProsody, silenceSampleCount } from '../src/supertonic';
 
 test('planProsody gives questions and ellipses expressive sentence pauses', () => {
   const question = 'Are you still there? Next sentence.';

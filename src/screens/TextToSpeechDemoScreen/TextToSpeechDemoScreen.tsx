@@ -15,6 +15,7 @@ import {
   getVoice,
   isEngineResident,
   loadChunks,
+  maxChunkLen,
   planProsody,
   qualityProfile,
   releaseCurrentEngine,
@@ -30,7 +31,6 @@ import { getDevicePerformanceSnapshot } from '../../../modules/device-performanc
 import { loadExtractedText } from '../../pdf';
 import { classifyDevicePressure, clearPlaybackDiagnostics, getPlaybackDiagnostics, prefetchDepth, usePlaybackContext } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { maxChunkLen } from '../../supertonic/text/sentenceRules';
 import { useTheme } from '../../theme';
 import type { ImportedDocument } from '../../types';
 import { SAMPLE_TEXT, traceMark, traceStart, traceStop, type Span } from '../../utils';

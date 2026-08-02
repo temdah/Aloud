@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isAcademicDocument, normalizeNarrationTone, planNarrationTone } from '../src/supertonic/narration/tonePlanner';
+import { isAcademicDocument, normalizeNarrationTone, planNarrationTone } from '../src/supertonic';
 
 test('adaptive tone keeps academic documents neutral', () => {
   const paper = 'Abstract. This study presents a methodology and analysis of experimental data. Results and discussion follow.';

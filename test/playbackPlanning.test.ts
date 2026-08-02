@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFastStart, buildLead, classifyDevicePressure, prefetchDepth } from '../src/playback/playbackPlanning';
+import { buildFastStart, buildLead, classifyDevicePressure, prefetchDepth } from '../src/playback';
 import type { Chunk } from '../src/types';
 
 function chunk(idx: number, text: string, charStart: number): Chunk {
