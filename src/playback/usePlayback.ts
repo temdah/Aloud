@@ -1,4 +1,4 @@
-import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
+import { createAudioPlayer, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDevicePerformanceSnapshot } from '../../modules/device-performance';
 import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, deleteAudiobookCache, deleteChunkCache, deleteLeadCache, deleteSentenceCache, findChunkIndexForOffset, getEngine, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec } from '../supertonic';
@@ -22,10 +22,10 @@ import {
   prefetchDepth,
   recordBoundaryGap,
   recordPrefetchDepth,
-  resolvePlaybackArtworkUrl,
   sentenceTargetAtIndex,
   sentenceTargetForStart,
   startPlaybackTrace,
+  usePlaybackMediaSession,
   type Lead,
   type Playback,
   type PlaybackCacheDecision,
@@ -36,9 +36,6 @@ import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
 export type { Playback, UsePlaybackOptions } from './core';
-// Extra OS-notification transport buttons (the Android Media3 notification can't
-// be themed to match the app).
-const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed: true } as const;
 // loadedKeyRef sentinel for "the concatenated audiobook file is loaded" (vs a
 // per-chunk charStart >= 0; -1 means nothing loaded).
 const AUDIOBOOK_KEY = -2;
@@ -120,46 +117,6 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   const recoveryGate = recoveryGateRef.current;
   const handledPlayerErrorRef = useRef<string | null>(null);
   const handledRecoverySignalRef = useRef(0);
-  // Whether this player currently owns the OS lock-screen / media notification.
-  const lockScreenActiveRef = useRef(false);
-  // Latest "now playing" metadata in a ref, so the play callback needn't rebuild
-  // when title/artist change.
-  const lockMetadataRef = useRef<{ title: string; artist: string; albumTitle: string; artworkUrl?: string }>({
-    title: 'Document',
-    artist: 'Aloud',
-    albumTitle: 'Aloud',
-  });
-  useEffect(() => {
-    lockMetadataRef.current = {
-      title: title?.trim() || 'Document',
-      artist: artist?.trim() || 'Aloud',
-      albumTitle: 'Aloud',
-      artworkUrl: lockMetadataRef.current.artworkUrl,
-    };
-    if (lockScreenActiveRef.current) {
-      try {
-        playerRef.current?.updateLockScreenMetadata?.(lockMetadataRef.current);
-      } catch {}
-    }
-  }, [title, artist]);
-
-  // Resolve the notification artwork once and fold it into the metadata (updating
-  // a live notification if one's already showing).
-  useEffect(() => {
-    let alive = true;
-    void resolvePlaybackArtworkUrl().then((uri) => {
-      if (!alive || !uri) return;
-      lockMetadataRef.current = { ...lockMetadataRef.current, artworkUrl: uri };
-      if (lockScreenActiveRef.current) {
-        try {
-          playerRef.current?.updateLockScreenMetadata?.(lockMetadataRef.current);
-        } catch {}
-      }
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const settings = useMemo<NarrationSettings>(
     () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang, quality, tone }),
@@ -195,6 +152,25 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     [audiobookFailed, fullyRendered, docHash, settings],
   );
   const singleItem = audiobookUri != null;
+  const syncExternalSpeed = useCallback(
+    (nextSpeed: number) => {
+      if (onSpeedChange) onSpeedChange(nextSpeed);
+      else useSettingsStore.getState().setSpeed(nextSpeed);
+    },
+    [onSpeedChange],
+  );
+  const { claimLockScreen, releaseLockScreen, applyPlaybackRate } = usePlaybackMediaSession({
+    player,
+    title,
+    artist,
+    accentColor,
+    singleItem,
+    speed,
+    isLoaded: status.isLoaded,
+    playing: status.playing,
+    reportedRate: status.playbackRate,
+    onExternalSpeedChange: syncExternalSpeed,
+  });
   const audiobookLoadedRef = useRef(false);
   // Real per-chunk offsets (s) in the stitched file from the index sidecar — the
   // file's actual clock. Null → fall back to predicted starts.
@@ -203,26 +179,6 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     audiobookLoadedRef.current = false; // a new/absent audiobook file must be (re)loaded
     setFileStarts(audiobookUri ? readAudiobookIndex(docHash, settings) : null);
   }, [audiobookUri, docHash, settings]);
-
-  // Configure the audio session once for background playback: shouldPlayInBackground
-  // keeps audio alive with the screen off, doNotMix binds the lock-screen to us.
-  useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' }).catch((e) =>
-      console.warn('[usePlayback] failed to set audio mode:', e),
-    );
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      try {
-        playerRef.current?.clearLockScreenControls?.();
-      } catch {}
-      try {
-        playerRef.current?.remove?.();
-      } catch {}
-      playerRef.current = null;
-    };
-  }, []);
 
   // The player outlives any single screen, so switching to a *different* document
   // stops the old one and clears state; reopening the SAME doc leaves it running.
@@ -255,11 +211,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     pendingLeadRef.current = null;
     pendingSeekRef.current = null;
     audiobookLoadedRef.current = false;
-    try {
-      playerRef.current?.clearLockScreenControls?.();
-    } catch {}
-    lockScreenActiveRef.current = false;
-  }, [docHash, player, recoveryGate, requestGate, recoverySignal]);
+    releaseLockScreen();
+  }, [docHash, player, recoveryGate, requestGate, recoverySignal, releaseLockScreen]);
 
   // Warm the shared engine when a model is picked. Keyed on modelId only — a voice
   // change reuses the resident engine (the manager caches voices per model).
@@ -344,34 +297,6 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
 
-  // Timestamp of the last rate WE applied. The mirror below ignores the player's
-  // rate for a moment afterwards, so our own applications (an in-app speed change,
-  // or a new clip resetting to the default rate before we re-apply) don't get
-  // read back and fight the user's slider.
-  const rateAppliedAtRef = useRef(0);
-
-  // Apply the requested playback speed live (cache is rendered at neutral rate).
-  useEffect(() => {
-    try {
-      player.setPlaybackRate(speed, 'high');
-      rateAppliedAtRef.current = Date.now();
-    } catch {}
-  }, [speed, player]);
-
-  // Mirror a notification-driven speed change (the OS speed button cycles the
-  // player's rate directly) back into app state — but not the transient rates we
-  // cause ourselves (guarded by rateAppliedAtRef), which was reverting the slider.
-  useEffect(() => {
-    if (!status.isLoaded || !status.playing) return;
-    if (Date.now() - rateAppliedAtRef.current < 1000) return;
-    const r = status.playbackRate;
-    if (r > 0 && Math.abs(r - speed) > 0.02) {
-      const rounded = Math.round(r * 100) / 100;
-      if (onSpeedChange) onSpeedChange(rounded);
-      else useSettingsStore.getState().setSpeed(rounded);
-    }
-  }, [status.playbackRate, status.isLoaded, status.playing, speed, onSpeedChange]);
-
   // Apply a queued timeline seek once the freshly-loaded clip reports a duration.
   useEffect(() => {
     if (pendingSeekRef.current == null) return;
@@ -382,29 +307,6 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       void player.seekTo(Math.max(0, Math.min(status.duration, target)));
     } catch {}
   }, [status.isLoaded, status.duration, player]);
-
-  // Claim the OS lock-screen / media notification (idempotent). Called on first
-  // audio and when resuming after a halt (which released it).
-  const claimLockScreen = useCallback(() => {
-    if (lockScreenActiveRef.current) return;
-    try {
-      // Only a single-file book has a real whole-book duration → show the OS
-      // scrubber. Per-chunk playback is marked a live stream so the OS hides the
-      // (meaningless, constantly-resetting) timeline.
-      // Claim WITHOUT artwork first: a bad artwork uri must never stop the media
-      // notification from appearing. Fold artwork in via a non-fatal update after.
-      const { artworkUrl, ...meta } = lockMetadataRef.current;
-      player.setActiveForLockScreen(true, meta, { ...LOCK_OPTIONS, accentColor, isLiveStream: !singleItem });
-      lockScreenActiveRef.current = true;
-      if (artworkUrl) {
-        try {
-          player.updateLockScreenMetadata?.(lockMetadataRef.current);
-        } catch {}
-      }
-    } catch (e) {
-      console.warn('[usePlayback] failed to activate lock-screen controls:', e);
-    }
-  }, [player, accentColor, singleItem]);
 
   const cancelPendingPlaybackTrace = useCallback(() => {
     if (playbackTraceRef.current == null) return;
@@ -452,15 +354,12 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     if (!audiobookLoadedRef.current || loadedKeyRef.current !== AUDIOBOOK_KEY) {
       loadedClipRef.current = { kind: 'audiobook', key: `audiobook:${docHash}:${settingsHash(settings)}` };
       player.replace(audiobookUri);
-      try {
-        player.setPlaybackRate(speed, 'high');
-        rateAppliedAtRef.current = Date.now();
-      } catch {}
+      applyPlaybackRate();
       audiobookLoadedRef.current = true;
       loadedKeyRef.current = AUDIOBOOK_KEY;
       loadedSequenceRef.current = 'audiobook';
     }
-  }, [audiobookUri, docHash, player, settings, speed]);
+  }, [audiobookUri, docHash, player, settings, applyPlaybackRate]);
 
   // Seek the single audiobook file to a neutral-rate absolute time. If it isn't
   // loaded/measured yet, defer via pendingSeekRef (applied by the effect above).
@@ -575,10 +474,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           return; // superseded
         }
         player.replace(uri);
-        try {
-          player.setPlaybackRate(speed, 'high');
-          rateAppliedAtRef.current = Date.now();
-        } catch {}
+        applyPlaybackRate();
         loadedKeyRef.current = chunk.charStart;
         loadedSequenceRef.current = 'canonical';
         markPlaybackPlayerRequested(traceId);
@@ -640,7 +536,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         console.warn('[usePlayback] failed to play chunk at', chunk.charStart, e);
       }
     },
-    [chunks, docHash, player, settings, speed, synthesizer, claimLockScreen, modelId, cancelPendingPlaybackTrace, requestGate],
+    [chunks, docHash, player, settings, speed, synthesizer, claimLockScreen, applyPlaybackRate, modelId, cancelPendingPlaybackTrace, requestGate],
   );
 
   const playSentence = useCallback(
@@ -702,10 +598,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           return;
         }
         player.replace(uri);
-        try {
-          player.setPlaybackRate(speed, 'high');
-          rateAppliedAtRef.current = Date.now();
-        } catch {}
+        applyPlaybackRate();
         loadedKeyRef.current = target.chunk.charStart;
         loadedSequenceRef.current = 'sentence';
         markPlaybackPlayerRequested(traceId);
@@ -742,7 +635,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         console.warn('[usePlayback] failed to play sentence at', target.anchor.charStart, error);
       }
     },
-    [plan, cancelPendingPlaybackTrace, docHash, settings, player, synthesizer, modelId, speed, claimLockScreen, requestGate],
+    [plan, cancelPendingPlaybackTrace, docHash, settings, player, synthesizer, modelId, speed, claimLockScreen, applyPlaybackRate, requestGate],
   );
 
   const playCanonical = useCallback(
@@ -1156,11 +1049,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     sentenceIndexRef.current = -1;
     pendingLeadRef.current = null;
     pendingSeekRef.current = null;
-    try {
-      playerRef.current?.clearLockScreenControls?.();
-    } catch {}
-    lockScreenActiveRef.current = false;
-  }, [player, cancelPendingPlaybackTrace, recoveryGate, requestGate]);
+    releaseLockScreen();
+  }, [player, cancelPendingPlaybackTrace, recoveryGate, requestGate, releaseLockScreen]);
 
   // Soft stop (mini-player's square): halt audio + release the notification, but
   // KEEP selection/position/`started` so play resumes in place.
@@ -1171,11 +1061,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     activeRef.current = false;
     setLoading(false);
     player.pause();
-    try {
-      playerRef.current?.clearLockScreenControls?.();
-    } catch {}
-    lockScreenActiveRef.current = false;
-  }, [player, cancelPendingPlaybackTrace, requestGate]);
+    releaseLockScreen();
+  }, [player, cancelPendingPlaybackTrace, requestGate, releaseLockScreen]);
 
   const seek = useCallback(
     (fraction: number) => {

@@ -15,6 +15,16 @@ export type {
   PlaybackSynthesizerOptions,
 } from '../playbackSynthesizerTypes';
 export { resolvePlaybackArtworkUrl } from '../playbackArtwork';
+export {
+  buildPlaybackLockMetadata,
+  mirroredPlaybackRate,
+  usePlaybackMediaSession,
+} from '../playbackMediaSession';
+export type {
+  PlaybackLockMetadata,
+  PlaybackMediaSession,
+  PlaybackMediaSessionOptions,
+} from '../playbackMediaSessionTypes';
 export { resolveWarmEngineModel, shouldReleaseEngineOnBackground } from '../engineWarmPolicy';
 export {
   cancelPlaybackTrace,
