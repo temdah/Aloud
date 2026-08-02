@@ -1,8 +1,7 @@
-import { Asset } from 'expo-asset';
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
-import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, Quality, TextToSpeech, VoiceStyle } from '../supertonic';
+import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, TextToSpeech, VoiceStyle } from '../supertonic';
 import {
   buildFastStart,
   buildLead,
@@ -24,6 +23,11 @@ import {
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
+import { resolvePlaybackArtworkUrl } from '../playback/playbackArtwork';
+import { buildNeutralStarts, neutralTimeForOffset } from '../playback/playbackTimeline';
+import type { Playback, UsePlaybackOptions } from '../playback/playbackTypes';
+
+export type { Playback, UsePlaybackOptions } from '../playback/playbackTypes';
 // Extra OS-notification transport buttons (the Android Media3 notification can't
 // be themed to match the app).
 const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed: true } as const;
@@ -31,84 +35,16 @@ const LOCK_OPTIONS = { showSeekForward: true, showSeekBackward: true, showSpeed:
 // per-chunk charStart >= 0; -1 means nothing loaded).
 const AUDIOBOOK_KEY = -2;
 
-// Media-notification artwork. Media3 derives the notification's colour scheme
-// from the large-icon bitmap; without one, contrast falls back to OEM defaults
-// (invisible white-on-white on some devices). Resolve the bundled icon to a
-// file:// uri once and reuse it as a universal cover.
-let artworkPromise: Promise<string | undefined> | null = null;
-function resolveArtworkUrl(): Promise<string | undefined> {
-  if (!artworkPromise) {
-    artworkPromise = (async () => {
-      try {
-        const asset = Asset.fromModule(require('../../assets/icon.png'));
-        if (!asset.localUri) await asset.downloadAsync();
-        return asset.localUri ?? asset.uri;
-      } catch {
-        return undefined;
-      }
-    })();
-  }
-  return artworkPromise;
-}
-
 // Perf-tip detection thresholds.
 const STALL_MS = 2000; // a boundary gap longer than this = an audible stall
 const STALL_TRIGGER = 2; // stalls in a session before offering the tip
 const RTF_THRESHOLD = 1.1; // synthesis realtime factor below which we blame the device
 
-export type UsePlaybackOptions = {
-  docHash: string; // audio-cache namespace for this document
-  chunks: Chunk[]; // canonical, sentence-aligned chunk list from loadChunks
-  text: string; // canonical document text — used to build a lead from any offset
-  modelId: string | null; // null = none picked yet (engine stays unloaded)
-  voiceId: string;
-  speed: number;
-  steps: number;
-  lang?: string;
-  quality: Quality;
-  title?: string; // lock-screen title
-  artist?: string; // lock-screen secondary line (defaults to app name)
-  // Routes an OS-notification speed change to the same setter the in-app control
-  // uses (per-doc pin or global). Omit to fall back to the global setting.
-  onSpeedChange?: (speed: number) => void;
-};
-
-export type Playback = {
-  ready: boolean;
-  modelLoadFailed: boolean; // ONNX sessions failed to load (corrupt files) → reader offers re-download
-  playing: boolean;
-  loading: boolean; // synthesizing the current chunk (no audio yet)
-  engaged: boolean; // a chunk is selected or playback started (drives highlight)
-  // True once audio actually started (stays true while paused; cleared on stop /
-  // doc switch). Gates the MiniPlayer so it never shows for a mere text selection.
-  started: boolean;
-  currentChunk: Chunk | null;
-  total: number;
-  positionSec: number; // within the current clip
-  durationSec: number; // of the current clip
-  docPositionSec: number; // on the whole-document timeline, at speed (0 until table built)
-  docDurationSec: number; // whole-document runtime at speed (0 until built)
-  timelineReady: boolean; // duration table ready → whole-doc timeline is meaningful
-  perfWarning: boolean; // repeated stalls + slow synthesis → offer the "device is slow" tip
-  toggle: () => void;
-  play: () => void;
-  pause: () => void;
-  next: () => void;
-  previous: () => void;
-  seekToChunk: (index: number) => void;
-  select: (charOffset: number) => void; // highlight a lead WITHOUT playing; stops current audio
-  playFrom: (charOffset: number) => void; // jump to + play ("play from here")
-  goTo: (charOffset: number) => void; // set position from a saved offset WITHOUT playing (resume)
-  seek: (fraction: number) => void; // within the current clip (0..1)
-  seekToTime: (sec: number) => void; // to an absolute whole-doc time (maps to the enclosing chunk)
-  stop: () => void; // hard stop: audio + selection + OS controls
-  halt: () => void; // soft stop: audio + OS controls, KEEP selection/position (play resumes)
-};
-
 // Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
 // tapping starts at the exact tapped sentence via a one-off "lead" chunk, then
 // continues with the canonical chunks after it. Highlight is chunk-level.
-export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, steps, lang = 'en', quality, title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
+export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lang = 'en', quality, title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
+  const { chunks, text } = plan;
   // A player we own for the hook's lifetime; useAudioPlayer() released the native
   // player mid-session (replace() threw ERR_USING_RELEASED_SHARED_OBJECT).
   const playerRef = useRef<AudioPlayer | null>(null);
@@ -185,7 +121,7 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   // a live notification if one's already showing).
   useEffect(() => {
     let alive = true;
-    void resolveArtworkUrl().then((uri) => {
+    void resolvePlaybackArtworkUrl().then((uri) => {
       if (!alive || !uri) return;
       lockMetadataRef.current = { ...lockMetadataRef.current, artworkUrl: uri };
       if (lockScreenActiveRef.current) {
@@ -449,28 +385,14 @@ export function usePlayback({ docHash, chunks, text, modelId, voiceId, speed, st
   const neutralStarts = useMemo(() => {
     // Prefer the stitched file's REAL offsets (no cumulative drift); append a
     // synthetic total (last real start + its predicted duration).
-    if (fileStarts && durTable && fileStarts.length === durTable.length) {
-      const arr = fileStarts.slice();
-      arr.push(fileStarts[fileStarts.length - 1] + (durTable[durTable.length - 1] ?? 0));
-      return arr;
-    }
     if (!durTable) return null;
-    const arr = new Array<number>(durTable.length + 1);
-    arr[0] = 0;
-    for (let i = 0; i < durTable.length; i++) arr[i + 1] = arr[i] + durTable[i];
-    return arr;
+    return buildNeutralStarts(durTable, fileStarts);
   }, [fileStarts, durTable]);
 
   const neutralForOffset = useCallback(
     (charOffset: number): number => {
       if (!neutralStarts) return 0;
-      const i = findChunkIndexForOffset(chunks, charOffset);
-      if (i < 0) return 0;
-      const c = chunks[i];
-      const span = c.charEnd - c.charStart;
-      const frac = span > 0 ? Math.min(1, Math.max(0, (charOffset - c.charStart) / span)) : 0;
-      // Interpolate over the chunk's REAL span so a mid-chunk tap lands accurately.
-      return neutralStarts[i] + frac * (neutralStarts[i + 1] - neutralStarts[i]);
+      return neutralTimeForOffset(chunks, neutralStarts, charOffset);
     },
     [neutralStarts, chunks],
   );

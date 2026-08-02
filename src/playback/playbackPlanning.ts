@@ -1,15 +1,15 @@
-import { findChunkIndexForOffset } from '../supertonic';
-import { ABBREVIATION } from '../supertonic/text/sentenceRules';
+import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
+import { firstSentenceEnd } from '../supertonic/text/segmentation';
 import type { Chunk } from '../types';
-import { stableHash } from '../utils';
+import { stableHash } from '../utils/hash';
+import type { FastStart, Lead } from './playbackPlanningTypes';
 
 const PREFETCH_AHEAD = 4;
 const MIN_LEAD = 140;
 const MIN_FAST_LEAD = 60;
 const MIN_FAST_REMAINDER = 40;
 
-export type Lead = { chunk: Chunk; anchorIdx: number; resumeIdx: number };
-export type FastStart = { lead: Lead; remainder: Lead | null };
+export type { FastStart, Lead } from './playbackPlanningTypes';
 
 // Build a deep buffer when synthesis comfortably beats realtime, but avoid
 // spending scarce inference time far ahead when a slower device cannot keep up.
@@ -44,24 +44,6 @@ export function buildLead(text: string, chunks: readonly Chunk[], charOffset: nu
   return { chunk, anchorIdx: i, resumeIdx: j + 1 };
 }
 
-// Exclusive end of the first useful sentence. This mirrors the chunker's ASCII,
-// CJK, and abbreviation rules while rejecting leads too short to sound natural.
-function firstSentenceEnd(text: string, start: number, end: number): number {
-  const terminators = /[.!?。！？]+/g;
-  terminators.lastIndex = start;
-  let match: RegExpExecArray | null;
-  while ((match = terminators.exec(text)) && match.index < end) {
-    const stop = match.index + match[0].length;
-    if (stop - start < MIN_FAST_LEAD) continue;
-    if (!/[。！？]/.test(match[0])) {
-      if (stop < text.length && !/\s/.test(text[stop])) continue;
-      if (ABBREVIATION.test(text.slice(Math.max(start, match.index - 6), match.index + 1))) continue;
-    }
-    return Math.min(stop, end);
-  }
-  return end;
-}
-
 // Split an uncached start into a short first-sentence lead and the remainder of
 // its canonical chunk. Small or single-sentence chunks stay intact.
 export function buildFastStart(text: string, chunks: readonly Chunk[], charOffset: number): FastStart | null {
@@ -71,7 +53,7 @@ export function buildFastStart(text: string, chunks: readonly Chunk[], charOffse
   const startAt = Math.max(charOffset, chunks[i].charStart);
   const chunkEnd = chunks[i].charEnd;
   if (chunkEnd - startAt < MIN_FAST_LEAD + MIN_FAST_REMAINDER) return null;
-  const split = firstSentenceEnd(text, startAt, chunkEnd);
+  const split = firstSentenceEnd(text, startAt, chunkEnd, MIN_FAST_LEAD);
   if (split >= chunkEnd || chunkEnd - split < MIN_FAST_REMAINDER) return null;
   const makeChunk = (from: number, to: number): Chunk => {
     const chunkText = text.slice(from, to);

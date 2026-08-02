@@ -32,9 +32,11 @@
     "@resvg/resvg-js": "^2.6.2",
     "@types/react": "~19.2.2",
     "pdfjs-dist": "^5.7.284",
+    "tsx": "^4.23.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "test": "tsx --test test/textChunker.test.ts test/segmentation.test.ts test/playbackPlanning.test.ts test/chunkLookup.test.ts test/playbackTimeline.test.ts test/narrationPlan.test.ts",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",

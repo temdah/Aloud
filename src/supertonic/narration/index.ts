@@ -1,6 +1,8 @@
 export { chunkText, buildChunks } from './textChunker';
 export type { RawChunk } from './textChunker';
 export { findChunkIndexForOffset } from './chunkLookup';
+export { createNarrationPlan, EMPTY_NARRATION_PLAN } from './narrationPlan';
+export type { NarrationPlan } from './narrationPlanTypes';
 export { ensureChunkAudio, ensureLeadAudio } from './narrator';
 export { clearNarrationPerfCounters, getNarrationPerfCounters, getSynthRtf } from './perfStats';
 export { prerenderDocument } from './prerender';

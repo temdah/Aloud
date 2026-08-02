@@ -8,7 +8,7 @@ import { usePlaybackContext } from '../../playback';
 import { clearExtractedImages, type ExtractedBlock } from '../../pdf';
 import { deleteExtractedText } from '../../pdf/extractedTextCache';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, deleteModel, findModel, isChunkCached, languageLabel, loadChunks, qualityProfile } from '../../supertonic';
+import { clearDocumentCache, createNarrationPlan, deleteModel, findModel, isChunkCached, languageLabel, loadChunks, qualityProfile } from '../../supertonic';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './ReaderScreen.styles';
@@ -114,6 +114,10 @@ export default function ReaderScreen() {
         : [],
     [status, doc?.docHash, document?.text, effQuality],
   );
+  const narrationPlan = useMemo(
+    () => createNarrationPlan(document?.text ?? '', chunks),
+    [document?.text, chunks],
+  );
 
   // Playback lives in a global provider so audio + transport survive leaving this
   // screen (mini player elsewhere). The reader registers the open document.
@@ -139,8 +143,8 @@ export default function ReaderScreen() {
   };
   useEffect(() => {
     if (status !== 'ready' || !doc || !document?.text) return;
-    setActiveDoc({ doc, chunks, text: document.text, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, quality: effQuality, onSpeedChange: setEffSpeed });
-  }, [status, doc, document?.text, chunks, effModelId, effVoiceId, effSpeed, effSteps, effLang, effQuality, setActiveDoc, setEffSpeed]);
+    setActiveDoc({ doc, plan: narrationPlan, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, quality: effQuality, onSpeedChange: setEffSpeed });
+  }, [status, doc, document?.text, narrationPlan, effModelId, effVoiceId, effSpeed, effSteps, effLang, effQuality, setActiveDoc, setEffSpeed]);
 
   // Nothing is highlighted until the user engages (taps a sentence or plays).
   const activeChunk = playback.engaged ? playback.currentChunk : null;

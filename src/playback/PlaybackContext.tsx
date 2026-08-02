@@ -1,37 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
-import { usePlayback, useSleepTimer, type Playback, type SleepTimer } from '../hooks';
-import { DEFAULT_QUALITY, getEngine, isEngineResident, releaseCurrentEngine, type Quality } from '../supertonic';
+import { usePlayback, useSleepTimer } from '../hooks';
+import { DEFAULT_QUALITY, EMPTY_NARRATION_PLAN, getEngine, isEngineResident, releaseCurrentEngine } from '../supertonic';
 import { useSettingsStore } from '../stores';
-import type { Chunk, ImportedDocument } from '../types';
+import type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
 
-// Everything playback needs to read a document. The Reader registers this on
-// open; playback then survives that screen unmounting, so audio keeps going.
-export type ActiveDoc = {
-  doc: ImportedDocument;
-  chunks: Chunk[];
-  text: string;
-  modelId: string | null;
-  voiceId: string;
-  speed: number;
-  steps: number;
-  lang: string;
-  quality: Quality;
-  // Route an OS-notification speed change to the right source (per-doc pin or global).
-  onSpeedChange?: (speed: number) => void;
-};
-
-export type PlaybackContextValue = {
-  playback: Playback;
-  activeDoc: ActiveDoc | null;
-  setActiveDoc: (doc: ActiveDoc) => void;
-  // Register a doc AND start it from an offset once ready (Library background play).
-  playDocument: (doc: ActiveDoc, fromOffset?: number) => void;
-  clearActiveDoc: () => void;
-  sleep: SleepTimer;
-};
-
-const EMPTY_CHUNKS: Chunk[] = [];
+export type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
 
 const PlaybackContext = createContext<PlaybackContextValue | null>(null);
 
@@ -50,8 +24,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
   const playback = usePlayback({
     docHash: activeDoc?.doc.docHash ?? '',
-    chunks: activeDoc?.chunks ?? EMPTY_CHUNKS,
-    text: activeDoc?.text ?? '',
+    plan: activeDoc?.plan ?? EMPTY_NARRATION_PLAN,
     modelId: activeDoc?.modelId ?? null,
     voiceId: activeDoc?.voiceId ?? '',
     speed: activeDoc?.speed ?? 1,

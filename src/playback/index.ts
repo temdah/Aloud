@@ -1,7 +1,9 @@
 export { PlaybackProvider, usePlaybackContext } from './PlaybackContext';
-export type { ActiveDoc, PlaybackContextValue } from './PlaybackContext';
+export type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
 export { buildFastStart, buildLead, prefetchDepth } from './playbackPlanning';
-export type { FastStart, Lead } from './playbackPlanning';
+export type { FastStart, Lead } from './playbackPlanningTypes';
+export type { Playback, UsePlaybackOptions } from './playbackTypes';
+export { buildNeutralStarts, neutralTimeForOffset } from './playbackTimeline';
 export {
   cancelPlaybackTrace,
   clearPlaybackDiagnostics,
@@ -24,4 +26,4 @@ export type {
   PlaybackSynthesisBreakdown,
   PlaybackTrace,
   PrefetchSample,
-} from './playbackMetrics';
+} from './playbackMetricsTypes';
