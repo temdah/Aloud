@@ -1,11 +1,13 @@
-export type PlaybackRequestKind = 'audiobook' | 'canonical' | 'fast-lead' | 'resume';
+export type PlaybackRequestKind = 'audiobook' | 'canonical' | 'sentence' | 'fast-lead' | 'resume';
 
 export type PlaybackCacheDecision =
   | 'audiobook-cache'
   | 'loaded-player'
   | 'canonical-cache'
+  | 'sentence-cache'
   | 'lead-cache'
   | 'canonical-synthesis'
+  | 'sentence-synthesis'
   | 'lead-synthesis'
   | 'deduplicated-synthesis';
 

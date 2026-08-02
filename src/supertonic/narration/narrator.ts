@@ -1,13 +1,22 @@
 // Synthesize a chunk and cache its audio as AAC (.m4a). Imports engine pieces
 // directly (not the src/supertonic barrel) to avoid a circular dependency.
-import type { Chunk } from '../../types';
+import type { Chunk, SentenceAnchor } from '../../types';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
 import type { File } from 'expo-file-system';
 import { encodeFloatPcmToM4a } from '../../../modules/aac-codec';
 import { stageTimer } from '../../utils/perf';
 import { traceMark, traceOpen } from '../../utils/trace';
-import { chunkAudioFile, leadAudioFile, MIN_CACHED_BYTES, recordCachedProfile, writeChunkTiming } from './audioCache';
+import {
+  chunkAudioFile,
+  leadAudioFile,
+  MIN_CACHED_BYTES,
+  recordCachedProfile,
+  recordSentenceCachedProfile,
+  sentenceAudioFile,
+  writeChunkTiming,
+  writeSentenceTiming,
+} from './audioCache';
 import type { NarrationMetricsReporter, NarrationSettings, NarrationSynthesisMetrics } from './narrationTypes';
 import { recordDeduplicatedSynthesis, recordSynthesisStarted, recordSynthRtf } from './perfStats';
 
@@ -33,21 +42,21 @@ async function synthesizeToFile(
   tts: TextToSpeech,
   voice: VoiceStyle,
   file: File,
-  chunk: Chunk,
+  unit: Pick<Chunk, 'text'>,
   settings: NarrationSettings,
 ): Promise<{ uri: string; neutralSec: number; metrics: NarrationSynthesisMetrics }> {
   recordSynthesisStarted();
   // Render at the engine's neutral rate; playback speed is applied live, so the
   // cache is speed-agnostic.
   const timer = stageTimer('synth');
-  const endClip = traceOpen(`synth·${chunk.text.length}c`);
+  const endClip = traceOpen(`synth·${unit.text.length}c`);
   const wallStart = Date.now();
   const onStage = (stage: string) => {
     timer.mark(stage);
     traceMark(stage);
   };
   const synthStart = Date.now();
-  const { waveform, diagnostics } = await tts.synthesize(chunk.text, settings.lang, voice, settings.steps, 1.0, undefined, onStage);
+  const { waveform, diagnostics } = await tts.synthesize(unit.text, settings.lang, voice, settings.steps, 1.0, undefined, onStage);
   const synthMs = Date.now() - synthStart;
   // Fuse the Float32 -> PCM16 pass into the native AAC worker. The conversion is
   // byte-identical to the former JS loop, so existing cache keys remain valid.
@@ -121,6 +130,29 @@ export async function ensureLeadAudio(
   return dedupeSynth(file.uri, async () => {
     if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
     const { uri, metrics } = await synthesizeToFile(tts, voice, file, chunk, settings);
+    onMetrics?.(metrics);
+    return uri;
+  });
+}
+
+export async function ensureSentenceAudio(
+  tts: TextToSpeech,
+  voice: VoiceStyle,
+  docHash: string,
+  documentText: string,
+  anchor: SentenceAnchor,
+  settings: NarrationSettings,
+  onMetrics?: NarrationMetricsReporter,
+): Promise<string> {
+  recordSentenceCachedProfile(docHash, settings);
+  const file = sentenceAudioFile(docHash, anchor, settings);
+  if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
+
+  return dedupeSynth(file.uri, async () => {
+    if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
+    const text = documentText.slice(anchor.charStart, anchor.charEnd);
+    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, { text }, settings);
+    writeSentenceTiming(docHash, anchor, settings, neutralSec);
     onMetrics?.(metrics);
     return uri;
   });

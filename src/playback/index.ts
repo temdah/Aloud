@@ -4,6 +4,8 @@ export { buildFastStart, buildLead, prefetchDepth } from './playbackPlanning';
 export type { FastStart, Lead } from './playbackPlanningTypes';
 export type { Playback, UsePlaybackOptions } from './playbackTypes';
 export { buildNeutralStarts, neutralTimeForOffset } from './playbackTimeline';
+export { findSentenceIndexForOffset, sentenceTargetAtIndex, sentenceTargetForStart } from './sentencePlayback';
+export type { SentencePlaybackTarget } from './sentencePlaybackTypes';
 export {
   cancelPlaybackTrace,
   clearPlaybackDiagnostics,

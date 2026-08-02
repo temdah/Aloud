@@ -12,8 +12,8 @@ const MANIFEST = 'manifest.json';
 
 // Bump when buildChunks/chunkText changes shape so stale manifests (and their
 // now-stale audio) rebuild. v5: hard chunk cap with semantic fallback splits.
-// v6: persisted stable sentence anchors for reusable sentence audio.
-const CHUNKER_VERSION = 6;
+// v6: persisted stable sentence anchors. v7: low-latency capped anchors.
+const CHUNKER_VERSION = 7;
 
 export function readManifest(docHash: string): DocumentManifest | null {
   const file = new File(documentCacheDir(docHash), MANIFEST);

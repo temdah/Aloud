@@ -1,6 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, settingsHash, totalDurationSec, withEngine } from '../supertonic';
+import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, TextToSpeech, VoiceStyle } from '../supertonic';
 import {
   buildFastStart,
@@ -26,6 +26,7 @@ import type { Chunk } from '../types';
 import { resolvePlaybackArtworkUrl } from '../playback/playbackArtwork';
 import { buildNeutralStarts, neutralTimeForOffset } from '../playback';
 import type { Playback, UsePlaybackOptions } from '../playback';
+import { sentenceTargetAtIndex, sentenceTargetForStart } from '../playback/sentencePlayback';
 
 export type { Playback, UsePlaybackOptions } from '../playback/playbackTypes';
 // Extra OS-notification transport buttons (the Android Media3 notification can't
@@ -40,9 +41,9 @@ const STALL_MS = 2000; // a boundary gap longer than this = an audible stall
 const STALL_TRIGGER = 2; // stalls in a session before offering the tip
 const RTF_THRESHOLD = 1.1; // synthesis realtime factor below which we blame the device
 
-// Sequential, cached, generate-ahead playback. Chunks are large (smooth audio);
-// tapping starts at the exact tapped sentence via a one-off "lead" chunk, then
-// continues with the canonical chunks after it. Highlight is chunk-level.
+// Sequential, cached, generate-ahead playback. Stable sentence units are the
+// normal path; canonical chunks and partial leads remain for mid-sentence starts
+// and full-audiobook compatibility.
 export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lang = 'en', quality, title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
   const { chunks, text } = plan;
   // A player we own for the hook's lifetime; useAudioPlayer() released the native
@@ -87,6 +88,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   const currentRef = useRef<Chunk | null>(null);
   const anchorIndexRef = useRef(0); // canonical index the current chunk starts in
   const resumeIndexRef = useRef(0); // canonical index to play after the current chunk
+  const activeSequenceRef = useRef<'canonical' | 'sentence'>('canonical');
+  const sentenceIndexRef = useRef(-1);
   // A "remainder" clip queued to play right after the current fast-lead clip
   // finishes, before resuming canonical chunks. Cleared once consumed.
   const pendingLeadRef = useRef<Lead | null>(null);
@@ -94,6 +97,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   // set by seekToTime so a timeline scrub lands precisely inside its chunk.
   const pendingSeekRef = useRef<number | null>(null);
   const loadedKeyRef = useRef(-1); // charStart of the audio currently in the player
+  const loadedSequenceRef = useRef<'none' | 'canonical' | 'sentence' | 'audiobook'>('none');
   // Whether this player currently owns the OS lock-screen / media notification.
   const lockScreenActiveRef = useRef(false);
   // Latest "now playing" metadata in a ref, so the play callback needn't rebuild
@@ -209,8 +213,11 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     setCurrent(null);
     currentRef.current = null;
     loadedKeyRef.current = -1;
+    loadedSequenceRef.current = 'none';
     anchorIndexRef.current = 0;
     resumeIndexRef.current = 0;
+    activeSequenceRef.current = 'canonical';
+    sentenceIndexRef.current = -1;
     pendingLeadRef.current = null;
     pendingSeekRef.current = null;
     audiobookLoadedRef.current = false;
@@ -264,13 +271,24 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     setDurTable(chunks.length === 0 ? null : buildTimeline(docHash, chunks, timelineSettings));
   }, [docHash, chunks, timelineSettings]);
 
-  // Warm the clip the user will hear first — the lead for the resume/selected
-  // position (or chunk 0) — while the engine is idle and they're still reading,
-  // so pressing play is instant. Dedup means play attaches to this same synth.
+  // Warm the stable sentence (or legacy fallback clip) the user will hear first
+  // while the engine is idle. Dedup means play attaches to the same synthesis.
   const warmedRef = useRef<string | null>(null);
   const warmStart = useCallback(
     async (charOffset: number) => {
       const token = playTokenRef.current;
+      const sentence = sentenceTargetForStart(plan, charOffset);
+      if (sentence) {
+        if (isSentenceCached(docHash, sentence.anchor, settings)) return;
+        const engine = await ensureEngine();
+        if (!engine || token !== playTokenRef.current) return;
+        try {
+          await withEngine(modelId!, (tts) =>
+            ensureSentenceAudio(tts, engine.voice, docHash, text, sentence.anchor, settings),
+          );
+        } catch {}
+        return;
+      }
       const i = findChunkIndexForOffset(chunks, charOffset);
       if (i < 0 || isChunkCached(docHash, chunks[i].charStart, settings)) return;
       const engine = await ensureEngine();
@@ -281,16 +299,19 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         else await withEngine(modelId!, (t) => ensureChunkAudio(t, engine.voice, docHash, chunks[i], settings));
       } catch {}
     },
-    [chunks, text, docHash, settings, modelId, ensureEngine],
+    [plan, chunks, text, docHash, settings, modelId, ensureEngine],
   );
   useEffect(() => {
     if (!ready || started || fullyRendered || chunks.length === 0 || !modelId) return;
     const startAt = currentRef.current?.charStart ?? chunks[0].charStart;
-    const warmKey = `${docHash}|${settingsHash(settings)}|${startAt}`;
+    const sentence = sentenceTargetForStart(plan, startAt);
+    const warmKey = sentence
+      ? `${docHash}|${sentenceSettingsHash(settings)}|${sentence.anchor.id}`
+      : `${docHash}|${settingsHash(settings)}|${startAt}`;
     if (warmedRef.current === warmKey) return;
     warmedRef.current = warmKey;
     void warmStart(startAt);
-  }, [ready, current, started, fullyRendered, chunks, modelId, docHash, settings, warmStart]);
+  }, [ready, current, started, fullyRendered, chunks, modelId, docHash, settings, plan, warmStart]);
 
   const offsets = useMemo(() => (durTable ? cumulativeOffsetsSec(durTable, speed) : null), [durTable, speed]);
   const tableDurationSec = useMemo(() => (durTable ? totalDurationSec(durTable, speed) : 0), [durTable, speed]);
@@ -407,6 +428,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       } catch {}
       audiobookLoadedRef.current = true;
       loadedKeyRef.current = AUDIOBOOK_KEY;
+      loadedSequenceRef.current = 'audiobook';
     }
   }, [audiobookUri, player, speed]);
 
@@ -461,6 +483,8 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       const token = ++playTokenRef.current;
       activeRef.current = true;
       currentRef.current = chunk;
+      activeSequenceRef.current = 'canonical';
+      sentenceIndexRef.current = -1;
       anchorIndexRef.current = anchorIdx;
       resumeIndexRef.current = resumeIdx;
       // Queue the remainder (if any) to play when this clip finishes.
@@ -515,6 +539,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           rateAppliedAtRef.current = Date.now();
         } catch {}
         loadedKeyRef.current = chunk.charStart;
+        loadedSequenceRef.current = 'canonical';
         markPlaybackPlayerRequested(traceId);
         player.play();
         claimLockScreen(); // on first audio, so transport appears + background survives
@@ -577,6 +602,101 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     [chunks, docHash, player, settings, speed, ensureEngine, claimLockScreen, modelId, cancelPendingPlaybackTrace],
   );
 
+  const playSentence = useCallback(
+    async (sentenceIndex: number) => {
+      const target = sentenceTargetAtIndex(plan, sentenceIndex);
+      if (!target) return;
+      cancelPendingPlaybackTrace();
+      const traceId = startPlaybackTrace({ kind: 'sentence', chars: target.chunk.text.length });
+      playbackTraceRef.current = traceId;
+      const token = ++playTokenRef.current;
+      activeRef.current = true;
+      activeSequenceRef.current = 'sentence';
+      sentenceIndexRef.current = sentenceIndex;
+      currentRef.current = target.chunk;
+      anchorIndexRef.current = target.canonicalIndex;
+      resumeIndexRef.current = target.nextCanonicalIndex;
+      pendingLeadRef.current = null;
+      setCurrent(target.chunk);
+      setEngaged(true);
+      setStarted(true);
+      player.pause();
+
+      try {
+        const cached = isSentenceCached(docHash, target.anchor, settings);
+        markPlaybackCacheDecision(traceId, cached ? 'sentence-cache' : 'sentence-synthesis');
+        let uri: string;
+        if (cached) {
+          uri = sentenceAudioUri(docHash, target.anchor, settings);
+          markPlaybackPrepared(traceId, Date.now(), null);
+        } else {
+          setLoading(true);
+          const preparationStartedAt = Date.now();
+          let synthesisMetrics: NarrationSynthesisMetrics | null = null;
+          const engine = await ensureEngine();
+          if (!engine) {
+            failPlaybackTrace(traceId);
+            if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
+            if (token === playTokenRef.current) setLoading(false);
+            return;
+          }
+          if (token !== playTokenRef.current) {
+            cancelPlaybackTrace(traceId);
+            return;
+          }
+          uri = await withEngine(modelId!, (tts) =>
+            ensureSentenceAudio(tts, engine.voice, docHash, text, target.anchor, settings, (metrics) => {
+              synthesisMetrics = metrics;
+            }),
+          );
+          markPlaybackPrepared(traceId, preparationStartedAt, synthesisMetrics);
+        }
+        if (token !== playTokenRef.current) {
+          cancelPlaybackTrace(traceId);
+          return;
+        }
+        player.replace(uri);
+        try {
+          player.setPlaybackRate(speed, 'high');
+          rateAppliedAtRef.current = Date.now();
+        } catch {}
+        loadedKeyRef.current = target.chunk.charStart;
+        loadedSequenceRef.current = 'sentence';
+        markPlaybackPlayerRequested(traceId);
+        player.play();
+        claimLockScreen();
+        setLoading(false);
+
+        void (async () => {
+          const synthThroughput = getSynthRtf(modelId);
+          const depth = prefetchDepth(synthThroughput);
+          recordPrefetchDepth(depth, synthThroughput);
+          let enginePromise: ReturnType<typeof ensureEngine> | null = null;
+          for (let offset = 1; offset <= depth; offset++) {
+            if (token !== playTokenRef.current) return;
+            const ahead = sentenceTargetAtIndex(plan, sentenceIndex + offset);
+            if (!ahead) return;
+            if (isSentenceCached(docHash, ahead.anchor, settings)) continue;
+            enginePromise ??= ensureEngine();
+            const engine = await enginePromise;
+            if (!engine || token !== playTokenRef.current) return;
+            try {
+              await withEngine(modelId!, (tts) =>
+                ensureSentenceAudio(tts, engine.voice, docHash, text, ahead.anchor, settings),
+              );
+            } catch {}
+          }
+        })();
+      } catch (error) {
+        failPlaybackTrace(traceId);
+        if (playbackTraceRef.current === traceId) playbackTraceRef.current = null;
+        if (token === playTokenRef.current) setLoading(false);
+        console.warn('[usePlayback] failed to play sentence at', target.anchor.charStart, error);
+      }
+    },
+    [plan, cancelPendingPlaybackTrace, docHash, settings, player, ensureEngine, modelId, text, speed, claimLockScreen],
+  );
+
   const playCanonical = useCallback(
     (i: number) => {
       if (i < 0 || i >= chunks.length) return;
@@ -598,6 +718,18 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     if (status.didJustFinish && !finishedHandledRef.current) {
       finishedHandledRef.current = true;
       if (!activeRef.current) return;
+      if (activeSequenceRef.current === 'sentence') {
+        const nextSentence = sentenceTargetAtIndex(plan, sentenceIndexRef.current + 1);
+        if (nextSentence) {
+          const nextWasCached = isSentenceCached(docHash, nextSentence.anchor, settings);
+          boundaryGapRef.current = { startedAtMs: Date.now(), nextWasCached };
+          if (!nextWasCached) stallStartRef.current = Date.now();
+          void playSentence(nextSentence.sentenceIndex);
+        } else {
+          activeRef.current = false;
+        }
+        return;
+      }
       const pending = pendingLeadRef.current;
       if (pending) {
         // A fast-lead just finished — play the remainder of its chunk next.
@@ -617,7 +749,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       }
     }
     if (!status.didJustFinish) finishedHandledRef.current = false;
-  }, [singleItem, status.didJustFinish, chunks.length, playCanonical, playChunkObject, docHash, settings]);
+  }, [singleItem, status.didJustFinish, chunks.length, plan, playSentence, playCanonical, playChunkObject, docHash, settings]);
 
   // Resolve player-side stages for the current production request. This observes
   // the same native status changes that drive the UI, so tap-to-playing includes
@@ -675,6 +807,17 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     }
   }, [singleItem, neutralStarts, status.currentTime, status.isLoaded, chunks]);
 
+  const startSentence = useCallback(
+    (charOffset: number): boolean => {
+      if (fullyRendered) return false;
+      const target = sentenceTargetForStart(plan, charOffset);
+      if (!target) return false;
+      void playSentence(target.sentenceIndex);
+      return true;
+    },
+    [fullyRendered, plan, playSentence],
+  );
+
   // Begin a fresh start with a fast first-sentence lead (~1 s to audio). Returns
   // false (caller falls back) when a lead won't help: already-instant audiobook,
   // an already-cached chunk, or text that can't be usefully split.
@@ -709,16 +852,26 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       return;
     }
     const cur = currentRef.current;
-    if (cur && status.isLoaded && loadedKeyRef.current === cur.charStart && !status.playing) {
+    if (
+      cur &&
+      status.isLoaded &&
+      loadedKeyRef.current === cur.charStart &&
+      loadedSequenceRef.current === activeSequenceRef.current &&
+      !status.playing
+    ) {
       beginCachedPlaybackTrace('resume', 'loaded-player', cur.text.length, true);
       player.play(); // resume the current chunk in place
       claimLockScreen(); // a prior halt released the OS controls — bring them back
     } else if (cur) {
-      if (!startFast(cur.charStart)) void playChunkObject(cur, anchorIndexRef.current, resumeIndexRef.current);
+      if (activeSequenceRef.current === 'sentence' && sentenceIndexRef.current >= 0) {
+        void playSentence(sentenceIndexRef.current);
+      } else if (!startSentence(cur.charStart) && !startFast(cur.charStart)) {
+        void playChunkObject(cur, anchorIndexRef.current, resumeIndexRef.current);
+      }
     } else if (chunks.length) {
-      if (!startFast(chunks[0].charStart)) playCanonical(0); // nothing selected → start from the top
+      if (!startSentence(chunks[0].charStart) && !startFast(chunks[0].charStart)) playCanonical(0);
     }
-  }, [singleItem, beginCachedPlaybackTrace, ensureAudiobookLoaded, playChunkObject, playCanonical, startFast, player, status.isLoaded, status.playing, chunks, claimLockScreen]);
+  }, [singleItem, beginCachedPlaybackTrace, ensureAudiobookLoaded, playSentence, startSentence, playChunkObject, playCanonical, startFast, player, status.isLoaded, status.playing, chunks, claimLockScreen]);
 
   const pause = useCallback(() => {
     activeRef.current = false;
@@ -734,20 +887,26 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     else play();
   }, [status.playing, play, pause]);
 
+  const playCanonicalStart = useCallback((index: number) => {
+    const chunk = chunks[index];
+    if (!chunk) return;
+    if (!startSentence(chunk.charStart)) playCanonical(index);
+  }, [chunks, startSentence, playCanonical]);
+
   const next = useCallback(() => {
     if (singleItem) return seekToChunkSingle(anchorIndexRef.current + 1);
-    playCanonical(resumeIndexRef.current);
-  }, [singleItem, seekToChunkSingle, playCanonical]);
+    playCanonicalStart(resumeIndexRef.current);
+  }, [singleItem, seekToChunkSingle, playCanonicalStart]);
   const previous = useCallback(() => {
     if (singleItem) return seekToChunkSingle(Math.max(0, anchorIndexRef.current - 1));
-    playCanonical(Math.max(0, anchorIndexRef.current - 1));
-  }, [singleItem, seekToChunkSingle, playCanonical]);
+    playCanonicalStart(Math.max(0, anchorIndexRef.current - 1));
+  }, [singleItem, seekToChunkSingle, playCanonicalStart]);
   const seekToChunk = useCallback(
     (i: number) => {
       if (singleItem) return seekToChunkSingle(i);
-      playCanonical(i);
+      playCanonicalStart(i);
     },
-    [singleItem, seekToChunkSingle, playCanonical],
+    [singleItem, seekToChunkSingle, playCanonicalStart],
   );
 
   // Where to start for a tapped/resumed offset: a cached audiobook snaps to the
@@ -785,8 +944,9 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         setEngaged(true);
         return;
       }
-      const lead = resolveStart(charOffset);
-      if (!lead) return;
+      const sentence = sentenceTargetForStart(plan, charOffset);
+      const lead = sentence ? null : resolveStart(charOffset);
+      if (!sentence && !lead) return;
       if (stopCurrent) {
         playTokenRef.current++;
         cancelPendingPlaybackTrace();
@@ -797,13 +957,24 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         setLoading(false);
         player.pause();
       }
-      currentRef.current = lead.chunk;
-      anchorIndexRef.current = lead.anchorIdx;
-      resumeIndexRef.current = lead.resumeIdx;
-      setCurrent(lead.chunk);
+      if (sentence) {
+        activeSequenceRef.current = 'sentence';
+        sentenceIndexRef.current = sentence.sentenceIndex;
+        currentRef.current = sentence.chunk;
+        anchorIndexRef.current = sentence.canonicalIndex;
+        resumeIndexRef.current = sentence.nextCanonicalIndex;
+        setCurrent(sentence.chunk);
+      } else if (lead) {
+        activeSequenceRef.current = 'canonical';
+        sentenceIndexRef.current = -1;
+        currentRef.current = lead.chunk;
+        anchorIndexRef.current = lead.anchorIdx;
+        resumeIndexRef.current = lead.resumeIdx;
+        setCurrent(lead.chunk);
+      }
       setEngaged(true);
     },
-    [singleItem, resolveStart, player, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, chunks, cancelPendingPlaybackTrace],
+    [singleItem, plan, resolveStart, player, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, chunks, cancelPendingPlaybackTrace],
   );
 
   const select = useCallback((charOffset: number) => setSelection(charOffset, true), [setSelection]);
@@ -827,11 +998,12 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
         setEngaged(true);
         return;
       }
+      if (startSentence(charOffset)) return;
       if (startFast(charOffset)) return;
       const lead = resolveStart(charOffset);
       if (lead) void playChunkObject(lead.chunk, lead.anchorIdx, lead.resumeIdx);
     },
-    [singleItem, beginCachedPlaybackTrace, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, player, claimLockScreen, startFast, resolveStart, playChunkObject],
+    [singleItem, beginCachedPlaybackTrace, ensureAudiobookLoaded, seekNeutralAbs, neutralForOffset, player, claimLockScreen, startSentence, startFast, resolveStart, playChunkObject],
   );
 
   // Hard stop (the "Stop" action): halt audio, drop the selection, release the OS
@@ -852,6 +1024,9 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
     setCurrent(null);
     currentRef.current = null;
     loadedKeyRef.current = -1;
+    loadedSequenceRef.current = 'none';
+    activeSequenceRef.current = 'canonical';
+    sentenceIndexRef.current = -1;
     pendingLeadRef.current = null;
     pendingSeekRef.current = null;
     try {
@@ -915,18 +1090,18 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
       const span = c ? c.charEnd - c.charStart : 0;
       const frac = durTable[loc.index] > 0 ? Math.min(1, Math.max(0, loc.withinNeutralSec / durTable[loc.index])) : 0;
       const charOffset = c ? c.charStart + Math.floor(frac * span) : 0;
+      if (c && startSentence(charOffset)) return;
       if (!c || !startFast(charOffset)) {
         pendingLeadRef.current = null;
         pendingSeekRef.current = loc.withinNeutralSec;
         playCanonical(loc.index);
       }
     },
-    [durTable, offsets, singleItem, beginCachedPlaybackTrace, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical, startFast, chunks],
+    [durTable, offsets, singleItem, beginCachedPlaybackTrace, ensureAudiobookLoaded, seekNeutralAbs, speed, player, claimLockScreen, playCanonical, startSentence, startFast, chunks],
   );
 
-  // Map the current clip's position onto the whole-document timeline. The clip may
-  // be a canonical chunk, a fast-lead, or a remainder, so offset by the canonical
-  // start plus the lead already played (by char proportion). Neutral secs → /speed.
+  // Map the current sentence, canonical chunk, or partial lead onto the existing
+  // whole-document timeline. Neutral seconds are converted to at-speed seconds.
   let docPositionSec = 0;
   let docDurationSec = tableDurationSec;
   if (singleItem && status.isLoaded) {

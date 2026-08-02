@@ -1,5 +1,5 @@
 import type { ExtractedBlock, ExtractedDocument, ExtractedSentence } from '../pdf';
-import { ABBREVIATION } from '../supertonic/text/sentenceRules';
+import { sentenceSpans } from '../supertonic/text/segmentation';
 
 // Assembles format-agnostic blocks (from the markdown/docx extractors) into the
 // canonical ExtractedDocument the reader + chunker consume, with exact char
@@ -13,33 +13,14 @@ export type SourceBlock =
 // PageScrubber, so we break every ~this-many chars.
 const PAGE_CHAR_BUDGET = 1800;
 
-// Sentence split mirroring the chunker's rules (shared sentenceRules).
+// Use the narration segmenter so every tappable reader sentence starts at the
+// same stable offset as its reusable audio anchor.
 function splitSentences(text: string, base: number): ExtractedSentence[] {
-  const ends: number[] = [];
-  const re = /[.!?。！？]+/g; // ASCII (guarded below) + CJK fullwidth terminators
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const end = m.index + m[0].length;
-    if (!/[。！？]/.test(m[0])) {
-      // ASCII: require following whitespace/EOF and skip abbreviations.
-      if (end < text.length && !/\s/.test(text[end])) continue;
-      if (ABBREVIATION.test(text.slice(Math.max(0, m.index - 6), m.index + 1))) continue;
-    }
-    ends.push(end);
-  }
-  if (ends.length === 0 || ends[ends.length - 1] < text.length) ends.push(text.length);
-
-  const sentences: ExtractedSentence[] = [];
-  let start = 0;
-  for (const end of ends) {
-    let s = start;
-    while (s < end && /\s/.test(text[s])) s++;
-    let e = end;
-    while (e > s && /\s/.test(text[e - 1])) e--;
-    if (e > s) sentences.push({ text: text.slice(s, e), charStart: base + s, charEnd: base + e });
-    start = end;
-  }
-  return sentences;
+  return sentenceSpans(text).map(({ charStart, charEnd }) => ({
+    text: text.slice(charStart, charEnd),
+    charStart: base + charStart,
+    charEnd: base + charEnd,
+  }));
 }
 
 export function buildDocument(source: SourceBlock[]): ExtractedDocument {

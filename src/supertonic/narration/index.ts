@@ -5,7 +5,7 @@ export { createNarrationPlan, EMPTY_NARRATION_PLAN } from './narrationPlan';
 export type { NarrationPlan } from './narrationPlanTypes';
 export { buildSentenceAnchors, MAX_SENTENCE_ANCHOR_CHARS, sentenceAnchorId } from './sentenceAnchors';
 export { sentenceCacheBaseName, sentenceSettingsHash } from './cacheIdentity';
-export { ensureChunkAudio, ensureLeadAudio } from './narrator';
+export { ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio } from './narrator';
 export { clearNarrationPerfCounters, getNarrationPerfCounters, getSynthRtf } from './perfStats';
 export { prerenderDocument } from './prerender';
 export type { PrerenderOptions, PrerenderProgress, PrerenderResult } from './prerender';
