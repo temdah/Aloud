@@ -113,6 +113,7 @@ export default function LibraryScreen() {
       steps: rp?.steps ?? settings.steps,
       lang: rp?.lang ?? doc.lang ?? settings.lang ?? 'en',
       quality: effQuality,
+      tone: rp?.tone ?? settings.tone,
       onSpeedChange: (v: number) => (rp ? setRenderProfile(docId, { ...rp, speed: v }) : settings.setSpeed(v)),
     };
     playDocument(active, cursor[docId] ?? 0);

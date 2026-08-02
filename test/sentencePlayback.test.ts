@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createNarrationPlan } from '../src/supertonic';
-import { buildChunks } from '../src/supertonic';
+import { createNarrationPlan } from '../src/supertonic/narration/narrationPlan';
+import { buildChunks } from '../src/supertonic/narration/textChunker';
 import { buildDocument } from '../src/extractors';
 import {
   findSentenceIndexForOffset,
   sentenceTargetAtIndex,
   sentenceTargetForStart,
-} from '../src/playback';
+} from '../src/playback/sentencePlayback';
 
 const text = 'First sentence.  Second sentence! Third sentence?';
 const plan = createNarrationPlan(text, buildChunks(text, 35));

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import { usePlayback, useSleepTimer } from '../hooks';
-import { DEFAULT_QUALITY, EMPTY_NARRATION_PLAN, getEngine, isEngineResident, releaseCurrentEngine } from '../supertonic';
+import { DEFAULT_NARRATION_TONE, DEFAULT_QUALITY, EMPTY_NARRATION_PLAN, getEngine, isEngineResident, MIN_SYNTHESIS_STEPS, releaseCurrentEngine } from '../supertonic';
 import { useSettingsStore } from '../stores';
 import type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
 
@@ -28,9 +28,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     modelId: activeDoc?.modelId ?? null,
     voiceId: activeDoc?.voiceId ?? '',
     speed: activeDoc?.speed ?? 1,
-    steps: activeDoc?.steps ?? 1,
+    steps: activeDoc?.steps ?? MIN_SYNTHESIS_STEPS,
     lang: activeDoc?.lang ?? 'en',
     quality: activeDoc?.quality ?? DEFAULT_QUALITY,
+    tone: activeDoc?.tone ?? DEFAULT_NARRATION_TONE,
     title: activeDoc?.doc.title,
     onSpeedChange: activeDoc?.onSpeedChange,
   });

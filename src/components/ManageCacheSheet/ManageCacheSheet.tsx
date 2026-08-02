@@ -6,6 +6,7 @@ import {
   findModel,
   languageLabel,
   listCachedProfiles,
+  NARRATION_TONE_LABELS,
 } from '../../supertonic';
 import type { CachedProfile } from '../../supertonic';
 import { usePlaybackContext } from '../../playback';
@@ -32,7 +33,7 @@ function formatSize(bytes: number): string {
 
 function profileLabel(cp: CachedProfile): { title: string; sub: string } {
   if (!cp.meta) return { title: 'Unknown voice', sub: 'Cached before voice labels' };
-  const sub = [languageLabel(cp.meta.lang), findModel(cp.meta.modelId)?.label]
+  const sub = [languageLabel(cp.meta.lang), findModel(cp.meta.modelId)?.label, NARRATION_TONE_LABELS[cp.meta.tone]?.title]
     .filter(Boolean)
     .join(' · ');
   return { title: voiceLabel(cp.meta.voiceId), sub };

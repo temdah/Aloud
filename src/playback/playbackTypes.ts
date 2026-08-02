@@ -1,5 +1,5 @@
 import type { NarrationPlan, Quality } from '../supertonic';
-import type { Chunk } from '../types';
+import type { Chunk, NarrationTone } from '../types';
 
 export type UsePlaybackOptions = {
   docHash: string;
@@ -10,6 +10,7 @@ export type UsePlaybackOptions = {
   steps: number;
   lang?: string;
   quality: Quality;
+  tone: NarrationTone;
   title?: string;
   artist?: string;
   onSpeedChange?: (speed: number) => void;

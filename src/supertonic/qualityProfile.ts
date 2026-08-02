@@ -6,6 +6,7 @@
 export type Quality = 'fast' | 'balanced' | 'quality';
 
 export const DEFAULT_QUALITY: Quality = 'balanced';
+export const MIN_SYNTHESIS_STEPS = 5;
 
 export type QualityProfile = { unitLen: number; steps: number };
 
@@ -17,6 +18,11 @@ const PROFILES: Record<Quality, QualityProfile> = {
 
 export function qualityProfile(q: Quality): QualityProfile {
   return PROFILES[q] ?? PROFILES.balanced;
+}
+
+export function normalizeSynthesisSteps(value: number): number {
+  const rounded = Number.isFinite(value) ? Math.round(value) : MIN_SYNTHESIS_STEPS;
+  return Math.max(MIN_SYNTHESIS_STEPS, rounded);
 }
 
 export const QUALITY_LABELS: Record<Quality, { title: string; subtitle: string }> = {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sentenceCacheBaseName, sentenceSettingsHash, settingsHash } from '../src/supertonic';
-import type { NarrationSettings } from '../src/supertonic';
+import { sentenceCacheBaseName, sentenceSettingsHash, settingsHash } from '../src/supertonic/narration/cacheIdentity';
+import type { NarrationSettings } from '../src/supertonic/narration/narrationTypes';
 
 const settings: NarrationSettings = {
   modelId: 'supertonic-3',
@@ -10,6 +10,7 @@ const settings: NarrationSettings = {
   steps: 5,
   lang: 'en',
   quality: 'fast',
+  tone: 'adaptive',
 };
 
 test('sentence cache identity combines stable anchor and synthesis settings', () => {
@@ -36,4 +37,6 @@ test('voice and synthesis steps produce different sentence audio identities', ()
 
   assert.notEqual(sentenceCacheBaseName(anchor, settings), sentenceCacheBaseName(anchor, { ...settings, voiceId: 'F1' }));
   assert.notEqual(sentenceCacheBaseName(anchor, settings), sentenceCacheBaseName(anchor, { ...settings, steps: 8 }));
+  assert.notEqual(sentenceCacheBaseName(anchor, settings), sentenceCacheBaseName(anchor, { ...settings, tone: 'neutral' }));
+  assert.equal(sentenceCacheBaseName(anchor, { ...settings, steps: 4 }), sentenceCacheBaseName(anchor, settings));
 });

@@ -1,6 +1,6 @@
 import type { SleepTimer } from '../hooks';
 import type { NarrationPlan, Quality } from '../supertonic';
-import type { ImportedDocument } from '../types';
+import type { ImportedDocument, NarrationTone } from '../types';
 import type { Playback } from './playbackTypes';
 
 export type ActiveDoc = {
@@ -12,6 +12,7 @@ export type ActiveDoc = {
   steps: number;
   lang: string;
   quality: Quality;
+  tone: NarrationTone;
   onSpeedChange?: (speed: number) => void;
 };
 

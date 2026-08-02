@@ -11,6 +11,8 @@ export { prerenderDocument } from './prerender';
 export type { PrerenderOptions, PrerenderProgress, PrerenderResult } from './prerender';
 export { planProsody } from './prosodyPlanner';
 export type { ProsodyBoundary, ProsodyPlan } from './prosodyTypes';
+export { DEFAULT_NARRATION_TONE, isAcademicDocument, NARRATION_TONE_LABELS, normalizeNarrationTone, planNarrationTone } from './tonePlanner';
+export type { TonePlan } from './tonePlannerTypes';
 export {
   chunkAudioFile,
   chunkTimingFile,

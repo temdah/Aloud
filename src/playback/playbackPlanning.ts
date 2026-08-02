@@ -1,8 +1,9 @@
-import { findChunkIndexForOffset } from '../supertonic';
+import { findChunkIndexForOffset } from '../supertonic/narration/chunkLookup';
 import { firstSentenceEnd } from '../supertonic/text/segmentation';
 import type { Chunk } from '../types';
-import { stableHash } from '../utils';
+import { stableHash } from '../utils/hash';
 import type { FastStart, Lead } from './playbackPlanningTypes';
+import type { DevicePlaybackSnapshot, DevicePressure } from './devicePlaybackPolicyTypes';
 
 const PREFETCH_AHEAD = 4;
 const MIN_LEAD = 140;
@@ -13,11 +14,33 @@ export type { FastStart, Lead } from './playbackPlanningTypes';
 
 // Build a deep buffer when synthesis comfortably beats realtime, but avoid
 // spending scarce inference time far ahead when a slower device cannot keep up.
-export function prefetchDepth(rtf: number | null): number {
-  if (rtf == null) return PREFETCH_AHEAD;
-  if (rtf >= 1.5) return 6;
-  if (rtf >= 1.0) return PREFETCH_AHEAD;
-  return 2;
+export function classifyDevicePressure(snapshot: DevicePlaybackSnapshot | null): DevicePressure {
+  if (!snapshot) return 'normal';
+  const thermal = snapshot.thermalStatus ?? 0;
+  if (
+    snapshot.lowMemory ||
+    thermal >= 3 ||
+    snapshot.availableMemoryBytes <= snapshot.memoryThresholdBytes * 1.25
+  ) return 'critical';
+
+  const memoryRatio = snapshot.totalMemoryBytes > 0
+    ? snapshot.availableMemoryBytes / snapshot.totalMemoryBytes
+    : 1;
+  if (
+    snapshot.powerSaveMode ||
+    thermal >= 2 ||
+    snapshot.cpuCores <= 4 ||
+    snapshot.appMemoryClassMb <= 256 ||
+    memoryRatio <= 0.15
+  ) return 'constrained';
+  return 'normal';
+}
+
+export function prefetchDepth(rtf: number | null, pressure: DevicePressure = 'normal'): number {
+  const throughputDepth = rtf == null ? PREFETCH_AHEAD : rtf >= 1.5 ? 6 : rtf >= 1 ? PREFETCH_AHEAD : 2;
+  if (pressure === 'critical') return 1;
+  if (pressure === 'constrained') return Math.min(2, throughputDepth);
+  return throughputDepth;
 }
 
 // Resolve an exact text offset into the clip that should play first. Mid-chunk

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { DEFAULT_QUALITY, DEFAULT_VOICE, qualityProfile, type Quality } from '../supertonic';
+import { DEFAULT_NARRATION_TONE, DEFAULT_QUALITY, DEFAULT_VOICE, normalizeNarrationTone, normalizeSynthesisSteps, qualityProfile, type Quality } from '../supertonic';
+import type { NarrationTone } from '../types';
 import { fileStorage } from './fileStorage';
 
 // Global narration settings (model, voice, language, speed, steps), persisted.
@@ -15,6 +16,7 @@ type SettingsState = {
   steps: number;
   // Playback quality preset — sets the chunk unit length and steps together.
   quality: Quality;
+  tone: NarrationTone;
   // Keep the voice engine loaded for instant starts (uses ~300 MB); off releases
   // it when idle to save memory on low-RAM devices.
   keepEngineWarm: boolean;
@@ -32,6 +34,7 @@ type SettingsState = {
   setSpeed: (speed: number) => void;
   setSteps: (steps: number) => void;
   setQuality: (quality: Quality) => void;
+  setTone: (tone: NarrationTone) => void;
   setKeepEngineWarm: (keepEngineWarm: boolean) => void;
   setOnboarded: (onboarded: boolean) => void;
   acceptTerms: () => void;
@@ -46,8 +49,9 @@ export const useSettingsStore = create<SettingsState>()(
       voiceId: DEFAULT_VOICE,
       lang: 'en',
       speed: 1.05,
-      steps: 5,
+      steps: qualityProfile(DEFAULT_QUALITY).steps,
       quality: DEFAULT_QUALITY,
+      tone: DEFAULT_NARRATION_TONE,
       keepEngineWarm: true,
       onboarded: false,
       termsAcceptedAt: 0,
@@ -57,15 +61,28 @@ export const useSettingsStore = create<SettingsState>()(
       setVoice: (voiceId) => set({ voiceId }),
       setLang: (lang) => set({ lang }),
       setSpeed: (speed) => set({ speed }),
-      setSteps: (steps) => set({ steps }),
+      setSteps: (steps) => set({ steps: normalizeSynthesisSteps(steps) }),
       // Picking a preset also sets its steps; Advanced can then override steps alone.
       setQuality: (quality) => set({ quality, steps: qualityProfile(quality).steps }),
+      setTone: (tone) => set({ tone: normalizeNarrationTone(tone) }),
       setKeepEngineWarm: (keepEngineWarm) => set({ keepEngineWarm }),
       setOnboarded: (onboarded) => set({ onboarded }),
       acceptTerms: () => set({ termsAcceptedAt: Date.now() }),
       suppressPerfTip: () => set({ perfTipSuppressed: true }),
       markPerfTipShown: () => set({ perfTipLastShown: Date.now() }),
     }),
-    { name: 'settings', storage: createJSONStorage(() => fileStorage) },
+    {
+      name: 'settings',
+      storage: createJSONStorage(() => fileStorage),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<SettingsState>;
+        return {
+          ...current,
+          ...saved,
+          steps: normalizeSynthesisSteps(saved.steps ?? current.steps),
+          tone: normalizeNarrationTone(saved.tone),
+        };
+      },
+    },
   ),
 );

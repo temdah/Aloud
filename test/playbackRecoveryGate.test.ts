@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PlaybackRecoveryGate } from '../src/playback';
+import { PlaybackRecoveryGate } from '../src/playback/playbackRecoveryGate';
 
 test('PlaybackRecoveryGate permits only one automatic rebuild per clip', () => {
   const gate = new PlaybackRecoveryGate();

@@ -22,6 +22,8 @@ import { recordDeduplicatedSynthesis, recordSynthesisStarted, recordSynthRtf } f
 import { planProsody } from './prosodyPlanner';
 import type { ProsodyPlan } from './prosodyTypes';
 import { silenceSampleCount } from './silenceSamples';
+import { normalizeSynthesisSteps } from '../qualityProfile';
+import { isAcademicDocument, planNarrationTone } from './tonePlanner';
 
 // Coalesce concurrent synthesis of the same clip. Without this, a chunk being
 // prefetched in the background and then reached by playback runs TWO full ONNX
@@ -29,6 +31,29 @@ import { silenceSampleCount } from './silenceSamples';
 // write). Keyed by the output uri, which already encodes doc + charStart +
 // settings, so only truly-identical clips collapse.
 const inFlight = new Map<string, Promise<string>>();
+const academicDocuments = new Map<string, boolean>();
+const MAX_ACADEMIC_DOCUMENTS = 16;
+
+function academicDocument(docHash: string, documentText: string): boolean {
+  const key = `${docHash}:${documentText.length}`;
+  const cached = academicDocuments.get(key);
+  if (cached !== undefined) {
+    academicDocuments.delete(key);
+    academicDocuments.set(key, cached);
+    return cached;
+  }
+  const result = isAcademicDocument(documentText);
+  if (academicDocuments.size >= MAX_ACADEMIC_DOCUMENTS) {
+    const oldest = academicDocuments.keys().next().value;
+    if (oldest) academicDocuments.delete(oldest);
+  }
+  academicDocuments.set(key, result);
+  return result;
+}
+
+function academicContext(settings: NarrationSettings, docHash: string, documentText: string): boolean {
+  return settings.tone === 'adaptive' && academicDocument(docHash, documentText);
+}
 
 function dedupeSynth(key: string, run: () => Promise<string>): Promise<string> {
   const existing = inFlight.get(key);
@@ -56,6 +81,7 @@ async function synthesizeToFile(
   file: File,
   unit: ProsodyPlan,
   settings: NarrationSettings,
+  academic: boolean,
 ): Promise<{ uri: string; neutralSec: number; metrics: NarrationSynthesisMetrics }> {
   recordSynthesisStarted();
   // Render at the engine's neutral rate; playback speed is applied live, so the
@@ -68,9 +94,12 @@ async function synthesizeToFile(
     traceMark(stage);
   };
   const synthStart = Date.now();
-  const { waveform, diagnostics } = await tts.synthesize(unit.synthesisText, settings.lang, voice, settings.steps, 1.0, undefined, onStage);
+  const tone = planNarrationTone('', unit.synthesisText, settings.tone, academic);
+  const steps = normalizeSynthesisSteps(settings.steps);
+  const { waveform, diagnostics } = await tts.synthesize(unit.synthesisText, settings.lang, voice, steps, tone.synthesisSpeed, undefined, onStage);
   const synthMs = Date.now() - synthStart;
-  const trailingSilenceSamples = silenceSampleCount(tts.sampleRate, unit.trailingPauseMs);
+  const trailingPauseMs = Math.round(unit.trailingPauseMs * tone.pauseScale);
+  const trailingSilenceSamples = silenceSampleCount(tts.sampleRate, trailingPauseMs);
   // Fuse Float32 -> PCM16 and the planned silence tail into the native AAC worker
   // so JavaScript never copies the full waveform just to add a pause.
   if (file.exists) file.delete();
@@ -82,7 +111,7 @@ async function synthesizeToFile(
   timer.mark('native-float-to-aac');
   traceMark('native-float-to-aac');
   endClip();
-  const pauseSec = unit.trailingPauseMs / 1000;
+  const pauseSec = trailingPauseMs / 1000;
   const outputSamples = waveform.length + trailingSilenceSamples;
   const audioSec = outputSamples / tts.sampleRate;
   const totalMs = Date.now() - wallStart;
@@ -105,6 +134,11 @@ async function synthesizeToFile(
       aacMs,
       totalMs,
       outputBytes: file.size ?? 0,
+      requestedTone: tone.requested,
+      resolvedTone: tone.resolved,
+      synthesisSpeed: tone.synthesisSpeed,
+      trailingPauseMs,
+      prosodyBoundary: unit.boundary,
     },
   };
 }
@@ -127,7 +161,7 @@ export async function ensureChunkAudio(
   return dedupeSynth(file.uri, async () => {
     if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri; // landed while queued
     const prosody = planChunkProsody(documentText, chunk);
-    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings);
+    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings, academicContext(settings, docHash, documentText));
     // Persist the clip length so the document timeline can rebuild from cache.
     writeChunkTiming(docHash, chunk.charStart, settings, neutralSec);
     onMetrics?.(metrics);
@@ -151,7 +185,7 @@ export async function ensureLeadAudio(
   return dedupeSynth(file.uri, async () => {
     if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
     const prosody = planChunkProsody(documentText, chunk);
-    const { uri, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings);
+    const { uri, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings, academicContext(settings, docHash, documentText));
     onMetrics?.(metrics);
     return uri;
   });
@@ -173,7 +207,7 @@ export async function ensureSentenceAudio(
   return dedupeSynth(file.uri, async () => {
     if (file.exists && file.size > MIN_CACHED_BYTES) return file.uri;
     const prosody = planProsody(documentText, anchor.charStart, anchor.charEnd);
-    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings);
+    const { uri, neutralSec, metrics } = await synthesizeToFile(tts, voice, file, prosody, settings, academicContext(settings, docHash, documentText));
     writeSentenceTiming(docHash, anchor, settings, neutralSec);
     onMetrics?.(metrics);
     return uri;

@@ -1,5 +1,5 @@
 import { Directory, File, Paths } from 'expo-file-system';
-import type { SentenceAnchor } from '../../types';
+import type { NarrationTone, SentenceAnchor } from '../../types';
 import { sentenceCacheBaseName, sentenceSettingsHash, settingsHash } from './cacheIdentity';
 import type { NarrationSettings } from './narrationTypes';
 
@@ -221,7 +221,7 @@ export function clearFragmentedCache(docHash: string): void {
 }
 
 // meta is null when the profile predates the registry (couldn't be labelled).
-export type ProfileMeta = { modelId: string; voiceId: string; steps: number; lang: string };
+export type ProfileMeta = { modelId: string; voiceId: string; steps: number; lang: string; tone: NarrationTone };
 export type CachedProfile = { hash: string; meta: ProfileMeta | null; count: number; bytes: number };
 
 function profilesRegistryFile(docHash: string): File {
@@ -267,7 +267,7 @@ export function recordSentenceCachedProfile(docHash: string, s: NarrationSetting
 function recordProfile(docHash: string, hash: string, s: NarrationSettings): void {
   const reg = readProfilesRegistry(docHash);
   if (reg[hash]) return;
-  reg[hash] = { modelId: s.modelId, voiceId: s.voiceId, steps: s.steps, lang: s.lang };
+  reg[hash] = { modelId: s.modelId, voiceId: s.voiceId, steps: s.steps, lang: s.lang, tone: s.tone };
   writeProfilesRegistry(docHash, reg);
 }
 

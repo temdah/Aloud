@@ -18,6 +18,8 @@ export type InferenceQueueSnapshot = {
 export class InferenceQueue {
   private foreground: Task<unknown>[] = [];
   private background: Task<unknown>[] = [];
+  private foregroundHead = 0;
+  private backgroundHead = 0;
   private running = false;
 
   enqueue<T>(run: () => Promise<T>, priority: InferencePriority): Promise<T> {
@@ -32,8 +34,8 @@ export class InferenceQueue {
   snapshot(): InferenceQueueSnapshot {
     return {
       running: this.running,
-      foregroundPending: this.foreground.length,
-      backgroundPending: this.background.length,
+      foregroundPending: this.foreground.length - this.foregroundHead,
+      backgroundPending: this.background.length - this.backgroundHead,
     };
   }
 
@@ -41,8 +43,8 @@ export class InferenceQueue {
     if (this.running) return;
     this.running = true;
     try {
-      while (this.foreground.length > 0 || this.background.length > 0) {
-        const task = this.foreground.shift() ?? this.background.shift();
+      while (this.hasPending()) {
+        const task = this.dequeue(this.foreground, 'foreground') ?? this.dequeue(this.background, 'background');
         if (!task) continue;
         try {
           task.resolve(await task.run());
@@ -52,7 +54,25 @@ export class InferenceQueue {
       }
     } finally {
       this.running = false;
-      if (this.foreground.length > 0 || this.background.length > 0) void this.drain();
+      if (this.hasPending()) void this.drain();
     }
+  }
+
+  private hasPending(): boolean {
+    return this.foregroundHead < this.foreground.length || this.backgroundHead < this.background.length;
+  }
+
+  private dequeue(queue: Task<unknown>[], priority: InferencePriority): Task<unknown> | undefined {
+    const head = priority === 'foreground' ? this.foregroundHead : this.backgroundHead;
+    if (head >= queue.length) return undefined;
+    const task = queue[head];
+    if (priority === 'foreground') this.foregroundHead++;
+    else this.backgroundHead++;
+    if ((priority === 'foreground' ? this.foregroundHead : this.backgroundHead) === queue.length) {
+      queue.length = 0;
+      if (priority === 'foreground') this.foregroundHead = 0;
+      else this.backgroundHead = 0;
+    }
+    return task;
   }
 }

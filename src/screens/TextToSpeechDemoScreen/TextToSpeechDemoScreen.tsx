@@ -11,6 +11,7 @@ import {
   ensureChunkAudio,
   getEngine,
   getNarrationPerfCounters,
+  getSynthRtf,
   getVoice,
   isEngineResident,
   loadChunks,
@@ -27,7 +28,7 @@ import {
 } from '../../supertonic';
 import { getDevicePerformanceSnapshot } from '../../../modules/device-performance';
 import { loadExtractedText } from '../../pdf';
-import { clearPlaybackDiagnostics, getPlaybackDiagnostics, usePlaybackContext } from '../../playback';
+import { classifyDevicePressure, clearPlaybackDiagnostics, getPlaybackDiagnostics, prefetchDepth, usePlaybackContext } from '../../playback';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { maxChunkLen } from '../../supertonic/text/sentenceRules';
 import { useTheme } from '../../theme';
@@ -124,6 +125,7 @@ export default function TextToSpeechDemoScreen() {
   const lang = useSettingsStore((s) => s.lang);
   const settingsSteps = useSettingsStore((s) => s.steps);
   const quality = useSettingsStore((s) => s.quality);
+  const tone = useSettingsStore((s) => s.tone);
   const documents = useDocumentsStore((s) => s.documents);
   const { clearActiveDoc } = usePlaybackContext();
 
@@ -490,14 +492,14 @@ export default function TextToSpeechDemoScreen() {
       const chunks = loadChunks(analyzedDoc.docHash, extracted.text, qualityProfile(quality).unitLen);
       const firstChunk = requireValue(chunks[0], 'no chunks');
       const selectedModelId = requireValue(modelId, 'No voice model selected.');
-      const settings: NarrationSettings = { modelId: selectedModelId, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality };
+      const settings: NarrationSettings = { modelId: selectedModelId, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality, tone };
       // Force a fresh synth so there's something to trace (not a cache hit).
       try {
         const f = new File(chunkAudioUri(analyzedDoc.docHash, firstChunk.charStart, settings));
         if (f.exists) f.delete();
       } catch {}
       append(`\n── Real synth path · chunk 0 (${firstChunk.text.length}c) ──`);
-      append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality} · unit ${qualityProfile(quality).unitLen}`));
+      append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality} · ${tone} tone · unit ${qualityProfile(quality).unitLen}`));
       const prosody = planProsody(extracted.text, firstChunk.charStart, firstChunk.charEnd);
       append(row('prosody', `${prosody.boundary} · ${prosody.trailingPauseMs} ms trailing pause`));
       traceStart();
@@ -583,6 +585,9 @@ export default function TextToSpeechDemoScreen() {
       append(row('memory threshold', formatBytes(device.memoryThresholdBytes)));
       append(row('app memory class', `${device.appMemoryClassMb} MB · large ${device.largeAppMemoryClassMb} MB`));
       append(row('CPU cores', String(device.cpuCores)));
+      const pressure = classifyDevicePressure(device);
+      append(row('playback pressure', pressure));
+      append(row('recommended prefetch', `${prefetchDepth(getSynthRtf(modelId), pressure)} clips`));
     }
   };
 
@@ -821,6 +826,8 @@ function formatProductionMetrics(metrics: NarrationSynthesisMetrics): string {
     row('tokens / samples', `${metrics.tokenCount} / ${metrics.waveformSamples.toLocaleString()}`),
     row('latent dim × len', `${metrics.latentDim} × ${metrics.latentLen}`),
     row('AAC output', formatBytes(metrics.outputBytes)),
+    row('tone', `${metrics.requestedTone} → ${metrics.resolvedTone} · synth speed ×${metrics.synthesisSpeed.toFixed(2)}`),
+    row('cadence', `${metrics.prosodyBoundary} · ${metrics.trailingPauseMs} ms trailing pause`),
     row('standard RTF', standardRtf(metrics.totalMs, metrics.audioSec).toFixed(3)),
     row('throughput', `${throughput(metrics.totalMs, metrics.audioSec).toFixed(2)}× realtime`),
   ].join('\n');

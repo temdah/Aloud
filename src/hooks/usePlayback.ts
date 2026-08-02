@@ -1,10 +1,12 @@
 import { createAudioPlayer, setAudioModeAsync, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getDevicePerformanceSnapshot } from '../../modules/device-performance';
 import { audiobookAudioUri, buildTimeline, chunkAudioUri, cumulativeOffsetsSec, deleteAudiobookCache, deleteChunkCache, deleteLeadCache, deleteSentenceCache, ensureChunkAudio, ensureLeadAudio, ensureSentenceAudio, findChunkIndexForOffset, getEngine, getVoice, isAudiobookCached, getSynthRtf, isChunkCached, isLeadCached, isSentenceCached, leadAudioFile, locateTime, ModelLoadError, readAudiobookIndex, sentenceAudioUri, sentenceSettingsHash, settingsHash, totalDurationSec, withEngine } from '../supertonic';
 import type { DurationTable, NarrationSettings, NarrationSynthesisMetrics, TextToSpeech, VoiceStyle } from '../supertonic';
 import {
   buildFastStart,
   buildLead,
+  classifyDevicePressure,
   buildNeutralStarts,
   cancelPlaybackTrace,
   failPlaybackTrace,
@@ -53,7 +55,7 @@ const RTF_THRESHOLD = 1.1; // synthesis realtime factor below which we blame the
 // Sequential, cached, generate-ahead playback. Stable sentence units are the
 // normal path; canonical chunks and partial leads remain for mid-sentence starts
 // and full-audiobook compatibility.
-export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lang = 'en', quality, title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
+export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lang = 'en', quality, tone, title, artist, onSpeedChange }: UsePlaybackOptions): Playback {
   const { chunks, text } = plan;
   // A player we own for the hook's lifetime; useAudioPlayer() released the native
   // player mid-session (replace() threw ERR_USING_RELEASED_SHARED_OBJECT).
@@ -159,14 +161,14 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
   }, []);
 
   const settings = useMemo<NarrationSettings>(
-    () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang, quality }),
-    [modelId, voiceId, speed, steps, lang, quality],
+    () => ({ modelId: modelId ?? '', voiceId, speed, steps, lang, quality, tone }),
+    [modelId, voiceId, speed, steps, lang, quality, tone],
   );
   // Timeline durations are neutral-rate and their cache ignores speed. Keep a
   // stable settings object so moving the speed control never probes every chunk.
   const timelineSettings = useMemo<NarrationSettings>(
-    () => ({ modelId: modelId ?? '', voiceId, speed: 1, steps, lang, quality }),
-    [modelId, voiceId, steps, lang, quality],
+    () => ({ modelId: modelId ?? '', voiceId, speed: 1, steps, lang, quality, tone }),
+    [modelId, voiceId, steps, lang, quality, tone],
   );
 
   // A full audiobook rendered with these exact settings: play straight from cache
@@ -604,7 +606,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
           // Depth adapts to how well synthesis is keeping up: deep buffer when
           // ahead of realtime, just the next clip or two when falling behind.
           const synthThroughput = getSynthRtf(modelId);
-          const depth = prefetchDepth(synthThroughput);
+          const depth = prefetchDepth(synthThroughput, classifyDevicePressure(getDevicePerformanceSnapshot()));
           recordPrefetchDepth(depth, synthThroughput);
           for (let k = 0; k < depth; k++) {
             if (!requestGate.isCurrent(token)) return;
@@ -719,7 +721,7 @@ export function usePlayback({ docHash, plan, modelId, voiceId, speed, steps, lan
 
         void (async () => {
           const synthThroughput = getSynthRtf(modelId);
-          const depth = prefetchDepth(synthThroughput);
+          const depth = prefetchDepth(synthThroughput, classifyDevicePressure(getDevicePerformanceSnapshot()));
           recordPrefetchDepth(depth, synthThroughput);
           let enginePromise: ReturnType<typeof ensureEngine> | null = null;
           for (let offset = 1; offset <= depth; offset++) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PlaybackRequestGate } from '../src/playback';
+import { PlaybackRequestGate } from '../src/playback/playbackRequestGate';
 
 test('PlaybackRequestGate gives ownership only to the newest request', () => {
   const gate = new PlaybackRequestGate();

@@ -1,5 +1,5 @@
 import type { SentenceAnchor } from '../../types';
-import { stableHash } from '../../utils';
+import { stableHash } from '../../utils/hash';
 import { sentenceSpans } from '../text/segmentation';
 import { chunkText } from './textChunker';
 

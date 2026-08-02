@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFastStart, buildLead, prefetchDepth } from '../src/playback';
+import { buildFastStart, buildLead, classifyDevicePressure, prefetchDepth } from '../src/playback/playbackPlanning';
 import type { Chunk } from '../src/types';
 
 function chunk(idx: number, text: string, charStart: number): Chunk {
@@ -61,4 +61,22 @@ test('prefetchDepth preserves the current throughput thresholds', () => {
   assert.equal(prefetchDepth(1), 4);
   assert.equal(prefetchDepth(1.49), 4);
   assert.equal(prefetchDepth(1.5), 6);
+});
+
+test('device pressure limits speculative synthesis', () => {
+  const normal = {
+    availableMemoryBytes: 3_000_000_000,
+    totalMemoryBytes: 6_000_000_000,
+    lowMemory: false,
+    memoryThresholdBytes: 300_000_000,
+    appMemoryClassMb: 512,
+    cpuCores: 8,
+    powerSaveMode: false,
+    thermalStatus: 0,
+  };
+  assert.equal(classifyDevicePressure(normal), 'normal');
+  assert.equal(classifyDevicePressure({ ...normal, powerSaveMode: true }), 'constrained');
+  assert.equal(classifyDevicePressure({ ...normal, lowMemory: true }), 'critical');
+  assert.equal(prefetchDepth(2, 'constrained'), 2);
+  assert.equal(prefetchDepth(2, 'critical'), 1);
 });

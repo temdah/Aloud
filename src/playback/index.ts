@@ -1,6 +1,7 @@
 export { PlaybackProvider, usePlaybackContext } from './PlaybackContext';
 export type { ActiveDoc, PlaybackContextValue } from './playbackContextTypes';
-export { buildFastStart, buildLead, prefetchDepth } from './playbackPlanning';
+export { buildFastStart, buildLead, classifyDevicePressure, prefetchDepth } from './playbackPlanning';
+export type { DevicePlaybackSnapshot, DevicePressure } from './devicePlaybackPolicyTypes';
 export type { FastStart, Lead } from './playbackPlanningTypes';
 export type { Playback, UsePlaybackOptions } from './playbackTypes';
 export { buildNeutralStarts, neutralTimeForOffset } from './playbackTimeline';

@@ -4,3 +4,4 @@ export type { ImportedDocument, DocumentKind } from './importedDocument';
 export type { Voice, VoiceGender } from './voice';
 export type { PageBlock } from './reader';
 export type { TextSpan, WordTiming, ChunkTiming, Chunk, SentenceAnchor, DocumentManifest } from './document';
+export type { NarrationTone, ResolvedNarrationTone } from './narration';
