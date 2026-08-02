@@ -1,5 +1,5 @@
 import type { Chunk } from '../../types';
-import { stableHash } from '../../utils/hash';
+import { stableHash } from '../../utils';
 import { sentenceBoundaries } from '../text/segmentation';
 import { maxChunkLen } from '../text/sentenceRules';
 

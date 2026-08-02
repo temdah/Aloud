@@ -1,5 +1,5 @@
-import type { Quality } from '../supertonic/qualityProfile';
-import type { NarrationPlan } from '../supertonic/narration/narrationPlanTypes';
+import type { Quality } from '../supertonic';
+import type { NarrationPlan } from '../supertonic';
 import type { Chunk } from '../types';
 
 export type UsePlaybackOptions = {

@@ -24,8 +24,8 @@ import { useDocumentsStore, useSettingsStore } from '../stores';
 import { useTheme } from '../theme';
 import type { Chunk } from '../types';
 import { resolvePlaybackArtworkUrl } from '../playback/playbackArtwork';
-import { buildNeutralStarts, neutralTimeForOffset } from '../playback/playbackTimeline';
-import type { Playback, UsePlaybackOptions } from '../playback/playbackTypes';
+import { buildNeutralStarts, neutralTimeForOffset } from '../playback';
+import type { Playback, UsePlaybackOptions } from '../playback';
 
 export type { Playback, UsePlaybackOptions } from '../playback/playbackTypes';
 // Extra OS-notification transport buttons (the Android Media3 notification can't

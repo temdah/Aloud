@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findChunkIndexForOffset } from '../src/supertonic/narration/chunkLookup';
+import { findChunkIndexForOffset } from '../src/supertonic';
 import type { Chunk } from '../src/types';
 
 const chunks: Chunk[] = [
