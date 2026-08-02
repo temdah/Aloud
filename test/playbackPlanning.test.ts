@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { buildFastStart, buildLead, classifyDevicePressure, prefetchDepth } from '../src/playback';
 import type { Chunk } from '../src/types';
 

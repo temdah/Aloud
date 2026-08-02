@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { PlaybackRequestGate } from '../src/playback';
 
 test('PlaybackRequestGate gives ownership only to the newest request', () => {

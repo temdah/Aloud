@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { planProsody, silenceSampleCount } from '../src/supertonic';
 
 test('planProsody gives questions and ellipses expressive sentence pauses', () => {

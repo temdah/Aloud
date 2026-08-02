@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { InferenceQueue } from '../src/supertonic';
 
 test('InferenceQueue serializes work and prioritizes foreground waiters', async () => {

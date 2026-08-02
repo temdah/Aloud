@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { firstSentenceEnd, sentenceBoundaries, sentenceSpans } from '../src/supertonic';
 
 test('sentenceBoundaries shares abbreviation, paragraph, and CJK rules', () => {

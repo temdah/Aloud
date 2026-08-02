@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { PlaybackRecoveryGate } from '../src/playback';
 
 test('PlaybackRecoveryGate permits only one automatic rebuild per clip', () => {

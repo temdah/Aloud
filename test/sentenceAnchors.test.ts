@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { buildChunks, buildSentenceAnchors, createNarrationPlan, MAX_SENTENCE_ANCHOR_CHARS } from '../src/supertonic';
 
 test('sentence identities remain stable when canonical chunk size changes', () => {

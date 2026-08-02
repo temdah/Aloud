@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { chunkText } from '../src/supertonic';
 
 test('chunkText preserves exact source offsets around trimmed whitespace', () => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from '@jest/globals';
 import { normalizeSynthesisSteps } from '../src/supertonic';
 
 test('synthesis step normalization enforces the five-step quality floor', () => {
