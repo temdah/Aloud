@@ -3,23 +3,12 @@ import { usePrerenderContext } from '../prerender';
 import { useDocumentsStore } from '../stores';
 import type { NarrationSettings } from '../supertonic';
 import type { Chunk } from '../types';
+import type { PrerenderState, PrerenderStatus } from './usePrerenderTypes';
 
 // Per-document view over the global PrerenderProvider (the render loop lives there
 // so it survives leaving the screen) plus the persisted store.
 
-export type PrerenderStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error';
-
-export type PrerenderState = {
-  status: PrerenderStatus;
-  done: number;
-  total: number;
-  progress: number;
-  error?: string;
-  start: (settings: NarrationSettings) => void;
-  cancel: () => void;
-};
-
-export function usePrerender(docHash: string, chunks: Chunk[]): PrerenderState {
+export function usePrerender(docHash: string, documentText: string, chunks: Chunk[]): PrerenderState {
   const { activeDocHash, start: ctxStart, cancel: ctxCancel } = usePrerenderContext();
   const audiobook = useDocumentsStore((s) => s.audiobook[docHash]);
   const total = chunks.length || audiobook?.total || 0;
@@ -37,7 +26,10 @@ export function usePrerender(docHash: string, chunks: Chunk[]): PrerenderState {
 
   const done = audiobook?.done ?? 0;
 
-  const start = useCallback((settings: NarrationSettings) => ctxStart(docHash, chunks, settings), [ctxStart, docHash, chunks]);
+  const start = useCallback(
+    (settings: NarrationSettings) => ctxStart(docHash, documentText, chunks, settings),
+    [ctxStart, docHash, documentText, chunks],
+  );
   const cancel = useCallback(() => ctxCancel(docHash), [ctxCancel, docHash]);
 
   return {

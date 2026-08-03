@@ -6,7 +6,7 @@ import { useDocumentsStore } from '../../stores';
 import { documentCacheStats } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { ImportedDocument } from '../../types';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
 import { makeStyles } from './StorageScreen.styles';
 
 function formatSize(bytes: number): string {

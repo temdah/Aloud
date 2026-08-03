@@ -1,5 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
-import { buildDocument, type SourceBlock } from './documentBuilder';
+import { buildDocument } from './documentBuilder';
+import type { SourceBlock } from './documentBuilderTypes';
 import type { ExtractedDocument } from '../pdf';
 
 // docx (a zip of XML) → logical blocks: read each <w:p> in word/document.xml,

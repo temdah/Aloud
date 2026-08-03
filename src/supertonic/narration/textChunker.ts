@@ -1,12 +1,12 @@
 import type { Chunk } from '../../types';
 import { stableHash } from '../../utils';
-import { ABBREVIATION, ASCII_TERMINATORS, CJK_TERMINATORS, maxChunkLen } from '../text/sentenceRules';
+import { sentenceBoundaries } from '../text/segmentation';
+import { maxChunkLen } from '../text/sentenceRules';
+import type { RawChunk } from './textChunkerTypes';
 
 // Groups the canonical document text into playback chunks — whole sentences up to
 // a length cap. Each chunk's [charStart, charEnd) stays an exact slice of the
 // source; those offsets are the join key between text, cached audio, and highlight.
-
-export type RawChunk = { text: string; charStart: number; charEnd: number };
 
 const STRONG_CLAUSE_ENDS = new Set([';', ':', '\u2014', '\u2013', '\uff1b', '\uff1a']);
 const SOFT_CLAUSE_ENDS = new Set([',', '\uff0c', '\u3001']);
@@ -118,24 +118,4 @@ function safeHardBoundary(text: string, target: number, from: number): number {
 function nextNonSpace(text: string, i: number): number {
   while (i < text.length && /\s/.test(text[i])) i++;
   return i;
-}
-
-// Exclusive char positions where a sentence or paragraph ends. ASCII .?! count
-// only when followed by whitespace and not part of an abbreviation; CJK 。！？ and
-// blank lines always do.
-function sentenceBoundaries(text: string): number[] {
-  const result: number[] = [];
-  let m: RegExpExecArray | null;
-  ASCII_TERMINATORS.lastIndex = 0;
-  while ((m = ASCII_TERMINATORS.exec(text))) {
-    const end = m.index + m[0].length;
-    if (end < text.length && !/\s/.test(text[end])) continue;
-    if (ABBREVIATION.test(text.slice(Math.max(0, m.index - 6), m.index + 1))) continue;
-    result.push(end);
-  }
-  CJK_TERMINATORS.lastIndex = 0;
-  while ((m = CJK_TERMINATORS.exec(text))) result.push(m.index + m[0].length);
-  const para = /\n\s*\n/g;
-  while ((m = para.exec(text))) result.push(m.index);
-  return result.sort((a, b) => a - b);
 }

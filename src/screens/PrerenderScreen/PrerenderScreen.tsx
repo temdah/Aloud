@@ -9,7 +9,7 @@ import { areModelsDownloaded, languageLabel, loadChunks, MODELS, qualityProfile,
 import type { ModelInfo, NarrationSettings } from '../../supertonic';
 import type { Chunk } from '../../types';
 import { ty, TYPE, useTheme } from '../../theme';
-import type { AppNavigation, PrerenderRoute } from '../../navigation/navigationTypes';
+import type { AppNavigation, PrerenderRoute } from '../../navigation';
 import { makeStyles } from './PrerenderScreen.styles';
 
 const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.25, 1.5];
@@ -26,9 +26,7 @@ function pickInitialModel(modelId: string | null, voiceId: string): ModelInfo {
   return MODELS.find((m) => areModelsDownloaded(m.id, voiceId)) ?? MODELS[0];
 }
 
-// "Process entire book" → pre-render every chunk so playback never waits. The
-// user picks quality (model), voice, language and speed; the chosen profile is
-// pinned to the document so the reader's tap-to-start reads the same cache.
+// Builds a full audiobook and pins its narration profile to the document.
 export default function PrerenderScreen() {
   const { palette: p } = useTheme();
   const styles = useMemo(() => makeStyles(p), [p]);
@@ -44,10 +42,9 @@ export default function PrerenderScreen() {
   const defaultSpeed = useSettingsStore((s) => s.speed);
   const steps = useSettingsStore((s) => s.steps);
   const quality = useSettingsStore((s) => s.quality);
+  const tone = useSettingsStore((s) => s.tone);
   const unitLen = useSettingsStore((s) => qualityProfile(s.quality).unitLen);
 
-  // Prepare the book's text headlessly (the hidden extractor below streams pages
-  // and writes the caches); no need to open the reader first.
   const pdfText = usePdfText(doc);
   // Derive chunks from the ready text via idempotent loadChunks (reuses a valid
   // manifest, else rebuilds). Rebuilding here un-sticks the case where the text
@@ -72,13 +69,12 @@ export default function PrerenderScreen() {
   const [langSheet, setLangSheet] = useState(false);
   const [confirmReprofile, setConfirmReprofile] = useState(false);
 
-  const prerender = usePrerender(docId, chunks);
+  const prerender = usePrerender(docId, pdfText.document?.text ?? '', chunks);
   const running = prerender.status === 'running';
 
-  // Used to pad the scroll content so the start button clears the floating pill.
   const { playback } = usePlaybackContext();
 
-  const settings: NarrationSettings = { modelId: model.id, voiceId, speed, steps, lang, quality };
+  const settings: NarrationSettings = { modelId: model.id, voiceId, speed, steps, lang, quality, tone };
   const downloaded = areModelsDownloaded(model.id, voiceId);
 
   const totalChars = chunks.length ? chunks[chunks.length - 1].charEnd : 0;
@@ -119,7 +115,6 @@ export default function PrerenderScreen() {
               </Text>
             </>
           ) : (
-            // Error, or ready but no chunks — never leave an endless spinner.
             <>
               <Icon name="book" size={40} color={p.textDim} />
               <Text style={[ty(TYPE.body, p.textMuted), styles.notReadyText]}>

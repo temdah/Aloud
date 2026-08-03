@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { AppBar } from '../../components';
 import { ty, TYPE, useTheme } from '../../theme';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
 import { TERMS_INTRO, TERMS_SECTIONS, TERMS_UPDATED } from './termsData';
 import { makeStyles } from './TermsScreen.styles';
 

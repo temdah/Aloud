@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { estimatePageHeights, loadGeometry, saveGeometry } from '../pdf';
 import type { ExtractedBlock } from '../pdf';
+import type { PageGeometry } from './usePageGeometryTypes';
 
 // Per-page height/offset table so the reader jumps to any page instantly. Seeded
 // from a content estimate, refined by real onLayout heights, cached per doc.
 // `version` goes in FlatList extraData so it re-reads getItemLayout on change.
 
 const DEFAULT_PAGE = 560;
-
-export type PageGeometry = {
-  getItemLayout: (data: ArrayLike<unknown> | null | undefined, index: number) => { length: number; offset: number; index: number };
-  onPageLayout: (page: number, height: number) => void;
-  version: number;
-};
 
 export function usePageGeometry(
   docHash: string | undefined,
@@ -49,7 +44,6 @@ export function usePageGeometry(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docHash, pageCount]);
 
-  // Once fully extracted, refine estimates for pages not yet measured on screen.
   useEffect(() => {
     if (!docHash || pageCount <= 0 || !ready || heightsRef.current.length !== pageCount) return;
     const est = estimatePageHeights(blocks, pageCount);

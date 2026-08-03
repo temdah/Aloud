@@ -1,34 +1,50 @@
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import * as Clipboard from 'expo-clipboard';
-import { File, Paths } from 'expo-file-system';
-import { useMemo, useRef, useState } from 'react';
+import { File } from 'expo-file-system';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, ScrollView, Text, View } from 'react-native';
+import { DeveloperAction } from '../../components';
 import {
   buildChunks,
   chunkAudioUri,
   DEFAULT_VOICE,
-  encodeWav,
   ensureChunkAudio,
-  getEngine,
-  getVoice,
-  isEngineResident,
   loadChunks,
+  planProsody,
   qualityProfile,
-  releaseCurrentEngine,
-  TextToSpeech,
-  VoiceStyle,
+  withEngine,
   type NarrationSettings,
   type NarrationSynthesisMetrics,
-  type SynthesisDiagnostics,
   type SynthesisStage,
 } from '../../supertonic';
 import { loadExtractedText } from '../../pdf';
 import { usePlaybackContext } from '../../playback';
+import {
+  VoiceBenchmarkService,
+  VOICE_PLAYBACK_TIMEOUT_MS,
+  analyzeDocumentForBenchmark,
+  benchmarkRow as row,
+  benchmarkStageRow as stageRow,
+  describeBenchmarkError as describe,
+  firstAudioMilliseconds as firstAudioMsFor,
+  formatBenchmarkTrace as formatTrace,
+  formatProductionMetrics,
+  maximum as max,
+  milliseconds as ms,
+  minimum as min,
+  percentile,
+  reportPlaybackBenchmark,
+  requireBenchmarkValue as requireValue,
+  resetPlaybackBenchmark,
+  sleep,
+  standardRtf,
+  synthesisThroughput as throughput,
+  type VoiceBenchmarkConfig,
+  type VoiceChunkBenchmark,
+} from '../../services';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { maxChunkLen } from '../../supertonic/text/sentenceRules';
 import { useTheme } from '../../theme';
 import type { ImportedDocument } from '../../types';
-import { SAMPLE_TEXT, traceMark, traceStart, traceStop, type Span } from '../../utils';
+import { SAMPLE_TEXT, traceStart, traceStop } from '../../utils';
 import { makeStyles } from './TextToSpeechDemoScreen.styles';
 
 
@@ -42,10 +58,8 @@ A good reading voice has to do more than pronounce words correctly. It must deci
 
 Doing all of this on a phone, with no network connection and no remote server to lean on, is a genuine engineering challenge. The model has to be small enough to fit in memory, fast enough to keep ahead of the listener, and steady enough that the seams between one passage and the next never intrude on the experience of simply being read to.`;
 
-const OUTPUT_FILE = 'tts_perf_output.wav';
 const SUSTAINED_CHUNKS = 5; // chunks (incl. the first) timed for the throughput pass
 const REPEAT_RUNS = 5;
-const PLAYBACK_TIMEOUT_MS = 5000;
 
 const STAGE_LABELS: Record<SynthesisStage, string> = {
   tokenize: 'tokenize',
@@ -56,61 +70,18 @@ const STAGE_LABELS: Record<SynthesisStage, string> = {
   vocoder: 'vocoder',
 };
 
-type ChunkBench = {
-  stages: Record<string, number>;
-  stepStarts: number[];
-  synthMs: number;
-  encodeMs: number;
-  writeMs: number;
-  audioSec: number;
-  predictedSec: number;
-  diagnostics: SynthesisDiagnostics;
-  uri: string;
-};
-
-type PlaybackBench = {
-  audioSessionMs: number;
-  createMs: number;
-  loadedMs: number | null;
-  playingMs: number | null;
-  timedOut: boolean;
-};
-
-type ScreenStyles = ReturnType<typeof makeStyles>;
-
-type DevActionProps = {
-  styles: ScreenStyles;
-  order: string;
-  title: string;
-  description: string;
-  color: string;
-  onPress: () => void;
-  disabled?: boolean;
-};
-
 const TEST_ITINERARY = [
   ['Smoke test', 'Confirm that the selected model can synthesize and play audio.'],
   ['Analyze a document', 'Check extraction, headings, chunk sizes, and the hard chunk cap.'],
   ['Trace real synthesis', 'Measure the production Float32 → native AAC path on the selected document.'],
-  ['Warm repeat ×5', 'Measure normal warm-engine variance and thermal drift on one representative chunk.'],
-  ['Run benchmark', 'Measure time-to-first-audio and sustained multi-chunk throughput.'],
+  ['Run clean benchmark', 'Measure time-to-first-audio and sustained throughput before deliberately heating the device.'],
+  ['Trace reader playback', 'Reset the trace, play in the reader, stop, start from the next sentence, cross several boundaries, then report it here.'],
+  ['Warm repeat ×5', 'Stress the warm engine last to expose variance and thermal drift.'],
   ['Cold load', 'Measure model loading last; it deliberately releases the warm engine.'],
   ['Copy results', 'Export the complete log for comparison with the previous build.'],
 ] as const;
 
-function DevAction({ styles, order, title, description, color, onPress, disabled }: DevActionProps) {
-  return (
-    <View style={styles.actionCard}>
-      <Text style={styles.actionOrder}>{order}</Text>
-      <Button title={title} color={color} onPress={onPress} disabled={disabled} />
-      <Text style={styles.actionDescription}>{description}</Text>
-    </View>
-  );
-}
-
-// Voice engine performance lab (Developer tool): "Run benchmark" reports the
-// cold-start latency breakdown + time-to-first-audio + a throughput pass;
-// "Smoke test" is a quick single-sentence synth+play liveness check.
+// Developer lab for cold-load, first-audio, throughput, and playback diagnostics.
 export default function TextToSpeechDemoScreen() {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
@@ -119,136 +90,44 @@ export default function TextToSpeechDemoScreen() {
   const lang = useSettingsStore((s) => s.lang);
   const settingsSteps = useSettingsStore((s) => s.steps);
   const quality = useSettingsStore((s) => s.quality);
+  const tone = useSettingsStore((s) => s.tone);
   const documents = useDocumentsStore((s) => s.documents);
   const { clearActiveDoc } = usePlaybackContext();
 
   const [log, setLog] = useState('Voice engine performance lab.\n');
   const [busy, setBusy] = useState(false);
-  const [steps, setSteps] = useState(settingsSteps);
+  const [steps, setSteps] = useState(Math.max(5, settingsSteps));
   const [analyzedDoc, setAnalyzedDoc] = useState<ImportedDocument | null>(null);
-  const ttsRef = useRef<TextToSpeech | null>(null);
-  const voiceRef = useRef<VoiceStyle | null>(null);
-  const playerRef = useRef<AudioPlayer | null>(null);
+  const benchmark = useMemo(() => new VoiceBenchmarkService(), []);
+  const benchmarkConfig = useMemo<VoiceBenchmarkConfig>(() => ({
+    modelId,
+    voiceId: voiceId || DEFAULT_VOICE,
+    language: lang,
+    steps,
+  }), [modelId, voiceId, lang, steps]);
+
+  useEffect(() => () => benchmark.dispose(), [benchmark]);
 
   const append = (line: string) => {
     console.log('[tts-perf]', line);
     setLog((prev) => prev + line + '\n');
   };
 
-  // First use pays the genuine cold-load cost; later runs reuse it (warm).
-  const ensureLoaded = async () => {
-    if (!modelId) throw new Error('No voice model selected — pick one in Settings → Voice model.');
-    const v = voiceId || DEFAULT_VOICE;
-    if (isEngineResident(modelId) && ttsRef.current && voiceRef.current) {
-      append('Sessions already loaded (warm) — skipping cold load.');
-      return;
-    }
-    append(`Cold-loading ONNX sessions (${modelId}, voice ${v})...`);
-    const start = Date.now();
-    // Shared engine — reuses playback's resident sessions, no second copy.
-    ttsRef.current = await getEngine(modelId);
-    voiceRef.current = await getVoice(modelId, v);
-    append(`  sessions loaded in ${seconds(Date.now() - start)} s  (sampleRate=${ttsRef.current.sampleRate}).`);
-  };
-
-  // Synthesize one chunk, capturing per-stage + encode/write timings and writing
-  // the WAV so it can be played later. Does not play.
-  const benchChunk = async (text: string): Promise<ChunkBench> => {
-    const tts = ttsRef.current!;
-    const voice = voiceRef.current!;
-    const stages: Record<string, number> = {};
-    const stepStarts: number[] = [];
-    let last = Date.now();
-    const synthStart = last;
-
-    const { waveform, durationsSec, diagnostics } = await tts.synthesize(
-      text,
-      lang,
-      voice,
-      steps,
-      1.0, // neutral rate, matching the real cache path
-      () => stepStarts.push(Date.now()),
-      (stage) => {
-        const now = Date.now();
-        stages[stage] = now - last;
-        last = now;
-        traceMark(stage);
-      },
-    );
-    const synthMs = Date.now() - synthStart;
-
-    const encStart = Date.now();
-    const bytes = encodeWav(waveform, tts.sampleRate);
-    const encodeMs = Date.now() - encStart;
-
-    const wrStart = Date.now();
-    const output = new File(Paths.document, OUTPUT_FILE);
-    if (output.exists) output.delete();
-    output.create();
-    output.write(bytes);
-    const writeMs = Date.now() - wrStart;
-
-    return {
-      stages,
-      stepStarts,
-      synthMs,
-      encodeMs,
-      writeMs,
-      audioSec: waveform.length / tts.sampleRate,
-      predictedSec: durationsSec[0] ?? 0,
-      diagnostics,
-      uri: output.uri,
-    };
-  };
-
-  // Best observable proxy for file-to-sound latency: native player status
-  // reports loaded and playing. It cannot measure speaker hardware latency.
-  const play = async (uri: string): Promise<PlaybackBench> => {
-    const t0 = Date.now();
-    await setAudioModeAsync({ playsInSilentMode: true });
-    const audioSessionMs = Date.now() - t0;
-    const createStart = Date.now();
-    playerRef.current?.remove?.();
-    playerRef.current = createAudioPlayer(uri);
-    const player = playerRef.current;
-    const createMs = Date.now() - createStart;
-    let loadedMs: number | null = player.isLoaded ? Date.now() - t0 : null;
-
-    return new Promise((resolve) => {
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      let subscription: { remove: () => void } | null = null;
-      const finish = (playingMs: number | null, timedOut: boolean) => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        subscription?.remove();
-        resolve({ audioSessionMs, createMs, loadedMs, playingMs, timedOut });
-      };
-      subscription = player.addListener('playbackStatusUpdate', (status) => {
-        const elapsed = Date.now() - t0;
-        if (status.isLoaded && loadedMs == null) loadedMs = elapsed;
-        if (status.error) finish(null, false);
-        else if (status.playing) finish(elapsed, false);
-      });
-      timeout = setTimeout(() => finish(null, true), PLAYBACK_TIMEOUT_MS);
-      player.play();
-    });
-  };
+  const ensureLoaded = () => benchmark.ensureLoaded(benchmarkConfig, append);
+  const benchChunk = (text: string): Promise<VoiceChunkBenchmark> => benchmark.benchmarkChunk(text, benchmarkConfig);
+  const play = (uri: string) => benchmark.play(uri);
 
   const runBenchmark = async () => {
     setBusy(true);
     try {
       await ensureLoaded();
 
-      // Build-chunks: on a large PDF this happens before any audio can play.
       const bcStart = Date.now();
       const chunks = buildChunks(SAMPLE_DOC, 300);
       append(`Built ${chunks.length} chunks from ${SAMPLE_DOC.length} chars in ${Date.now() - bcStart} ms.`);
       const firstChunk = requireValue(chunks[0], 'Sample produced no chunks.');
       append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality}`));
 
-      // First chunk = time-to-first-audio. The headline number.
       append(`\n── First chunk (time-to-first-audio) · ${firstChunk.text.length} chars · steps=${steps} ──`);
       const r = await benchChunk(firstChunk.text);
       const stageMs = (s: SynthesisStage) => r.stages[s] ?? 0;
@@ -279,14 +158,13 @@ export default function TextToSpeechDemoScreen() {
       append(row('audio session', ms(playback.audioSessionMs)));
       append(row('player create', ms(playback.createMs)));
       append(row('player loaded', playback.loadedMs == null ? 'not observed' : ms(playback.loadedMs)));
-      append(row('player playing', playback.playingMs == null ? (playback.timedOut ? `>${PLAYBACK_TIMEOUT_MS} ms` : 'error') : ms(playback.playingMs)));
+      append(row('player playing', playback.playingMs == null ? (playback.timedOut ? `>${VOICE_PLAYBACK_TIMEOUT_MS} ms` : 'error') : ms(playback.playingMs)));
       if (playback.playingMs != null) {
         const tapToPlaying = firstAudioMs + playback.playingMs;
         append(row('synth → playing', `${ms(tapToPlaying)} · RTF ${standardRtf(tapToPlaying, r.audioSec).toFixed(3)}`));
       }
 
-      // Sustained throughput: do the next few chunks back-to-back. RTF < 1 means
-      // synthesis beats realtime, so generate-ahead prefetch can keep up.
+      // RTF below one means generate-ahead synthesis can keep up with playback.
       const n = Math.min(SUSTAINED_CHUNKS, chunks.length);
       if (n > 1) {
         append(`\n── Sustained throughput · chunks 2–${n} ──`);
@@ -310,8 +188,6 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
-  // Repeat one identical warm synthesis so scheduler noise and thermal drift are
-  // visible. Uses the analyzed document's first chunk when available.
   const repeatBenchmark = async () => {
     setBusy(true);
     try {
@@ -380,24 +256,14 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
-  // Release the resident sessions and reload them, tracing each session's load
-  // time — the genuine cold-start cost broken down per ONNX model.
   const coldLoad = async () => {
     setBusy(true);
     try {
-      const selectedModelId = requireValue(modelId, 'No voice model selected — pick one in Settings → Voice model.');
       append('\n── Cold load (release + reload) ──');
-      await releaseCurrentEngine();
-      ttsRef.current = null;
-      voiceRef.current = null;
-      traceStart();
-      const start = Date.now();
-      ttsRef.current = await getEngine(selectedModelId);
-      voiceRef.current = await getVoice(selectedModelId, voiceId || DEFAULT_VOICE);
-      const total = Date.now() - start;
-      append(formatTrace(traceStop()));
+      const result = await benchmark.coldLoad(benchmarkConfig);
+      append(formatTrace(result.spans));
       append('  ' + '─'.repeat(28));
-      append(row('total cold load', ms(total)));
+      append(row('total cold load', ms(result.totalMs)));
     } catch (error) {
       append('COLD LOAD ERROR: ' + describe(error));
     } finally {
@@ -414,57 +280,11 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
-  // Extraction/reading diagnostics on an already-extracted document: block kinds,
-  // chunk sizes, suspected-missed headings, and a spoken-text preview.
   const analyzeDoc = (doc: ImportedDocument) => {
     setAnalyzedDoc(doc);
-    const extracted = loadExtractedText(doc.docHash);
-    if (!extracted) {
-      append(`\n"${doc.title}" — not extracted yet. Open it in the reader once, then retry.`);
-      return;
-    }
-    const unitLen = qualityProfile(quality).unitLen;
-    const chunks = loadChunks(doc.docHash, extracted.text, unitLen);
-    append(`\n══ ${doc.title} (${doc.kind}) ══`);
-    append(row('chars / pages', `${extracted.text.length} / ${extracted.pageCount}`));
-
-    const kinds: Record<string, number> = {};
-    for (const b of extracted.blocks) kinds[b.kind] = (kinds[b.kind] ?? 0) + 1;
-    append(row('blocks', Object.entries(kinds).map(([k, n]) => `${k}:${n}`).join('  ') || '(none)'));
-
-    const sizes = chunks.map((c) => c.text.length);
-    const cap = maxChunkLen(extracted.text, unitLen);
-    const maxSize = sizes.length ? Math.max(...sizes) : 0;
-    const minSize = sizes.length ? Math.min(...sizes) : 0;
-    const avg = sizes.length ? Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length) : 0;
-    const p95 = percentile(sizes, 0.95);
-    const overCap = sizes.filter((size) => size > cap).length;
-    append(
-      row(
-        `chunks (cap ${cap})`,
-        `${chunks.length}  · avg ${avg} · p95 ${p95} · min ${minSize} · max ${maxSize} · over-cap ${overCap}`,
-      ),
-    );
-
-    const headings = extracted.blocks.filter((b) => b.kind === 'h2');
-    append(row('headings', String(headings.length)));
-    // Short paragraph blocks with no terminal punctuation likely SHOULD be
-    // headings (the bold-as-title gap) — surface them.
-    const suspected: string[] = [];
-    for (const b of extracted.blocks) {
-      if (b.kind !== 'p') continue;
-      const t = extracted.text.slice(b.charStart, b.charEnd).trim();
-      if (t.length > 0 && t.length <= 60 && !/[.!?:;]$/.test(t)) suspected.push(t);
-    }
-    append(row('suspected missed headings', String(suspected.length)));
-    suspected.slice(0, 8).forEach((t) => append(`    · ${t}`));
-
-    append('  ── spoken preview ──');
-    append(extracted.text.slice(0, 700).replace(/\n{2,}/g, '\n  ¶ '));
+    analyzeDocumentForBenchmark(doc, quality).forEach(append);
   };
 
-  // Synthesize chunk 0 of the analyzed doc through the real production path
-  // (ensureChunkAudio → AAC), traced end to end. Only traces a fresh synth.
   const traceRealSynth = async () => {
     if (!analyzedDoc) {
       append('\nAnalyze a document first.');
@@ -472,8 +292,7 @@ export default function TextToSpeechDemoScreen() {
     }
     setBusy(true);
     try {
-      // Quiesce the app's background warmer (the reader's active doc persists into
-      // dev mode) so its synthesis doesn't pollute the trace, then let it drain.
+      // Drain the reader's background warmer so it cannot pollute this trace.
       clearActiveDoc();
       await sleep(700);
       await ensureLoaded();
@@ -481,24 +300,28 @@ export default function TextToSpeechDemoScreen() {
       const chunks = loadChunks(analyzedDoc.docHash, extracted.text, qualityProfile(quality).unitLen);
       const firstChunk = requireValue(chunks[0], 'no chunks');
       const selectedModelId = requireValue(modelId, 'No voice model selected.');
-      const settings: NarrationSettings = { modelId: selectedModelId, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality };
-      // Force a fresh synth so there's something to trace (not a cache hit).
+      const settings: NarrationSettings = { modelId: selectedModelId, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality, tone };
       try {
         const f = new File(chunkAudioUri(analyzedDoc.docHash, firstChunk.charStart, settings));
         if (f.exists) f.delete();
       } catch {}
       append(`\n── Real synth path · chunk 0 (${firstChunk.text.length}c) ──`);
-      append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality} · unit ${qualityProfile(quality).unitLen}`));
+      append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality} · ${tone} tone · unit ${qualityProfile(quality).unitLen}`));
+      const prosody = planProsody(extracted.text, firstChunk.charStart, firstChunk.charEnd);
+      append(row('prosody', `${prosody.boundary} · ${prosody.trailingPauseMs} ms trailing pause`));
       traceStart();
       const t0 = Date.now();
       let metrics: NarrationSynthesisMetrics | null = null;
-      await ensureChunkAudio(
-        ttsRef.current!,
-        voiceRef.current!,
-        analyzedDoc.docHash,
-        firstChunk,
-        settings,
-        (reported) => { metrics = reported; },
+      await withEngine(selectedModelId, (tts) =>
+        ensureChunkAudio(
+          tts,
+          benchmark.getLoadedVoice(),
+          analyzedDoc.docHash,
+          extracted.text,
+          firstChunk,
+          settings,
+          (reported) => { metrics = reported; },
+        ),
       );
       const spans = traceStop();
       append(formatTrace(spans));
@@ -513,6 +336,15 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
+  const resetPlaybackTrace = () => {
+    resetPlaybackBenchmark();
+    append('\nProduction playback trace reset. Open the reader and run Test 5 now.');
+  };
+
+  const reportPlaybackTrace = () => {
+    reportPlaybackBenchmark(modelId).forEach(append);
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -522,7 +354,7 @@ export default function TextToSpeechDemoScreen() {
       <Text style={styles.eyebrow}>Developer tools</Text>
       <Text style={styles.title}>Voice engine performance lab</Text>
       <Text style={styles.hint}>
-        Install a voice model first. Tests use {voiceId || DEFAULT_VOICE}, language {lang}, and the selected quality profile. Keep synthesis at five steps for baseline measurements.
+        Install a voice model first. Tests use {voiceId || DEFAULT_VOICE}, language {lang}, and the selected quality profile. Five steps is the fast-profile minimum; keep the selected profile's configured value unless deliberately comparing steps.
       </Text>
       <Text style={styles.status}>{busy ? 'Test running — controls locked' : 'Ready to test'}</Text>
 
@@ -544,7 +376,7 @@ export default function TextToSpeechDemoScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Synthesis steps</Text>
-        <Text style={styles.sectionHint}>Baseline: five steps. Change this only when deliberately comparing synthesis quality.</Text>
+        <Text style={styles.sectionHint}>Fast minimum: five steps. The {quality} profile defaults to {qualityProfile(quality).steps}; change it only for a deliberate quality comparison.</Text>
         <View style={styles.actionCard}>
           <Text style={styles.stepValue}>Current value: {steps}</Text>
           <View style={styles.stepButtons}>
@@ -552,10 +384,10 @@ export default function TextToSpeechDemoScreen() {
               <Button
                 title="Decrease"
                 color={palette.primary}
-                onPress={() => setSteps((current) => Math.max(1, current - 1))}
-                disabled={busy}
+                onPress={() => setSteps((current) => Math.max(5, current - 1))}
+                disabled={busy || steps <= 5}
               />
-              <Text style={styles.actionDescription}>Lowers inference work, but values below five are not valid quality baselines.</Text>
+              <Text style={styles.actionDescription}>Lowers inference work. The lab will not run fewer than five denoising steps.</Text>
             </View>
             <View style={styles.stepButton}>
               <Button
@@ -573,12 +405,10 @@ export default function TextToSpeechDemoScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Run tests</Text>
         <Text style={styles.sectionHint}>Each action writes its measurements to the results console at the bottom.</Text>
-        <DevAction
-          styles={styles}
+        <DeveloperAction
           order="Test 1"
           title="Smoke test"
           description="Synthesizes and plays one short sample. Start here to verify that the engine, voice, file output, and player all work."
-          color={palette.primary}
           onPress={() => void smokeTest()}
           disabled={busy}
         />
@@ -587,13 +417,11 @@ export default function TextToSpeechDemoScreen() {
         <Text style={styles.sectionHint}>Test 2 analyzes text only. Select the large PDF and the small document separately.</Text>
         {documents.length > 0 ? (
           documents.slice(0, 12).map((document) => (
-            <DevAction
+            <DeveloperAction
               key={document.docHash}
-              styles={styles}
               order="Test 2"
               title={`Analyze · ${document.title.slice(0, 28)}`}
               description={`Reports extraction, headings, chunk distribution, P95 size, and over-cap count for “${document.title}”.`}
-              color={palette.primary}
               onPress={() => analyzeDoc(document)}
               disabled={busy}
             />
@@ -603,8 +431,7 @@ export default function TextToSpeechDemoScreen() {
         )}
         {analyzedDoc ? <Text style={styles.selectedDocument}>Selected: {analyzedDoc.title}</Text> : null}
 
-        <DevAction
-          styles={styles}
+        <DeveloperAction
           order="Test 3"
           title="Trace real synthesis"
           description={
@@ -612,34 +439,41 @@ export default function TextToSpeechDemoScreen() {
               ? `Deletes chunk 0 for “${analyzedDoc.title}”, then measures the complete production synthesis and native AAC path.`
               : 'Analyze a document first. This test then measures its first chunk through the production AAC path.'
           }
-          color={palette.primary}
           onPress={() => void traceRealSynth()}
           disabled={busy || !analyzedDoc}
         />
-        <DevAction
-          styles={styles}
+        <DeveloperAction
           order="Test 4"
-          title={`Warm repeat ×${REPEAT_RUNS}`}
-          description="Synthesizes the same chunk five times with resident sessions to expose median, P90, scheduler noise, and thermal drift."
-          color={palette.primary}
-          onPress={() => void repeatBenchmark()}
-          disabled={busy}
-        />
-        <DevAction
-          styles={styles}
-          order="Test 5"
-          title="Run benchmark"
-          description="Measures first-audio latency and sustained throughput across several chunks of the built-in sample document."
-          color={palette.primary}
+          title="Run clean benchmark"
+          description="Measures first-audio latency and sustained throughput before the warm-repeat stress pass heats or throttles the device."
           onPress={() => void runBenchmark()}
           disabled={busy}
         />
-        <DevAction
-          styles={styles}
-          order="Test 6 · run last"
+        <DeveloperAction
+          order="Test 5 · setup"
+          title="Reset playback trace"
+          description="Clears production playback timings. Then open the reader, play a paragraph, stop, start from its next sentence, and let playback cross at least five boundaries."
+          onPress={resetPlaybackTrace}
+          disabled={busy}
+        />
+        <DeveloperAction
+          order="Test 5 · report"
+          title="Report playback trace"
+          description="After the reader scenario, reports real cache decisions, synthesis and queue time, player startup, boundary gaps, prefetch depth, redundant work, and device state."
+          onPress={reportPlaybackTrace}
+          disabled={busy}
+        />
+        <DeveloperAction
+          order="Test 6"
+          title={`Warm repeat ×${REPEAT_RUNS}`}
+          description="Runs the repeated warm synthesis stress pass after clean measurements to expose median, P90, scheduler noise, and thermal drift."
+          onPress={() => void repeatBenchmark()}
+          disabled={busy}
+        />
+        <DeveloperAction
+          order="Test 7 · run last"
           title="Cold load"
           description="Releases the resident ONNX sessions and times a complete reload. Run last because it intentionally destroys the warm baseline."
-          color={palette.primary}
           onPress={() => void coldLoad()}
           disabled={busy}
         />
@@ -648,20 +482,17 @@ export default function TextToSpeechDemoScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Results</Text>
         <Text style={styles.sectionHint}>Copy the log before clearing it. The console itself scrolls independently.</Text>
-        <DevAction
-          styles={styles}
-          order="Test 7 · export"
+        <DeveloperAction
+          order="Test 8 · export"
           title="Copy results"
           description="Copies the entire measurement log to the clipboard so it can be saved or compared with another build."
-          color={palette.primary}
           onPress={() => void copyResults()}
         />
-        <DevAction
-          styles={styles}
+        <DeveloperAction
           order="Utility"
           title="Clear results"
           description="Clears only the visible developer log. It does not remove model files or the narration cache."
-          color={palette.danger}
+          tone="danger"
           onPress={() => setLog('')}
           disabled={busy}
         />
@@ -671,66 +502,4 @@ export default function TextToSpeechDemoScreen() {
       </View>
     </ScrollView>
   );
-}
-
-const sleep = (msVal: number) => new Promise<void>((r) => setTimeout(r, msVal));
-const seconds = (msVal: number) => (msVal / 1000).toFixed(2);
-const ms = (msVal: number) => `${Math.round(msVal)} ms`;
-const row = (label: string, value: string) => `  ${label.padEnd(20)} ${value}`;
-const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const requireValue = <T,>(value: T | null | undefined, message: string): T => {
-  if (value == null) throw new Error(message);
-  return value;
-};
-const firstAudioMsFor = (result: ChunkBench) => result.synthMs + result.encodeMs + result.writeMs;
-const standardRtf = (wallMs: number, audioSec: number) => wallMs / 1000 / Math.max(0.001, audioSec);
-const throughput = (wallMs: number, audioSec: number) => audioSec / Math.max(0.001, wallMs / 1000);
-const percent = (part: number, total: number) => `${((part / Math.max(1, total)) * 100).toFixed(1)}%`;
-const min = (values: number[]) => Math.min(...values);
-const max = (values: number[]) => Math.max(...values);
-
-function percentile(values: number[], fraction: number): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
-  return sorted[index];
-}
-
-function stageRow(label: string, durationMs: number, totalMs: number, detail?: string): string {
-  const suffix = detail ? ` · ${detail}` : '';
-  return row(label, `${ms(durationMs)} · ${percent(durationMs, totalMs)}${suffix}`);
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function formatProductionMetrics(metrics: NarrationSynthesisMetrics): string {
-  return [
-    stageRow('ONNX synth', metrics.synthMs, metrics.totalMs),
-    stageRow('PCM conversion (native)', metrics.pcmMs, metrics.totalMs),
-    stageRow('AAC encoding', metrics.aacMs, metrics.totalMs),
-    row('audio length', `${metrics.audioSec.toFixed(2)} s (predicted ${metrics.predictedSec.toFixed(2)} s)`),
-    row('tokens / samples', `${metrics.tokenCount} / ${metrics.waveformSamples.toLocaleString()}`),
-    row('latent dim × len', `${metrics.latentDim} × ${metrics.latentLen}`),
-    row('AAC output', formatBytes(metrics.outputBytes)),
-    row('standard RTF', standardRtf(metrics.totalMs, metrics.audioSec).toFixed(3)),
-    row('throughput', `${throughput(metrics.totalMs, metrics.audioSec).toFixed(2)}× realtime`),
-  ].join('\n');
-}
-
-// A time-ordered waterfall of tracer spans: start offset, duration (or "mark").
-function formatTrace(spans: Span[]): string {
-  if (spans.length === 0) return '  (no trace captured)';
-  return spans
-    .slice()
-    .sort((a, b) => a.startMs - b.startMs)
-    .map((s) => {
-      const dur = s.endMs - s.startMs;
-      const at = `${Math.round(s.startMs)}`.padStart(6);
-      return `  @${at}ms  ${dur > 0 ? `+${Math.round(dur)}ms`.padEnd(8) : 'mark    '}${s.label}`;
-    })
-    .join('\n');
 }

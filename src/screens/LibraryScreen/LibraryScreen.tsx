@@ -1,26 +1,21 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { File } from 'expo-file-system';
 import { ActionDialog, AppBar, BookRow, Chip, EmptyLibrary, FAB, Icon, IconButton, ManageCacheSheet, Sheet } from '../../components';
 import { useImportDocument } from '../../hooks';
-import { deleteExtractedText } from '../../pdf/extractedTextCache';
-import { clearExtractedImages } from '../../pdf';
 import { loadExtractedText } from '../../pdf';
-import { usePlaybackContext } from '../../playback';
-import type { ActiveDoc } from '../../playback';
+import { usePlaybackContext, type ActiveDoc } from '../../playback';
+import { deleteDocument } from '../../services';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, documentCacheStats, loadChunks, qualityProfile } from '../../supertonic';
+import { documentCacheStats, loadNarrationPlan, qualityProfile } from '../../supertonic';
 import { COVER_PALETTE, ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
 import type { Book, ImportedDocument } from '../../types';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
+import type { LibraryFilter, LibrarySort } from './LibraryScreenTypes';
 import { makeStyles } from './LibraryScreen.styles';
 
-type Filter = 'all' | 'inprogress' | 'finished' | 'favourites';
-type Sort = 'recent' | 'title' | 'progress';
-
-const SORT_LABELS: Record<Sort, string> = { recent: 'Recently added', title: 'Title', progress: 'Progress' };
+const SORT_LABELS: Record<LibrarySort, string> = { recent: 'Recently added', title: 'Title', progress: 'Progress' };
 
 function formatSize(bytes: number): string {
   if (bytes <= 0) return '';
@@ -40,16 +35,14 @@ export default function LibraryScreen() {
   const favourites = useDocumentsStore((s) => s.favourites);
   const audiobook = useDocumentsStore((s) => s.audiobook);
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
-  const removeDocument = useDocumentsStore((s) => s.removeDocument);
-  const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
   const setCover = useDocumentsStore((s) => s.setCover);
   const { playback, activeDoc, clearActiveDoc, playDocument } = usePlaybackContext();
   const renderProfile = useDocumentsStore((s) => s.renderProfile);
   const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
   const settings = useSettingsStore();
   const { importDocument } = useImportDocument();
-  const [filter, setFilter] = useState<Filter>('all');
-  const [sort, setSort] = useState<Sort>('recent');
+  const [filter, setFilter] = useState<LibraryFilter>('all');
+  const [sort, setSort] = useState<LibrarySort>('recent');
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
@@ -106,20 +99,19 @@ export default function LibraryScreen() {
     const effQuality = rp?.quality ?? settings.quality;
     const active: ActiveDoc = {
       doc,
-      chunks: loadChunks(docId, extracted.text, qualityProfile(effQuality).unitLen),
-      text: extracted.text,
+      plan: loadNarrationPlan(docId, extracted.text, qualityProfile(effQuality).unitLen),
       modelId: rp?.modelId ?? settings.modelId,
       voiceId: rp?.voiceId ?? settings.voiceId,
       speed: rp?.speed ?? settings.speed,
       steps: rp?.steps ?? settings.steps,
       lang: rp?.lang ?? doc.lang ?? settings.lang ?? 'en',
       quality: effQuality,
+      tone: rp?.tone ?? settings.tone,
       onSpeedChange: (v: number) => (rp ? setRenderProfile(docId, { ...rp, speed: v }) : settings.setSpeed(v)),
     };
     playDocument(active, cursor[docId] ?? 0);
   };
   const menuStats = menuDoc ? documentCacheStats(menuDoc.docHash) : null;
-  // Lift the FAB above the mini-player when one is showing so they don't overlap.
   const pillVisible = !!activeDoc && playback.engaged;
   const audiobookFor = (docId: string) => {
     const a = audiobook[docId];
@@ -198,7 +190,7 @@ export default function LibraryScreen() {
         open={sortMenu}
         onClose={() => setSortMenu(false)}
         title="Sort by"
-        actions={(['recent', 'title', 'progress'] as Sort[]).map((s) => ({
+        actions={(['recent', 'title', 'progress'] as LibrarySort[]).map((s) => ({
           label: SORT_LABELS[s],
           variant: sort === s ? 'filled' : 'tonal',
           onPress: () => setSort(s),
@@ -247,14 +239,7 @@ export default function LibraryScreen() {
                       playback.stop();
                       clearActiveDoc();
                     }
-                    clearDocumentCache(menuDoc.docHash);
-                    clearAudiobook(menuDoc.docHash);
-                    deleteExtractedText(menuDoc.docHash);
-                    clearExtractedImages(menuDoc.docHash);
-                    try {
-                      new File(menuDoc.fileUri).delete();
-                    } catch {}
-                    removeDocument(menuDoc.docHash);
+                    deleteDocument(menuDoc);
                   },
                 },
                 { label: 'Cancel', variant: 'ghost' },

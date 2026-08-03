@@ -30,6 +30,16 @@ export type Chunk = {
   textHash: string; // guards cached audio/timing against text drift
 };
 
+// A stable, independently cacheable speech unit. Its identity is derived from
+// canonical source offsets and text, so it survives changes to chunk grouping.
+export type SentenceAnchor = {
+  id: string;
+  ordinal: number;
+  charStart: number;
+  charEnd: number; // exclusive
+  textHash: string;
+};
+
 // Reused on reopen only if docHash AND textHash match — a re-extraction that
 // changes the text invalidates the stored chunks.
 export type DocumentManifest = {
@@ -38,4 +48,5 @@ export type DocumentManifest = {
   chunkerVersion: number;
   unitLen: number; // chunk unit length (from the quality preset); absent = legacy 300
   chunks: Chunk[];
+  sentenceAnchors: SentenceAnchor[];
 };

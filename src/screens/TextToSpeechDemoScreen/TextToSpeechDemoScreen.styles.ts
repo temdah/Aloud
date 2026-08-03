@@ -99,14 +99,6 @@ export const makeStyles = (p: Palette) =>
       marginBottom: 10,
       padding: 12,
     },
-    actionOrder: {
-      color: p.primary,
-      fontFamily: 'JetBrainsMono_500Medium',
-      fontSize: 10,
-      lineHeight: 14,
-      marginBottom: 7,
-      textTransform: 'uppercase',
-    },
     actionDescription: {
       color: p.textMuted,
       fontFamily: 'DMSans_400Regular',

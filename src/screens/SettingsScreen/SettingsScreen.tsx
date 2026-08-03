@@ -2,15 +2,17 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { ActionDialog, AppBar, Chip, Icon, LanguagePicker, ListItem, Sheet, SettingRow, SettingsSection, VoicePicker, voiceLabel } from '../../components';
-import { documentCacheStats, findModel, languageLabel, QUALITY_LABELS, type Quality } from '../../supertonic';
+import { documentCacheStats, findModel, languageLabel, NARRATION_TONE_LABELS, QUALITY_LABELS, type Quality } from '../../supertonic';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { ty, TYPE, useTheme } from '../../theme';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { NarrationTone } from '../../types';
+import type { AppNavigation } from '../../navigation';
 import { makeStyles } from './SettingsScreen.styles';
 
 const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.25, 1.5];
 const DEFAULT_SPEED = 1.05;
-const STEP_PRESETS = [4, 5, 6, 8, 10];
+const STEP_PRESETS = [5, 6, 8, 10];
+const TONE_OPTIONS: NarrationTone[] = ['adaptive', 'neutral', 'expressive', 'happy', 'sad', 'scared'];
 
 export default function SettingsScreen() {
   const { palette: p } = useTheme();
@@ -28,6 +30,8 @@ export default function SettingsScreen() {
   const setSteps = useSettingsStore((s) => s.setSteps);
   const quality = useSettingsStore((s) => s.quality);
   const setQuality = useSettingsStore((s) => s.setQuality);
+  const tone = useSettingsStore((s) => s.tone);
+  const setTone = useSettingsStore((s) => s.setTone);
   const keepEngineWarm = useSettingsStore((s) => s.keepEngineWarm);
   const setKeepEngineWarm = useSettingsStore((s) => s.setKeepEngineWarm);
 
@@ -55,7 +59,6 @@ export default function SettingsScreen() {
       bytes += s.bytes;
     }
     return { count, bytes };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documents, cacheVersion]);
   const cacheLabel =
     cacheTotal.bytes <= 0
@@ -95,6 +98,28 @@ export default function SettingsScreen() {
                 />
               ))}
             </View>
+          </View>
+
+          <View style={styles.spacer} />
+
+          <Text style={[ty(TYPE.label, p.textMuted), styles.groupLabel]}>Tone</Text>
+          <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.groupHint]}>
+            Adaptive reads academic text neutrally and varies story pacing from the words it finds.
+          </Text>
+          <View style={styles.qualityCard}>
+            <View style={styles.chipRow}>
+              {TONE_OPTIONS.map((value) => (
+                <Chip
+                  key={value}
+                  label={NARRATION_TONE_LABELS[value].title}
+                  selected={tone === value}
+                  onPress={() => setTone(value)}
+                />
+              ))}
+            </View>
+            <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.qualityHint]}>
+              {NARRATION_TONE_LABELS[tone].subtitle}
+            </Text>
           </View>
 
           <View style={styles.spacer} />
@@ -144,7 +169,7 @@ export default function SettingsScreen() {
                 <Text style={ty(TYPE.mono, p.textMuted)}>{steps} steps</Text>
               </View>
               <Text style={[ty(TYPE.bodySmall, p.textMuted), styles.qualityHint]}>
-                Fewer steps generate each clip faster; more sound smoother but start later. The presets above set this for you.
+                Five is the minimum because lower values noticeably reduce voice quality. More steps sound smoother but start later.
               </Text>
               <View style={styles.chipRow}>
                 {STEP_PRESETS.map((v) => (

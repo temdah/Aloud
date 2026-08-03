@@ -5,7 +5,7 @@ import { TextToSpeech } from './synthesis/textToSpeech';
 import type { SupertonicConfig, VoiceStyleData } from './synthesis/synthesisTypes';
 import { buildVoiceStyle, VoiceStyle } from './synthesis/voiceStyle';
 import { UnicodeTextProcessor } from './text/unicodeTextProcessor';
-import { traceOpen, traceSpan } from '../utils/trace';
+import { traceOpen, traceSpan } from '../utils';
 
 // Loads a model build's config + tokenizer + four ONNX sessions into a TextToSpeech.
 

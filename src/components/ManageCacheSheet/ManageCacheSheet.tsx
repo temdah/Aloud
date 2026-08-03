@@ -6,6 +6,7 @@ import {
   findModel,
   languageLabel,
   listCachedProfiles,
+  NARRATION_TONE_LABELS,
 } from '../../supertonic';
 import type { CachedProfile } from '../../supertonic';
 import { usePlaybackContext } from '../../playback';
@@ -14,7 +15,7 @@ import { ty, TYPE, useTheme } from '../../theme';
 import { Button } from '../Button';
 import { IconButton } from '../IconButton';
 import { Sheet } from '../Sheet';
-import { voiceLabel } from '../VoicePicker/voiceCatalog';
+import { voiceLabel } from '../VoicePicker';
 import { makeStyles } from './ManageCacheSheet.styles';
 
 export type ManageCacheSheetProps = {
@@ -32,7 +33,7 @@ function formatSize(bytes: number): string {
 
 function profileLabel(cp: CachedProfile): { title: string; sub: string } {
   if (!cp.meta) return { title: 'Unknown voice', sub: 'Cached before voice labels' };
-  const sub = [languageLabel(cp.meta.lang), findModel(cp.meta.modelId)?.label]
+  const sub = [languageLabel(cp.meta.lang), findModel(cp.meta.modelId)?.label, NARRATION_TONE_LABELS[cp.meta.tone]?.title]
     .filter(Boolean)
     .join(' · ');
   return { title: voiceLabel(cp.meta.voiceId), sub };
@@ -55,10 +56,9 @@ export function ManageCacheSheet({ open, onClose, docHash, title }: ManageCacheS
 
   useEffect(() => {
     if (open) {
-      refresh();
+      setProfiles(docHash ? listCachedProfiles(docHash) : []);
       setConfirmClear(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, docHash]);
 
   const isActive = !!docHash && activeDoc?.doc.docHash === docHash;

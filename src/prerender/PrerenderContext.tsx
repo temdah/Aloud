@@ -1,14 +1,9 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
-import { getEngine, getVoice, prerenderDocument, settingsHash, withEngine } from '../supertonic';
+import { ensureChunkAudio, getVoice, prerenderDocument, settingsHash, withEngine } from '../supertonic';
 import type { NarrationSettings } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
-
-export type PrerenderContextValue = {
-  activeDocHash: string | null;
-  start: (docHash: string, chunks: Chunk[], settings: NarrationSettings) => void;
-  cancel: (docHash: string) => void;
-};
+import type { PrerenderContextValue } from './PrerenderContextTypes';
 
 const PrerenderContext = createContext<PrerenderContextValue | null>(null);
 
@@ -21,7 +16,7 @@ export function PrerenderProvider({ children }: { children: ReactNode }) {
   const cancelRef = useRef(false);
 
   const start = useCallback(
-    (docHash: string, chunks: Chunk[], settings: NarrationSettings) => {
+    (docHash: string, documentText: string, chunks: Chunk[], settings: NarrationSettings) => {
       if (busyRef.current) return; // one render at a time
       if (!settings.modelId || chunks.length === 0) return;
       const total = chunks.length;
@@ -32,20 +27,20 @@ export function PrerenderProvider({ children }: { children: ReactNode }) {
       setAudiobook(docHash, { done: 0, total, status: 'running', profileHash });
       void (async () => {
         try {
-          const tts = await getEngine(settings.modelId);
           const voice = await getVoice(settings.modelId, settings.voiceId);
-          // Wrap so a model swap waits for it (shares sessions with live playback).
-          const result = await withEngine(settings.modelId, () =>
-            prerenderDocument({
-              tts,
-              voice,
-              docHash,
-              chunks,
-              settings,
-              onProgress: ({ done }) => setAudiobook(docHash, { done, total, status: 'running', profileHash }),
-              shouldCancel: () => cancelRef.current,
-            }),
-          );
+          const result = await prerenderDocument({
+            docHash,
+            chunks,
+            settings,
+            ensureAudio: (chunk) =>
+              withEngine(
+                settings.modelId,
+                async (tts) => { await ensureChunkAudio(tts, voice, docHash, documentText, chunk, settings); },
+                'background',
+              ),
+            onProgress: ({ done }) => setAudiobook(docHash, { done, total, status: 'running', profileHash }),
+            shouldCancel: () => cancelRef.current,
+          });
           setAudiobook(docHash, {
             done: result.done,
             total,

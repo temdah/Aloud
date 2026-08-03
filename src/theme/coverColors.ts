@@ -1,12 +1,6 @@
 // Library cover palette, shared by the cover thumbnail and (via the native
 // notification patch) the lock-screen accent — so a book looks the same in both.
 // The index is stored per-document; absent an override it's derived from the hash.
-export type CoverHue = {
-  bg: string;
-  stripe: string;
-  accent: string; // tints the media notification
-};
-
 export const COVER_PALETTE: CoverHue[] = [
   { bg: '#d6c4a8', stripe: '#a8896b', accent: '#8a6d4b' },
   { bg: '#c2b8a3', stripe: '#7d7361', accent: '#5f5746' },
@@ -21,3 +15,4 @@ export const COVER_COUNT = COVER_PALETTE.length;
 export function coverHue(idx: number): CoverHue {
   return COVER_PALETTE[((idx % COVER_COUNT) + COVER_COUNT) % COVER_COUNT];
 }
+import type { CoverHue } from './themeTypes';

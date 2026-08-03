@@ -1,5 +1,6 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import type { ExtractedBlock } from './pdfExtractionTypes';
+import type { PageGeometryFile } from './pageGeometryTypes';
 
 // Per-page rendered-height estimates, giving FlatList a getItemLayout offset
 // table so it jumps straight to a page. Real onLayout heights refine and cache
@@ -29,7 +30,6 @@ function estimateBlockHeight(b: ExtractedBlock): number {
     return READER_LINE + PARA_MARGIN; // one greyed line + its separating rule
   }
   if (b.kind === 'image') {
-    // Renders full content-width with the image's aspect ratio (+ vertical margin).
     const ratio = b.width > 0 && b.height > 0 ? b.height / b.width : 0.75;
     return Math.round(IMAGE_WIDTH_EST * ratio) + IMAGE_MARGIN;
   }
@@ -37,8 +37,6 @@ function estimateBlockHeight(b: ExtractedBlock): number {
   return Math.max(1, Math.ceil(len / READER_CPL)) * READER_LINE + PARA_MARGIN;
 }
 
-// Pages with no blocks yet get a neutral default, so far jumps don't land wildly
-// short while pages are still streaming in.
 export function estimatePageHeights(blocks: ExtractedBlock[], pageCount: number): number[] {
   const sums = new Array(pageCount).fill(0);
   const has = new Array(pageCount).fill(false);
@@ -56,20 +54,17 @@ export function estimatePageHeights(blocks: ExtractedBlock[], pageCount: number)
 const GEOM_DIR = 'geometry';
 const GEOM_VERSION = 1;
 
-type GeometryFile = { version: number; pageCount: number; heights: number[] };
-
 function geometryFile(docHash: string): File {
   const dir = new Directory(Paths.document, GEOM_DIR);
   if (!dir.exists) dir.create({ intermediates: true });
   return new File(dir, `${docHash}.json`);
 }
 
-// Cached real heights for a doc, or null if absent / stale (page count changed).
 export function loadGeometry(docHash: string, pageCount: number): number[] | null {
   const file = geometryFile(docHash);
   if (!file.exists) return null;
   try {
-    const data = JSON.parse(file.textSync()) as GeometryFile;
+    const data = JSON.parse(file.textSync()) as PageGeometryFile;
     if (data.version !== GEOM_VERSION || data.pageCount !== pageCount || data.heights.length !== pageCount) return null;
     return data.heights;
   } catch {
@@ -82,5 +77,5 @@ export function saveGeometry(docHash: string, pageCount: number, heights: number
   const file = geometryFile(docHash);
   if (file.exists) file.delete();
   file.create();
-  file.write(JSON.stringify({ version: GEOM_VERSION, pageCount, heights } satisfies GeometryFile));
+  file.write(JSON.stringify({ version: GEOM_VERSION, pageCount, heights } satisfies PageGeometryFile));
 }

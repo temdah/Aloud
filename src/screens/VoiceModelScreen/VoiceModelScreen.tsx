@@ -5,7 +5,7 @@ import { AppBar, ModelCard } from '../../components';
 import { useSettingsStore } from '../../stores';
 import { MODELS } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
 import { makeStyles } from './VoiceModelScreen.styles';
 
 // Choose + download a voice engine. Both builds can be installed at once; the

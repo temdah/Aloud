@@ -1,22 +1,16 @@
-// Whole-document timeline: each chunk's spoken length from the duration predictor
-// (stage 1, ~9 ms/chunk, no synthesis), summed, with math to convert between
-// scrubber time and chunk + offset. Durations are stored at the NEUTRAL rate;
-// speed is a live divisor, so the table only rebuilds on model/voice/lang change.
+// Neutral-rate chunk durations back the document scrubber and survive speed changes.
 import { File } from 'expo-file-system';
 import type { Chunk } from '../../types';
 import { stableHash } from '../../utils';
 import type { TextToSpeech } from '../synthesis/textToSpeech';
 import type { VoiceStyle } from '../synthesis/voiceStyle';
 import { documentCacheDir, readChunkTiming } from './audioCache';
+import type { BuildDurationTableOptions, DurationTable, StoredDurationTable, TimeLocation } from './durationTableTypes';
 import type { NarrationSettings } from './narrationTypes';
 
 const TABLE_VERSION = 1;
 
-export type DurationTable = number[];
-
-type StoredTable = { hash: string; seconds: number[] };
-
-// Keyed on model/voice/lang only (not steps/speed), separate from settingsHash.
+// Steps and playback speed do not affect predicted neutral-rate duration.
 function tableHash(s: NarrationSettings): string {
   return stableHash(`dt${TABLE_VERSION}|${s.modelId}|${s.voiceId}|${s.lang}`);
 }
@@ -29,7 +23,7 @@ export function loadDurationTable(docHash: string, chunkCount: number, s: Narrat
   const file = tableFile(docHash);
   if (!file.exists) return null;
   try {
-    const stored = JSON.parse(file.textSync()) as StoredTable;
+    const stored = JSON.parse(file.textSync()) as StoredDurationTable;
     if (stored.hash !== tableHash(s)) return null;
     if (!Array.isArray(stored.seconds) || stored.seconds.length !== chunkCount) return null;
     return stored.seconds;
@@ -43,16 +37,12 @@ function writeDurationTable(docHash: string, seconds: number[], s: NarrationSett
   try {
     if (file.exists) file.delete();
     file.create();
-    file.write(JSON.stringify({ hash: tableHash(s), seconds } satisfies StoredTable));
+    file.write(JSON.stringify({ hash: tableHash(s), seconds } satisfies StoredDurationTable));
   } catch {
-    // Non-fatal: the timeline just recomputes next time.
   }
 }
 
-// Build the whole timeline from disk alone — the stored table, or a complete set
-// of per-chunk timing sidecars (written at synth time). Returns null if anything
-// is missing, so the caller knows it must load the engine and predict. This is
-// what makes reopening an already-played document instant: no engine, no predict.
+// Rebuild from timing sidecars without loading the engine; null means prediction is required.
 export function loadDurationTableFromCache(
   docHash: string,
   chunks: Chunk[],
@@ -70,16 +60,9 @@ export function loadDurationTableFromCache(
   return seconds;
 }
 
-// Neutral-rate speaking speed, for estimating a chunk's length before it has
-// been synthesized. Real cached lengths replace the estimate as clips are made.
 const CHARS_PER_SEC = 14;
 
-// The whole-document timeline, built instantly with no engine: each chunk's real
-// cached length if we have it, else a cheap char-count estimate. The scrubber is
-// approximately right immediately and converges to exact as clips get cached.
 export function buildTimeline(docHash: string, chunks: Chunk[], s: NarrationSettings): DurationTable {
-  // A completed table is one JSON read instead of one synchronous filesystem
-  // probe per chunk. This is the common path for a prepared or fully played book.
   const stored = loadDurationTable(docHash, chunks.length, s);
   if (stored) return stored;
 
@@ -90,19 +73,9 @@ export function buildTimeline(docHash: string, chunks: Chunk[], s: NarrationSett
     if (measured == null) complete = false;
     seconds[i] = measured ?? Math.max(0.3, chunks[i].text.length / CHARS_PER_SEC);
   }
-  // Promote a complete legacy set of timing sidecars so subsequent opens take
-  // the single-file fast path.
   if (complete && chunks.length > 0) writeDurationTable(docHash, seconds, s);
   return seconds;
 }
-
-export type BuildDurationTableOptions = {
-  onProgress?: (done: number, total: number) => void;
-  shouldCancel?: () => boolean;
-  // Awaited before each predictor batch so the timeline yields the engine to a
-  // clip the user is waiting on (the table is a background nicety, not audio).
-  beforeBatch?: () => Promise<void>;
-};
 
 export async function ensureDurationTable(
   tts: TextToSpeech,
@@ -118,7 +91,6 @@ export async function ensureDurationTable(
     return cached;
   }
 
-  // Reuse per-chunk timings from already-cached clips; only predict the gaps.
   const seconds = new Array<number>(chunks.length);
   const missing: number[] = [];
   for (let i = 0; i < chunks.length; i++) {
@@ -129,8 +101,7 @@ export async function ensureDurationTable(
   let done = chunks.length - missing.length;
   opts.onProgress?.(done, chunks.length);
 
-  // Batch the predictor (one run per BATCH chunks) — the model is tiny, so padding
-  // waste beats per-chunk JSI round-trips. Cancels between batches.
+  // Batching trades minor padding for fewer JSI round-trips and yields between batches.
   const BATCH = 16;
   for (let i = 0; i < missing.length; i += BATCH) {
     if (opts.shouldCancel?.()) return null;
@@ -150,8 +121,6 @@ export async function ensureDurationTable(
   return seconds;
 }
 
-// ---- time <-> chunk math (speed applied here; table stays neutral) ----
-
 export function cumulativeOffsetsSec(table: DurationTable, speed: number): number[] {
   const offsets = new Array<number>(table.length);
   let acc = 0;
@@ -168,13 +137,7 @@ export function totalDurationSec(table: DurationTable, speed: number): number {
   return acc / speed;
 }
 
-export type TimeLocation = {
-  index: number;
-  withinNeutralSec: number; // neutral-rate seconds into the clip, for player.seekTo
-};
-
-// Maps an absolute at-speed time to a chunk + neutral offset within its clip
-// (binary search over cumulative offsets).
+// Binary search maps at-speed document time to a neutral-rate clip offset.
 export function locateTime(
   table: DurationTable,
   speed: number,

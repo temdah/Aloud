@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { AppBar } from '../../components';
 import { ty, TYPE, useTheme } from '../../theme';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
 import { PRIVACY_INTRO, PRIVACY_SECTIONS, PRIVACY_UPDATED } from './privacyData';
 import { makeStyles } from './PrivacyScreen.styles';
 

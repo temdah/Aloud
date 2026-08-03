@@ -33,3 +33,6 @@ export * from './VoiceSwatch';
 export * from './LanguagePicker';
 export * from './ManageCacheSheet';
 export * from './PerfTips';
+export * from './ReaderContent';
+export * from './ReaderOverlays';
+export * from './DeveloperAction';

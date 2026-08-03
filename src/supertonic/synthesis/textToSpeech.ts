@@ -50,7 +50,6 @@ export class TextToSpeech {
       [batchSize, 1, textMask[0][0].length],
     );
 
-    // 1. Duration (seconds), scaled by speed.
     const durationOut = await this.sessions.durationPredictor.run({
       text_ids: textIdsTensor,
       style_dp: voice.dp,
@@ -59,7 +58,6 @@ export class TextToSpeech {
     const durationsSec = Array.from(durationOut.duration.data as Float32Array, Number).map((d) => d / speed);
     onStage?.('duration');
 
-    // 2. Encode text.
     const textEncOut = await this.sessions.textEncoder.run({
       text_ids: textIdsTensor,
       style_ttl: voice.ttl,
@@ -68,7 +66,6 @@ export class TextToSpeech {
     const textEmb = textEncOut.text_emb;
     onStage?.('textEncoder');
 
-    // 3. Init noisy latent.
     const { latent, latentDim, latentLen, latentMask } = this.initLatent(durationsSec);
     const latentShape = [batchSize, latentDim, latentLen];
     const latentMaskTensor = new Tensor(
@@ -79,7 +76,6 @@ export class TextToSpeech {
     const totalStepTensor = new Tensor('float32', new Float32Array(batchSize).fill(totalSteps), [batchSize]);
     onStage?.('initLatent');
 
-    // 4. Denoise loop — each step's output feeds back as the next input.
     let current = latent;
     for (let step = 0; step < totalSteps; step++) {
       onProgress?.(step + 1, totalSteps);
@@ -97,7 +93,6 @@ export class TextToSpeech {
     }
     onStage?.('denoise');
 
-    // 5. Vocode to a waveform.
     const vocoderOut = await this.sessions.vocoder.run({
       latent: new Tensor('float32', current, latentShape),
     });

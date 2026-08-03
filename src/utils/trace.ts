@@ -4,8 +4,6 @@
 // Spans are independent (start/end recorded per call), so overlapping/parallel
 // work traces correctly.
 
-export type Span = { label: string; startMs: number; endMs: number };
-
 let active = false;
 let t0 = 0;
 let spans: Span[] = [];
@@ -16,20 +14,17 @@ export function isTracing(): boolean {
   return active;
 }
 
-// Begin a fresh trace, clearing any previous spans.
 export function traceStart(): void {
   active = true;
   t0 = Date.now();
   spans = [];
 }
 
-// Stop tracing and return the recorded spans (relative ms from traceStart).
 export function traceStop(): Span[] {
   active = false;
   return spans;
 }
 
-// A point-in-time event (zero duration).
 export function traceMark(label: string): void {
   if (!active) return;
   const now = Date.now() - t0;
@@ -46,7 +41,6 @@ export function traceOpen(label: string): () => void {
   };
 }
 
-// Wrap an async operation in a span.
 export async function traceSpan<T>(label: string, fn: () => Promise<T>): Promise<T> {
   if (!active) return fn();
   const startMs = Date.now() - t0;
@@ -56,3 +50,4 @@ export async function traceSpan<T>(label: string, fn: () => Promise<T>): Promise
     spans.push({ label, startMs, endMs: Date.now() - t0 });
   }
 }
+import type { Span } from './traceTypes';

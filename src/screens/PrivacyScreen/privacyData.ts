@@ -1,7 +1,6 @@
+import type { PrivacySection } from './privacyTypes';
+
 // Mirrors PRIVACY.md so the policy is readable in-app. Keep the two in sync.
-
-export type PrivacySection = { title: string; paragraphs: string[] };
-
 export const PRIVACY_UPDATED = '2026-07-31';
 
 export const PRIVACY_INTRO =

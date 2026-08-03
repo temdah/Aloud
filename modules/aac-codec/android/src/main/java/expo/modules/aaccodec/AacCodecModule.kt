@@ -27,8 +27,21 @@ class AacCodecModule : Module() {
 
     // Convert raw Float32 waveform bytes to PCM and encode them on this worker,
     // keeping the linear sample pass off the JavaScript thread.
-    AsyncFunction("encodeFloatPcmToM4a") { float32Bytes: ByteArray, sampleRate: Int, channels: Int, dstPath: String, bitrate: Int ->
-      val result = AacEncoder.encodeFloatPcm(float32Bytes, sampleRate, channels, dstPath, bitrate)
+    AsyncFunction("encodeFloatPcmToM4a") {
+      float32Bytes: ByteArray,
+      sampleRate: Int,
+      channels: Int,
+      dstPath: String,
+      bitrate: Int,
+      trailingSilenceFrames: Int ->
+      val result = AacEncoder.encodeFloatPcm(
+        float32Bytes,
+        sampleRate,
+        channels,
+        dstPath,
+        bitrate,
+        trailingSilenceFrames
+      )
       if (result.rc != 0) throw AacEncodeException(result.rc)
       mapOf("uri" to dstPath, "pcmMs" to result.pcmMs)
     }

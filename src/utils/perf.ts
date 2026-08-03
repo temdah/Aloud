@@ -1,10 +1,6 @@
-// Dev-only per-stage timing for the synthesis hot path; a no-op in release builds.
-export type StageTimer = {
-  mark: (stage: string) => void;
-  done: () => void;
-  elapsedMs: () => number;
-};
+import type { StageTimer } from './perfTypes';
 
+// Dev-only per-stage timing for the synthesis hot path; a no-op in release builds.
 const NOOP: StageTimer = { mark: () => {}, done: () => {}, elapsedMs: () => 0 };
 
 export function stageTimer(label: string): StageTimer {

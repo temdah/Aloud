@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
+import type { SleepTimer } from './sleepTimerTypes';
 // Wall-clock countdown firing `onFire` once. Tracks an absolute deadline (not a
 // tick count) so it stays accurate when the JS timer is throttled in the
 // background — the "stop after N minutes with the screen off" case.
-
-export type SleepTimer = {
-  active: boolean;
-  minutesLeft: number;
-  start: (minutes: number) => void;
-  cancel: () => void;
-};
 
 export function useSleepTimer(onFire: () => void): SleepTimer {
   const [deadline, setDeadline] = useState<number | null>(null);

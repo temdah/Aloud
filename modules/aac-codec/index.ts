@@ -1,4 +1,7 @@
 import AacCodecModule from './src/AacCodecModule';
+import type { FloatPcmEncodeResult } from './src/AacCodecTypes';
+
+export type { FloatPcmEncodeResult } from './src/AacCodecTypes';
 
 // expo-file-system uris look like `file:///data/...`; the native layer opens raw
 // filesystem paths, so strip the scheme and decode percent-escapes (e.g. spaces).
@@ -30,20 +33,20 @@ export function encodePcmToM4a(pcm16: Uint8Array, sampleRate: number, dstUri: st
   return AacCodecModule.encodePcmToM4a(pcm16, sampleRate, 1, toPath(dstUri), bitrate);
 }
 
-export type FloatPcmEncodeResult = { uri: string; pcmMs: number };
-
 /**
  * Convert a float waveform to 16-bit PCM and encode it on the native AAC worker.
- * Passing a byte view avoids an O(samples) conversion on the JavaScript thread.
+ * Passing a byte view avoids an O(samples) conversion on the JavaScript thread;
+ * optional silent frames are streamed natively without copying the waveform.
  */
 export function encodeFloatPcmToM4a(
   waveform: Float32Array,
   sampleRate: number,
   dstUri: string,
   bitrate = 64000,
+  trailingSilenceFrames = 0,
 ): Promise<FloatPcmEncodeResult> {
   const float32Bytes = new Uint8Array(waveform.buffer, waveform.byteOffset, waveform.byteLength);
-  return AacCodecModule.encodeFloatPcmToM4a(float32Bytes, sampleRate, 1, toPath(dstUri), bitrate);
+  return AacCodecModule.encodeFloatPcmToM4a(float32Bytes, sampleRate, 1, toPath(dstUri), bitrate, trailingSilenceFrames);
 }
 
 /**
