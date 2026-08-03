@@ -1,22 +1,19 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, Pressable, Text, View, type ViewToken } from 'react-native';
-import { ActionDialog, AppBar, Chip, Icon, IconButton, LanguagePicker, ManageCacheSheet, PageScrubber, PerfTips, PlayerControls, Sheet, Slider, Spinner, TapHint, VoicePicker, voiceLabel, type DialogAction } from '../../components';
+import { FlatList, View } from 'react-native';
+import { AppBar, IconButton, PerfTips, PlayerControls, ReaderContent, ReaderOverlays, voiceLabel, type DialogAction } from '../../components';
 import { usePageGeometry, usePdfText } from '../../hooks';
-import { File } from 'expo-file-system';
 import { usePlaybackContext } from '../../playback';
-import { clearExtractedImages, deleteExtractedText, type ExtractedBlock } from '../../pdf';
+import type { ExtractedBlock } from '../../pdf';
+import { deleteDocument as deleteDocumentData } from '../../services';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, deleteModel, EMPTY_NARRATION_PLAN, findModel, isChunkCached, languageLabel, loadNarrationPlan, qualityProfile } from '../../supertonic';
-import { elevation, ty, TYPE, useTheme } from '../../theme';
+import { deleteModel, EMPTY_NARRATION_PLAN, isChunkCached, languageLabel, loadNarrationPlan, qualityProfile } from '../../supertonic';
+import { useTheme } from '../../theme';
 import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
 import { makeStyles } from './ReaderScreen.styles';
 
-const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.15, 1.25, 1.5];
-const INDENT_STEP = 18;
 // After the perf tip is shown/dismissed, don't surface it again for this long.
 const PERF_TIP_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
-const TOC_DOTS = Array(80).fill('·').join(' ');
 
 // mm:ss for a duration in seconds (audio positions/durations).
 function formatTime(seconds: number): string {
@@ -26,17 +23,6 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-// Color a TOC entry's leading section number (e.g. "2.1") with the accent.
-function renderTocTitle(title: string, accent: string) {
-  const m = title.match(/^(\d+(?:[.\s]+\d+)*\.?)(\s+)(.*)$/);
-  if (!m) return title;
-  return (
-    <>
-      <Text style={{ color: accent }}>{m[1]}</Text>
-      {m[2] + m[3]}
-    </>
-  );
-}
 
 // The reader: paginated text with tap-to-start, sentence highlighting, follow
 // mode, page scrubbing, and the full transport (speed/voice/language/sleep).
@@ -53,7 +39,6 @@ export default function ReaderScreen() {
   const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
   const favourites = useDocumentsStore((s) => s.favourites);
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
-  const removeDocument = useDocumentsStore((s) => s.removeDocument);
   const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
   const audiobook = useDocumentsStore((s) => s.audiobook[route.params.docId]);
   const setDocLang = useDocumentsStore((s) => s.setDocLang);
@@ -146,8 +131,6 @@ export default function ReaderScreen() {
 
   // Nothing is highlighted until the user engages (taps a sentence or plays).
   const activeChunk = playback.engaged ? playback.currentChunk : null;
-  const hasPages = pageCount > 0;
-
   // Playing needs a model — route to the picker when none is chosen yet.
   const onTogglePlay = useCallback(() => {
     if (!effModelId) return navigation.navigate('VoiceModel');
@@ -224,12 +207,6 @@ export default function ReaderScreen() {
 
   const data = useMemo(() => Array.from({ length: pageCount }, (_, i) => i + 1), [pageCount]);
 
-  const onViewRef = useRef((info: { viewableItems: ViewToken[] }) => {
-    const first = info.viewableItems.find((v) => v.index != null);
-    if (first && first.index != null) setCurrentPage(first.index + 1);
-  });
-  const viewConfigRef = useRef({ itemVisiblePercentThreshold: 10 });
-
   // Animated jumps smooth-scroll every page in between (stuttery on a big doc),
   // so far jumps (scrubber, TOC) pass animated=false.
   const scrollToPage = useCallback(
@@ -293,16 +270,9 @@ export default function ReaderScreen() {
       playback.stop();
       clearActiveDoc();
     }
-    clearDocumentCache(doc.docHash);
-    clearAudiobook(doc.docHash);
-    deleteExtractedText(doc.docHash);
-    clearExtractedImages(doc.docHash);
-    try {
-      new File(doc.fileUri).delete();
-    } catch {}
-    removeDocument(doc.docHash);
+    deleteDocumentData(doc);
     navigation.goBack();
-  }, [doc, activeDoc, playback, clearActiveDoc, clearAudiobook, removeDocument, navigation]);
+  }, [doc, activeDoc, playback, clearActiveDoc, navigation]);
 
   // Apply a voice change. With a pinned profile, repoint it (and forget a stale
   // "done" render); otherwise move the global voice. The effVoiceId change
@@ -436,159 +406,36 @@ export default function ReaderScreen() {
     if (saved != null && saved > 0) playback.goTo(saved);
   }, [status, doc?.docHash, activeDoc?.doc.docHash, playback]);
 
-  const labelForPage = useCallback(
-    (pg: number) => {
-      const items = blocksByPage.get(pg);
-      const heading = items?.find(({ block }) => block.kind === 'h2');
-      const title = heading && heading.block.kind === 'h2' ? heading.block.text : '';
-      if (!title) return `Page ${pg}`;
-      return `Page ${pg} · ${title.length > 30 ? title.slice(0, 30) + '…' : title}`;
-    },
-    [blocksByPage],
-  );
-
-  const renderBlock = (b: ExtractedBlock, gbi: number) => {
-    const pad = { paddingLeft: b.indent * INDENT_STEP };
-    if (b.kind === 'pageHeader') {
-      // Running header/footer — not spoken, so not tappable like body text.
-      return (
-        <View key={gbi} style={styles.pageHeader}>
-          <Text numberOfLines={1} style={ty(TYPE.caption, p.textDim)}>{b.text}</Text>
-        </View>
-      );
-    }
-    if (b.kind === 'image') {
-      if (!b.uri) return null;
-      const aspect = b.width > 0 && b.height > 0 ? b.width / b.height : 1;
-      return <Image key={gbi} source={{ uri: b.uri }} style={[styles.image, { aspectRatio: aspect }]} resizeMode="contain" />;
-    }
-    if (b.kind === 'h2') {
-      return <Text key={gbi} style={[ty(TYPE.titleSerif, p.text), styles.heading, pad]}>{b.text}</Text>;
-    }
-    if (b.kind === 'toc') {
-      const target = b.target ? parseInt(b.target, 10) : NaN;
-      return (
-        <Pressable key={gbi} onPress={() => promptTocAction(b.title, target, b.charStart)} style={[styles.tocRow, pad]}>
-          <Text style={[ty(TYPE.body, p.text), styles.tocTitle]}>{renderTocTitle(b.title, p.primary)}</Text>
-          <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.tocLeader, { color: p.textDim }]}>{TOC_DOTS}</Text>
-          {b.target ? <Text style={ty(TYPE.label, p.primary)}>{b.target}</Text> : null}
-        </Pressable>
-      );
-    }
-    // Whole paragraph is the tap target so taps landing off a glyph still select
-    // a sentence (falling back to the first).
-    return (
-      <Pressable key={gbi} onPress={() => handleSentenceTap(b.sentences[0]?.charStart ?? b.charStart)} style={pad}>
-        <Text style={ty(TYPE.reader, p.text)}>
-          {b.sentences.map((s, si) => {
-            // Accent = playing/selected; gray = pending tap; dim = already read.
-            const isCurrent = !!activeChunk && s.charStart >= activeChunk.charStart && s.charStart < activeChunk.charEnd;
-            const isPending = !!pendingChunk && s.charStart >= pendingChunk.charStart && s.charStart < pendingChunk.charEnd;
-            const isRead = !!activeChunk && s.charStart < activeChunk.charStart;
-            const color = isCurrent ? p.highlightInk : isRead ? p.textMuted : p.text;
-            const bg = isCurrent ? p.highlight : isPending ? p.surfaceAlt : 'transparent';
-            return (
-              <Text key={si} onPress={() => handleSentenceTap(s.charStart)} style={{ color, backgroundColor: bg }}>
-                {s.text}{si < b.sentences.length - 1 ? ' ' : ''}
-              </Text>
-            );
-          })}
-        </Text>
-      </Pressable>
-    );
-  };
-
-  const renderSlot = (pg: number) => {
-    const items = blocksByPage.get(pg);
-    return (
-      <View
-        style={styles.pageSection}
-        onLayout={(e) => { if (items?.length || pg <= loadedPages) onPageLayout(pg, e.nativeEvent.layout.height); }}
-      >
-        <Text style={[ty(TYPE.caption, p.textDim), styles.pageDivider]}>Page {pg}</Text>
-        {items && items.length ? (
-          <View style={[styles.card, elevation(1)]}>{items.map(({ block, gbi }) => renderBlock(block, gbi))}</View>
-        ) : pg <= loadedPages ? (
-          <View style={[styles.card, styles.emptyPage]}>
-            <Text style={ty(TYPE.caption, p.textDim)}>No text on this page</Text>
-          </View>
-        ) : (
-          <View style={[styles.card, styles.placeholderCard]}>
-            <View style={styles.skelLine} />
-            <View style={[styles.skelLine, { width: '92%' }]} />
-            <View style={[styles.skelLine, { width: '80%' }]} />
-            <View style={[styles.skelLine, { width: '88%' }]} />
-          </View>
-        )}
-      </View>
-    );
-  };
-
   return (
     <View style={styles.screen}>
       <AppBar onBack={() => navigation.goBack()} title={doc?.title} subtitle={pageCount > 0 ? `${pageCount} pages` : undefined} actions={<IconButton icon="more" accessibilityLabel="More" onPress={() => setMenu(true)} />} />
 
-      <View style={styles.body} onTouchStart={showHint ? dismissHint : undefined}>
-        {status === 'loading' ? (
-          <View style={styles.emptyState}>
-            <Spinner size={26} color={p.primary} />
-            <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>Opening the document…</Text>
-            {stage ? <Text style={ty(TYPE.caption, p.textDim)}>{stage}</Text> : null}
-          </View>
-        ) : status === 'error' ? (
-          <View style={styles.emptyState}>
-            <Icon name="book" size={40} color={p.textDim} />
-            <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>Couldn’t read this document.</Text>
-            {error ? <Text style={ty(TYPE.caption, p.textDim)}>{error}</Text> : null}
-          </View>
-        ) : status === 'ready' && blocks.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Icon name="book" size={40} color={p.textDim} />
-            <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>No selectable text found.</Text>
-            <Text style={ty(TYPE.caption, p.textDim)}>{doc?.kind === 'pdf' || !doc?.kind ? 'This PDF may be scanned images.' : 'This file appears to be empty.'}</Text>
-          </View>
-        ) : hasPages ? (
-          <>
-            <FlatList
-              ref={listRef}
-              data={data}
-              extraData={`${loadedPages}:${geomVersion}:${activeChunk?.charStart ?? -1}:${pendingChunk?.charStart ?? -1}`}
-              keyExtractor={(pg) => String(pg)}
-              renderItem={({ item }) => renderSlot(item)}
-              getItemLayout={getItemLayout}
-              initialNumToRender={3}
-              maxToRenderPerBatch={4}
-              windowSize={9}
-              removeClippedSubviews
-              onViewableItemsChanged={onViewRef.current}
-              viewabilityConfig={viewConfigRef.current}
-              onScrollToIndexFailed={onScrollToIndexFailed}
-              contentContainerStyle={styles.scrollContent}
-            />
-            <PageScrubber pageCount={pageCount} currentPage={currentPage} labelForPage={labelForPage} onJumpToPage={(pg) => scrollToPage(pg, false)} />
-          </>
-        ) : (
-          <View style={styles.emptyState}>
-            <Icon name="book" size={40} color={p.textDim} />
-            <Text style={[ty(TYPE.body, p.textMuted), styles.emptyText]}>No document open.</Text>
-          </View>
-        )}
-        {showHint ? <TapHint onClose={dismissHint} /> : null}
-      </View>
-
-      {hasPages ? (
-        <View style={styles.pageBar}>
-          <Chip label="Read along" selected={followMode} onPress={toggleFollow} />
-          <Text style={ty(TYPE.label, p.textMuted)}>
-            Page {currentPage} / {pageCount}
-            {status === 'streaming' ? `  ·  ${loadedPages} loaded` : ''}
-          </Text>
-          <View style={styles.pageNav}>
-            <IconButton icon="back" onPress={() => scrollToPage(currentPage - 1)} accessibilityLabel="Previous page" />
-            <IconButton icon="chevR" onPress={() => scrollToPage(currentPage + 1)} accessibilityLabel="Next page" />
-          </View>
-        </View>
-      ) : null}
+      <ReaderContent
+        listRef={listRef}
+        status={status}
+        stage={stage}
+        error={error}
+        documentKind={doc?.kind}
+        blocksByPage={blocksByPage}
+        data={data}
+        pageCount={pageCount}
+        loadedPages={loadedPages}
+        geometryVersion={geomVersion}
+        currentPage={currentPage}
+        activeChunk={activeChunk}
+        pendingChunk={pendingChunk}
+        showHint={showHint}
+        followMode={followMode}
+        getItemLayout={getItemLayout}
+        onPageLayout={onPageLayout}
+        onPageChanged={setCurrentPage}
+        onScrollToIndexFailed={onScrollToIndexFailed}
+        onJumpToPage={scrollToPage}
+        onToggleFollow={toggleFollow}
+        onSentencePress={handleSentenceTap}
+        onContentsPress={promptTocAction}
+        onDismissHint={dismissHint}
+      />
 
       <PerfTips
         visible={perfBanner}
@@ -643,122 +490,62 @@ export default function ReaderScreen() {
         sleepMinutesLeft={sleep.active ? sleep.minutesLeft : null}
       />
 
-      <Sheet open={speedSheet} onClose={() => setSpeedSheet(false)} title="Playback speed" heightRatio={0.42}>
-        <View style={styles.sheetBody}>
-          <Text style={[ty(TYPE.display, p.text), styles.speedValue]}>×{effSpeed.toFixed(2)}</Text>
-          <Slider value={effSpeed} min={0.9} max={1.5} step={0.05} onChange={setEffSpeed} ticks={[0.9, 1.0, 1.05, 1.25, 1.5]} />
-          <View style={styles.sliderLabels}>
-            <Text style={ty(TYPE.mono, p.textMuted)}>0.90</Text>
-            <Text style={ty(TYPE.mono, p.textMuted)}>1.50</Text>
-          </View>
-          <View style={styles.presetRow}>
-            {SPEED_PRESETS.map((v) => (
-              <Chip key={v} label={`×${v.toFixed(2)}`} selected={Math.abs(effSpeed - v) < 0.01} onPress={() => setEffSpeed(v)} />
-            ))}
-          </View>
-        </View>
-      </Sheet>
-
-      <Sheet open={voiceSheet} onClose={() => setVoiceSheet(false)} title="Reading voice" heightRatio={0.78}>
-        <VoicePicker value={effVoiceId} onChange={onVoiceChange} modelId={effModelId} lang={effLang} />
-      </Sheet>
-
-      <Sheet open={langSheet} onClose={() => setLangSheet(false)} title="Language" heightRatio={0.78}>
-        <LanguagePicker
-          value={doc?.lang ?? null}
-          onChange={(code) => {
-            if (doc) setDocLang(doc.docHash, code);
-            setLangSheet(false);
-          }}
-          onUseDefault={() => {
-            if (doc) setDocLang(doc.docHash, null);
-            setLangSheet(false);
-          }}
-          defaultLabel={languageLabel(settingsLang)}
-          langCodes={findModel(effModelId)?.langCodes ?? []}
-        />
-      </Sheet>
-
-      <ManageCacheSheet
-        open={manageSheet}
-        onClose={() => setManageSheet(false)}
-        docHash={doc?.docHash ?? null}
-        title={doc?.title}
+      <ReaderOverlays
+        speedOpen={speedSheet}
+        speed={effSpeed}
+        onCloseSpeed={() => setSpeedSheet(false)}
+        onChangeSpeed={setEffSpeed}
+        voiceOpen={voiceSheet}
+        voiceId={effVoiceId}
+        modelId={effModelId}
+        language={effLang}
+        onCloseVoice={() => setVoiceSheet(false)}
+        onChangeVoice={onVoiceChange}
+        languageOpen={langSheet}
+        documentLanguage={doc?.lang ?? null}
+        defaultLanguage={settingsLang}
+        onCloseLanguage={() => setLangSheet(false)}
+        onChangeLanguage={(code) => {
+          if (doc) setDocLang(doc.docHash, code);
+          setLangSheet(false);
+        }}
+        onUseDefaultLanguage={() => {
+          if (doc) setDocLang(doc.docHash, null);
+          setLangSheet(false);
+        }}
+        cacheOpen={manageSheet}
+        documentHash={doc?.docHash ?? null}
+        documentTitle={doc?.title}
+        onCloseCache={() => setManageSheet(false)}
+        pendingVoice={pendingVoice}
+        onClosePendingVoice={() => setPendingVoice(null)}
+        onApplyPendingVoice={applyVoice}
+        contentsPrompt={tocPrompt}
+        contentsActions={tocActions}
+        onCloseContents={() => setTocPrompt(null)}
+        playPromptOpen={playPrompt}
+        pendingOffset={pendingOffset}
+        onClosePlayPrompt={clearPending}
+        onPlayFrom={playback.playFrom}
+        menuOpen={menu}
+        menuActions={menuActions}
+        onCloseMenu={() => setMenu(false)}
+        playbackError={playback.error}
+        onRetryPlayback={playback.retry}
+        onStopPlayback={playback.stop}
+        modelErrorOpen={modelErrorOpen}
+        onCloseModelError={() => setModelErrorOpen(false)}
+        onRedownloadModel={() => {
+          if (effModelId) deleteModel(effModelId);
+          navigation.navigate('VoiceModel');
+        }}
+        sleepOpen={sleepMenu}
+        sleepActive={sleep.active}
+        sleepMinutesLeft={sleep.minutesLeft}
+        sleepActions={sleepActions}
+        onCloseSleep={() => setSleepMenu(false)}
+        extractor={extractor}
       />
-
-      <ActionDialog
-        open={pendingVoice != null}
-        onClose={() => setPendingVoice(null)}
-        title="Change voice?"
-        message={
-          pendingVoice
-            ? `This document already has audio cached for ${voiceLabel(effVoiceId)}. That cache is kept but won't be used — new audio is generated with ${voiceLabel(pendingVoice)} as you play.`
-            : undefined
-        }
-        actions={[
-          { label: pendingVoice ? `Use ${voiceLabel(pendingVoice)}` : 'Change', variant: 'filled', onPress: () => { if (pendingVoice) applyVoice(pendingVoice); } },
-          { label: 'Keep current voice', variant: 'ghost' },
-        ]}
-      />
-
-      <ActionDialog
-        open={!!tocPrompt}
-        onClose={() => setTocPrompt(null)}
-        title={tocPrompt?.title}
-        message="This is a contents entry. Jump to its section, or select the text to read from here."
-        actions={tocActions}
-      />
-
-      <ActionDialog
-        open={playPrompt}
-        onClose={clearPending}
-        title="Jump here?"
-        message="Audio is still playing. Start reading from the tapped sentence, or keep playing where you are."
-        actions={[
-          { label: 'Play from here', variant: 'filled', onPress: () => { if (pendingOffset != null) playback.playFrom(pendingOffset); } },
-          { label: 'Keep playing', variant: 'ghost' },
-        ]}
-      />
-
-      <ActionDialog open={menu} onClose={() => setMenu(false)} title={doc?.title} actions={menuActions} />
-
-      <ActionDialog
-        open={playback.error != null}
-        title="Playback stopped"
-        message={playback.error ?? undefined}
-        actions={[
-          { label: 'Rebuild and retry', variant: 'filled', onPress: playback.retry },
-          { label: 'Stop playback', variant: 'ghost', onPress: playback.stop },
-        ]}
-      />
-
-      <ActionDialog
-        open={modelErrorOpen}
-        onClose={() => setModelErrorOpen(false)}
-        title="Voice model looks damaged"
-        message="The voice model couldn’t load — its files may be incomplete. Re-download it to fix reading aloud."
-        actions={[
-          {
-            label: 'Re-download',
-            variant: 'filled',
-            onPress: () => {
-              if (effModelId) deleteModel(effModelId);
-              navigation.navigate('VoiceModel');
-            },
-          },
-          { label: 'Not now', variant: 'ghost' },
-        ]}
-      />
-
-      <ActionDialog
-        open={sleepMenu}
-        onClose={() => setSleepMenu(false)}
-        title="Sleep timer"
-        message={sleep.active ? `Pausing in about ${sleep.minutesLeft} min.` : 'Pause playback after…'}
-        actions={sleepActions}
-      />
-
-      {extractor}
     </View>
   );
 }

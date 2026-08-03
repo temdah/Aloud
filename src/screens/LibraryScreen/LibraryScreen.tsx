@@ -1,13 +1,13 @@
 import { useNavigation } from '@react-navigation/native';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { File } from 'expo-file-system';
 import { ActionDialog, AppBar, BookRow, Chip, EmptyLibrary, FAB, Icon, IconButton, ManageCacheSheet, Sheet } from '../../components';
 import { useImportDocument } from '../../hooks';
-import { clearExtractedImages, deleteExtractedText, loadExtractedText } from '../../pdf';
+import { loadExtractedText } from '../../pdf';
 import { usePlaybackContext, type ActiveDoc } from '../../playback';
+import { deleteDocument } from '../../services';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
-import { clearDocumentCache, documentCacheStats, loadNarrationPlan, qualityProfile } from '../../supertonic';
+import { documentCacheStats, loadNarrationPlan, qualityProfile } from '../../supertonic';
 import { COVER_PALETTE, ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
 import type { Book, ImportedDocument } from '../../types';
@@ -37,8 +37,6 @@ export default function LibraryScreen() {
   const favourites = useDocumentsStore((s) => s.favourites);
   const audiobook = useDocumentsStore((s) => s.audiobook);
   const toggleFavourite = useDocumentsStore((s) => s.toggleFavourite);
-  const removeDocument = useDocumentsStore((s) => s.removeDocument);
-  const clearAudiobook = useDocumentsStore((s) => s.clearAudiobook);
   const setCover = useDocumentsStore((s) => s.setCover);
   const { playback, activeDoc, clearActiveDoc, playDocument } = usePlaybackContext();
   const renderProfile = useDocumentsStore((s) => s.renderProfile);
@@ -244,14 +242,7 @@ export default function LibraryScreen() {
                       playback.stop();
                       clearActiveDoc();
                     }
-                    clearDocumentCache(menuDoc.docHash);
-                    clearAudiobook(menuDoc.docHash);
-                    deleteExtractedText(menuDoc.docHash);
-                    clearExtractedImages(menuDoc.docHash);
-                    try {
-                      new File(menuDoc.fileUri).delete();
-                    } catch {}
-                    removeDocument(menuDoc.docHash);
+                    deleteDocument(menuDoc);
                   },
                 },
                 { label: 'Cancel', variant: 'ghost' },
