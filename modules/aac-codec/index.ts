@@ -1,4 +1,7 @@
 import AacCodecModule from './src/AacCodecModule';
+import type { FloatPcmEncodeResult } from './src/AacCodecTypes';
+
+export type { FloatPcmEncodeResult } from './src/AacCodecTypes';
 
 // expo-file-system uris look like `file:///data/...`; the native layer opens raw
 // filesystem paths, so strip the scheme and decode percent-escapes (e.g. spaces).
@@ -29,8 +32,6 @@ export function encodeWavsToM4a(srcWavUris: string[], dstUri: string, bitrate = 
 export function encodePcmToM4a(pcm16: Uint8Array, sampleRate: number, dstUri: string, bitrate = 64000): Promise<string> {
   return AacCodecModule.encodePcmToM4a(pcm16, sampleRate, 1, toPath(dstUri), bitrate);
 }
-
-export type FloatPcmEncodeResult = { uri: string; pcmMs: number };
 
 /**
  * Convert a float waveform to 16-bit PCM and encode it on the native AAC worker.

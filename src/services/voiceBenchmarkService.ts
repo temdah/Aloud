@@ -8,43 +8,14 @@ import {
   isEngineResident,
   releaseCurrentEngine,
   withEngine,
-  type SynthesisDiagnostics,
   type TextToSpeech,
   type VoiceStyle,
 } from '../supertonic';
-import { traceMark, traceStart, traceStop, type Span } from '../utils';
+import { traceMark, traceStart, traceStop } from '../utils';
+import type { ColdLoadBenchmark, VoiceBenchmarkConfig, VoiceChunkBenchmark, VoicePlaybackBenchmark } from './voiceBenchmarkTypes';
 
 const OUTPUT_FILE = 'tts_perf_output.wav';
 export const VOICE_PLAYBACK_TIMEOUT_MS = 5000;
-
-export type VoiceBenchmarkConfig = {
-  modelId: string | null;
-  voiceId: string;
-  language: string;
-  steps: number;
-};
-
-export type VoiceChunkBenchmark = {
-  stages: Record<string, number>;
-  stepStarts: number[];
-  synthMs: number;
-  encodeMs: number;
-  writeMs: number;
-  audioSec: number;
-  predictedSec: number;
-  diagnostics: SynthesisDiagnostics;
-  uri: string;
-};
-
-export type VoicePlaybackBenchmark = {
-  audioSessionMs: number;
-  createMs: number;
-  loadedMs: number | null;
-  playingMs: number | null;
-  timedOut: boolean;
-};
-
-export type ColdLoadBenchmark = { totalMs: number; spans: Span[] };
 
 export class VoiceBenchmarkService {
   private textToSpeech: TextToSpeech | null = null;

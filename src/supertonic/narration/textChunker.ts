@@ -2,12 +2,11 @@ import type { Chunk } from '../../types';
 import { stableHash } from '../../utils';
 import { sentenceBoundaries } from '../text/segmentation';
 import { maxChunkLen } from '../text/sentenceRules';
+import type { RawChunk } from './textChunkerTypes';
 
 // Groups the canonical document text into playback chunks — whole sentences up to
 // a length cap. Each chunk's [charStart, charEnd) stays an exact slice of the
 // source; those offsets are the join key between text, cached audio, and highlight.
-
-export type RawChunk = { text: string; charStart: number; charEnd: number };
 
 const STRONG_CLAUSE_ENDS = new Set([';', ':', '\u2014', '\u2013', '\uff1b', '\uff1a']);
 const SOFT_CLAUSE_ENDS = new Set([',', '\uff0c', '\u3001']);

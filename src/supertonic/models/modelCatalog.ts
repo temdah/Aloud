@@ -1,31 +1,10 @@
-import { AVAILABLE_LANGUAGES, type SupportedLanguage } from '../text/languages';
+import { AVAILABLE_LANGUAGES } from '../text/languages';
 import type { ModelAsset } from './modelTypes';
+import type { ModelInfo } from './modelCatalogTypes';
 
 // Selectable Supertonic builds + the file list to download for each.
 
 // Conservative per-file minimums to detect truncated downloads (larger for v3).
-type FileMinBytes = {
-  durationPredictor: number;
-  textEncoder: number;
-  vectorEstimator: number;
-  vocoder: number;
-  config: number;
-  indexer: number;
-  voice: number;
-};
-
-export type ModelInfo = {
-  id: string;
-  label: string;
-  repo: string;
-  approxMb: number;
-  tagline: string;
-  overview: string;
-  languages: string;
-  langCodes: SupportedLanguage[];
-  minBytes: FileMinBytes;
-};
-
 export const MODELS: ModelInfo[] = [
   {
     id: 'supertonic-2',

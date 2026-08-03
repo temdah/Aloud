@@ -6,7 +6,7 @@ import { documentCacheStats, findModel, languageLabel, NARRATION_TONE_LABELS, QU
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { ty, TYPE, useTheme } from '../../theme';
 import type { NarrationTone } from '../../types';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
 import { makeStyles } from './SettingsScreen.styles';
 
 const SPEED_PRESETS = [0.9, 1.0, 1.05, 1.25, 1.5];
@@ -59,7 +59,6 @@ export default function SettingsScreen() {
       bytes += s.bytes;
     }
     return { count, bytes };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documents, cacheVersion]);
   const cacheLabel =
     cacheTotal.bytes <= 0

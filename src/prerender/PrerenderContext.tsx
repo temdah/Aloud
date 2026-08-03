@@ -3,12 +3,7 @@ import { ensureChunkAudio, getVoice, prerenderDocument, settingsHash, withEngine
 import type { NarrationSettings } from '../supertonic';
 import { useDocumentsStore } from '../stores';
 import type { Chunk } from '../types';
-
-export type PrerenderContextValue = {
-  activeDocHash: string | null;
-  start: (docHash: string, documentText: string, chunks: Chunk[], settings: NarrationSettings) => void;
-  cancel: (docHash: string) => void;
-};
+import type { PrerenderContextValue } from './PrerenderContextTypes';
 
 const PrerenderContext = createContext<PrerenderContextValue | null>(null);
 

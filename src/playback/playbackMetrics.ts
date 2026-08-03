@@ -6,6 +6,7 @@ import type {
   PlaybackSynthesisBreakdown,
   PlaybackTrace,
   PrefetchSample,
+  MutablePlaybackTrace,
 } from './playbackMetricsTypes';
 
 const MAX_TRACES = 40;
@@ -22,17 +23,12 @@ export type {
   PrefetchSample,
 } from './playbackMetricsTypes';
 
-type MutableTrace = PlaybackTrace & {
-  cacheDecisionAtMs: number | null;
-  playerRequestedAtMs: number | null;
-};
-
 let nextTraceId = 1;
-let traces: MutableTrace[] = [];
+let traces: MutablePlaybackTrace[] = [];
 let boundaryGaps: BoundaryGap[] = [];
 let prefetchSamples: PrefetchSample[] = [];
 
-function findTrace(id: number): MutableTrace | undefined {
+function findTrace(id: number): MutablePlaybackTrace | undefined {
   return traces.find((trace) => trace.id === id);
 }
 
@@ -45,7 +41,7 @@ export function startPlaybackTrace(input: {
   chars?: number;
   fastLeadChars?: number | null;
 }): number {
-  const trace: MutableTrace = {
+  const trace: MutablePlaybackTrace = {
     id: nextTraceId++,
     kind: input.kind,
     chars: input.chars ?? 0,

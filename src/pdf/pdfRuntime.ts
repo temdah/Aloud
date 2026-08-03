@@ -27,7 +27,6 @@ async function copyAssetIfMissing(mod: number, name: string, dir: Directory): Pr
   new File(asset.localUri ?? asset.uri).copySync(dest);
 }
 
-// Copies the runtime + viewer into the dir once; returns the viewer's file:// URI.
 export function ensurePdfRuntime(): Promise<string> {
   if (!viewerUriPromise) {
     viewerUriPromise = (async () => {
@@ -44,8 +43,6 @@ export function ensurePdfRuntime(): Promise<string> {
   return viewerUriPromise;
 }
 
-// Stages the PDF as a sibling of viewer.html (same-origin fetch); returns the
-// name to inject as window.PDF_FILE.
 export function stagePdf(fileUri: string, docHash: string): string {
   const dir = runtimeDirectory();
   const name = `${docHash}.pdf`;

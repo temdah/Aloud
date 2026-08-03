@@ -9,13 +9,11 @@ import { deleteDocument as deleteDocumentData } from '../../services';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { deleteModel, EMPTY_NARRATION_PLAN, isChunkCached, languageLabel, loadNarrationPlan, qualityProfile } from '../../supertonic';
 import { useTheme } from '../../theme';
-import type { AppNavigation, ReaderRoute } from '../../navigation/navigationTypes';
+import type { AppNavigation, ReaderRoute } from '../../navigation';
 import { makeStyles } from './ReaderScreen.styles';
 
-// After the perf tip is shown/dismissed, don't surface it again for this long.
 const PERF_TIP_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 
-// mm:ss for a duration in seconds (audio positions/durations).
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
   const m = Math.floor(seconds / 60);
@@ -56,15 +54,12 @@ export default function ReaderScreen() {
   const suppressPerfTip = useSettingsStore((s) => s.suppressPerfTip);
   const markPerfTipShown = useSettingsStore((s) => s.markPerfTipShown);
 
-  // A pinned full-audiobook render fixes the narration settings so tap-to-start
-  // reads its cache; otherwise fall back to the global voice settings.
+  // A rendered audiobook pins the settings used by its cache.
   const effModelId = renderProfile?.modelId ?? modelId;
   const effVoiceId = renderProfile?.voiceId ?? voiceId;
   const effSteps = renderProfile?.steps ?? steps;
-  // Language precedence: pinned render → per-document override → global default.
   const effLang = renderProfile?.lang ?? doc?.lang ?? settingsLang ?? 'en';
   const effSpeed = renderProfile?.speed ?? speed;
-  // Pinned quality keeps a rendered audiobook's chunking consistent with its cache.
   const effQuality = renderProfile?.quality ?? quality;
   const effTone = renderProfile?.tone ?? tone;
   const setEffSpeed = useCallback(
@@ -78,7 +73,6 @@ export default function ReaderScreen() {
   const { status, document, pageCount, loadedPages, stage, error, extractor } = usePdfText(doc);
 
   const blocks = document?.blocks ?? [];
-  // Group blocks by page, keeping each block's global index (its render key).
   const blocksByPage = useMemo(() => {
     const m = new Map<number, { block: ExtractedBlock; gbi: number }[]>();
     blocks.forEach((b, gbi) => {
@@ -90,9 +84,7 @@ export default function ReaderScreen() {
   }, [blocks]);
   const { getItemLayout, onPageLayout, version: geomVersion } = usePageGeometry(doc?.docHash, blocks, pageCount, status === 'ready');
 
-  // Canonical chunk list (playback order + char ranges into document.text). The
-  // same string drives chunk boundaries and rendered sentences, so char offsets
-  // join them.
+  // Canonical offsets join rendered sentences to cached audio.
   const narrationPlan = useMemo(
     () =>
       status === 'ready' && doc && document?.text
@@ -102,24 +94,18 @@ export default function ReaderScreen() {
   );
   const chunks = narrationPlan.chunks;
 
-  // Playback lives in a global provider so audio + transport survive leaving this
-  // screen (mini player elsewhere). The reader registers the open document.
   const { playback, activeDoc, setActiveDoc, clearActiveDoc, sleep } = usePlaybackContext();
-  // Corrupt-model recovery: a damaged-model load flag → offer a re-download.
   const [modelErrorOpen, setModelErrorOpen] = useState(false);
   useEffect(() => {
     if (playback.modelLoadFailed) setModelErrorOpen(true);
   }, [playback.modelLoadFailed]);
 
-  // Perf tip: surface once when detection fires, unless permanently suppressed or
-  // within the cooldown from the last time it was shown/dismissed.
   const [perfBanner, setPerfBanner] = useState(false);
   useEffect(() => {
     if (playback.perfWarning && !perfTipSuppressed && Date.now() - perfTipLastShown > PERF_TIP_COOLDOWN_MS) {
       setPerfBanner(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playback.perfWarning]);
+  }, [playback.perfWarning, perfTipSuppressed, perfTipLastShown]);
   const dismissPerf = () => {
     setPerfBanner(false);
     markPerfTipShown();
@@ -129,9 +115,7 @@ export default function ReaderScreen() {
     setActiveDoc({ doc, plan: narrationPlan, modelId: effModelId, voiceId: effVoiceId, speed: effSpeed, steps: effSteps, lang: effLang, quality: effQuality, tone: effTone, onSpeedChange: setEffSpeed });
   }, [status, doc, document?.text, narrationPlan, effModelId, effVoiceId, effSpeed, effSteps, effLang, effQuality, effTone, setActiveDoc, setEffSpeed]);
 
-  // Nothing is highlighted until the user engages (taps a sentence or plays).
   const activeChunk = playback.engaged ? playback.currentChunk : null;
-  // Playing needs a model — route to the picker when none is chosen yet.
   const onTogglePlay = useCallback(() => {
     if (!effModelId) return navigation.navigate('VoiceModel');
     playback.toggle();
@@ -149,13 +133,10 @@ export default function ReaderScreen() {
   const [voiceSheet, setVoiceSheet] = useState(false);
   const [langSheet, setLangSheet] = useState(false);
   const [manageSheet, setManageSheet] = useState(false);
-  // A picked voice held until the user confirms bypassing already-cached audio.
   const [pendingVoice, setPendingVoice] = useState<string | null>(null);
   const [tocPrompt, setTocPrompt] = useState<{ title: string; target: number; charStart: number } | null>(null);
   const [showHint, setShowHint] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Follow mode: when on, the view tracks the spoken sentence. A tapped-while-
-  // playing sentence is held as a pending offset until the prompt is confirmed.
   const [followMode, setFollowMode] = useState(true);
   const [pendingOffset, setPendingOffset] = useState<number | null>(null);
   const [playPrompt, setPlayPrompt] = useState(false);
@@ -165,8 +146,6 @@ export default function ReaderScreen() {
     if (hintTimer.current) clearTimeout(hintTimer.current);
   }, []);
 
-  // Tap a sentence: no model → pick one; playing → confirm before hijacking
-  // audio; otherwise just select + highlight it.
   const handleSentenceTap = useCallback(
     (charStart: number) => {
       if (!modelId) {
@@ -193,7 +172,6 @@ export default function ReaderScreen() {
     setPendingOffset(null);
   }, []);
 
-  // First-open hint: show once per document (persisted), auto-dismiss after 10s.
   useEffect(() => {
     if (status !== 'ready' || !doc) return;
     if (useDocumentsStore.getState().hintsSeen.includes(doc.docHash)) return;
@@ -254,7 +232,6 @@ export default function ReaderScreen() {
   const toggleFollow = useCallback(() => {
     setFollowMode((on) => {
       const next = !on;
-      // Re-enabling jumps back to wherever the reading currently is.
       if (next && activeChunk) scrollToReadingOffset(activeChunk.charStart, true);
       return next;
     });
@@ -262,8 +239,6 @@ export default function ReaderScreen() {
 
   const isFavourite = doc ? favourites.includes(doc.docHash) : false;
 
-  // Delete the open document and all its cache, halting playback first if it's
-  // the one playing, then leave the reader.
   const deleteDocument = useCallback(() => {
     if (!doc) return;
     if (activeDoc?.doc.docHash === doc.docHash) {
@@ -274,9 +249,7 @@ export default function ReaderScreen() {
     navigation.goBack();
   }, [doc, activeDoc, playback, clearActiveDoc, navigation]);
 
-  // Apply a voice change. With a pinned profile, repoint it (and forget a stale
-  // "done" render); otherwise move the global voice. The effVoiceId change
-  // re-registers the active document, so playback picks up the new voice.
+  // Changing a pinned voice invalidates a completed audiobook.
   const applyVoice = useCallback(
     (newVoice: string) => {
       if (!doc) return;
@@ -291,8 +264,7 @@ export default function ReaderScreen() {
     [doc, renderProfile, setRenderProfile, audiobook?.status, clearAudiobook, setVoice],
   );
 
-  // Voice picked in the sheet. If audio is already cached for the current voice,
-  // switching bypasses it — confirm first; otherwise switch immediately.
+  // Confirm before bypassing audio already cached for the current voice.
   const onVoiceChange = useCallback(
     (newVoice: string) => {
       if (!doc || newVoice === effVoiceId) return;
@@ -384,7 +356,6 @@ export default function ReaderScreen() {
     scrollToReadingOffset(activeOffset, true);
   }, [followMode, activeOffset, pageCount, scrollToReadingOffset]);
 
-  // Persist the reading position so the library's "Continue" can resume it.
   const currentCharStart = playback.currentChunk?.charStart ?? -1;
   const totalChars = document?.text?.length ?? 0;
   useEffect(() => {
@@ -394,8 +365,7 @@ export default function ReaderScreen() {
     }
   }, [doc?.docHash, playback.engaged, currentCharStart, totalChars, setCursor, setProgress]);
 
-  // Resume the saved position once the engine has registered this doc (highlight
-  // + follow, no auto-play). Never disturb a doc already playing.
+  // Resume only after playback has registered this document, without auto-playing.
   const resumedRef = useRef(false);
   useEffect(() => {
     if (status !== 'ready' || !doc || resumedRef.current) return;

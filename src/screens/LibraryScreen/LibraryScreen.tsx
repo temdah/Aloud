@@ -11,13 +11,11 @@ import { documentCacheStats, loadNarrationPlan, qualityProfile } from '../../sup
 import { COVER_PALETTE, ty, TYPE, useTheme } from '../../theme';
 import { documentToBook } from '../../utils';
 import type { Book, ImportedDocument } from '../../types';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
+import type { LibraryFilter, LibrarySort } from './LibraryScreenTypes';
 import { makeStyles } from './LibraryScreen.styles';
 
-type Filter = 'all' | 'inprogress' | 'finished' | 'favourites';
-type Sort = 'recent' | 'title' | 'progress';
-
-const SORT_LABELS: Record<Sort, string> = { recent: 'Recently added', title: 'Title', progress: 'Progress' };
+const SORT_LABELS: Record<LibrarySort, string> = { recent: 'Recently added', title: 'Title', progress: 'Progress' };
 
 function formatSize(bytes: number): string {
   if (bytes <= 0) return '';
@@ -43,8 +41,8 @@ export default function LibraryScreen() {
   const setRenderProfile = useDocumentsStore((s) => s.setRenderProfile);
   const settings = useSettingsStore();
   const { importDocument } = useImportDocument();
-  const [filter, setFilter] = useState<Filter>('all');
-  const [sort, setSort] = useState<Sort>('recent');
+  const [filter, setFilter] = useState<LibraryFilter>('all');
+  const [sort, setSort] = useState<LibrarySort>('recent');
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [sortMenu, setSortMenu] = useState(false);
@@ -114,7 +112,6 @@ export default function LibraryScreen() {
     playDocument(active, cursor[docId] ?? 0);
   };
   const menuStats = menuDoc ? documentCacheStats(menuDoc.docHash) : null;
-  // Lift the FAB above the mini-player when one is showing so they don't overlap.
   const pillVisible = !!activeDoc && playback.engaged;
   const audiobookFor = (docId: string) => {
     const a = audiobook[docId];
@@ -193,7 +190,7 @@ export default function LibraryScreen() {
         open={sortMenu}
         onClose={() => setSortMenu(false)}
         title="Sort by"
-        actions={(['recent', 'title', 'progress'] as Sort[]).map((s) => ({
+        actions={(['recent', 'title', 'progress'] as LibrarySort[]).map((s) => ({
           label: SORT_LABELS[s],
           variant: sort === s ? 'filled' : 'tonal',
           onPress: () => setSort(s),

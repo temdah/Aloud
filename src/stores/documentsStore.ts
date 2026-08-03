@@ -1,43 +1,10 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { NarrationSettings } from '../supertonic';
-import type { ImportedDocument } from '../types';
 import { fileStorage } from './fileStorage';
+import type { DocumentsState } from './documentsStoreTypes';
 
 // Persisted per-document state: library entries, reading cursor + progress,
 // favourites, and full-audiobook render status.
-
-export type AudiobookState = {
-  done: number;
-  total: number;
-  status: 'running' | 'done' | 'cancelled' | 'error';
-  // settingsHash the render was made with — guards cache reuse across profiles.
-  profileHash: string;
-  error?: string;
-};
-
-type DocumentsState = {
-  documents: ImportedDocument[];
-  hintsSeen: string[];
-  favourites: string[];
-  cursor: Record<string, number>;
-  progress: Record<string, number>;
-  // The reader pins this profile so tap-to-start hits the pre-rendered cache.
-  renderProfile: Record<string, NarrationSettings>;
-  audiobook: Record<string, AudiobookState>;
-  addDocument: (doc: ImportedDocument) => void;
-  setPageCount: (docHash: string, pageCount: number) => void;
-  setDocLang: (docHash: string, lang: string | null) => void;
-  setCover: (docHash: string, cover: number | null) => void;
-  markHintSeen: (docHash: string) => void;
-  toggleFavourite: (docHash: string) => void;
-  setCursor: (docHash: string, charOffset: number) => void;
-  setProgress: (docHash: string, fraction: number) => void;
-  setRenderProfile: (docHash: string, profile: NarrationSettings | null) => void;
-  setAudiobook: (docHash: string, state: AudiobookState) => void;
-  clearAudiobook: (docHash: string) => void;
-  removeDocument: (docHash: string) => void;
-};
 
 export const useDocumentsStore = create<DocumentsState>()(
   persist(

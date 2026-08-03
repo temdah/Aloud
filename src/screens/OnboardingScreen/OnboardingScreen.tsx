@@ -7,10 +7,9 @@ import { useImportDocument } from '../../hooks';
 import { useSettingsStore } from '../../stores';
 import { MODELS, QUALITY_LABELS, type Quality } from '../../supertonic';
 import { ty, TYPE, useTheme } from '../../theme';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
+import type { OnboardingStep } from './OnboardingScreenTypes';
 import { makeStyles } from './OnboardingScreen.styles';
-
-type Step = 'welcome' | 'model' | 'quality' | 'ready';
 
 // First-run wizard: model-first, so the app never ambushes the user with a model
 // download the moment they press play. Welcome → download + choose a voice →
@@ -29,7 +28,7 @@ export default function OnboardingScreen() {
   const setOnboarded = useSettingsStore((s) => s.setOnboarded);
   const acceptTerms = useSettingsStore((s) => s.acceptTerms);
   const { importDocument, importing } = useImportDocument();
-  const [step, setStep] = useState<Step>('welcome');
+  const [step, setStep] = useState<OnboardingStep>('welcome');
   const [agreed, setAgreed] = useState(false);
 
   const finish = (docId?: string) => {

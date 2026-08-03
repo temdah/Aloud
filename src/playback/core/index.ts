@@ -8,7 +8,7 @@ export type { DocumentPosition, DocumentPositionInput } from '../playbackPositio
 export { findSentenceIndexForOffset, sentenceTargetAtIndex, sentenceTargetForStart } from '../sentencePlayback';
 export type { SentencePlaybackTarget } from '../sentencePlaybackTypes';
 export { PlaybackRequestGate } from '../playbackRequestGate';
-export type { PlaybackRequestId } from '../playbackRequestGate';
+export type { PlaybackRequestId } from '../playbackRequestGateTypes';
 export { PlaybackRecoveryGate } from '../playbackRecoveryGate';
 export { PlaybackRecoveryController } from '../playbackRecovery';
 export type {

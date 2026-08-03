@@ -1,44 +1,23 @@
 import { File } from 'expo-file-system';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { extractDocx, extractMarkdown } from '../extractors';
 import { PdfTextExtractor, clearExtractedImages, loadExtractedText, saveExtractedImage, saveExtractedText } from '../pdf';
 import type { ExtractedBlock, ExtractedDocument } from '../pdf';
 import { useDocumentsStore, useSettingsStore } from '../stores';
 import { loadChunks, qualityProfile } from '../supertonic';
 import type { ImportedDocument } from '../types';
+import type { PdfTextState } from './usePdfTextTypes';
 
 // Resolves a document's reflowed text: reuse the per-doc cache, else run the
 // headless PDF.js extractor, which streams pages so the reader can show page 1
 // immediately. On completion it caches, builds the chunk manifest, records pages.
 
-export type PdfTextStatus = 'idle' | 'loading' | 'streaming' | 'ready' | 'error';
-
-export type PdfTextState = {
-  status: PdfTextStatus;
-  document: ExtractedDocument | null;
-  pageCount: number;
-  loadedPages: number;
-  stage: string;
-  error?: string;
-  // Mount this (hidden) in the tree while it extracts.
-  extractor: ReactNode;
-};
-
-type State = {
-  status: PdfTextStatus;
-  document: ExtractedDocument | null;
-  pageCount: number;
-  loadedPages: number;
-  stage: string;
-  error?: string;
-};
-
-const IDLE: State = { status: 'idle', document: null, pageCount: 0, loadedPages: 0, stage: '' };
+const IDLE: Omit<PdfTextState, 'extractor'> = { status: 'idle', document: null, pageCount: 0, loadedPages: 0, stage: '' };
 
 export function usePdfText(doc: ImportedDocument | undefined): PdfTextState {
   const setPageCount = useDocumentsStore((s) => s.setPageCount);
   const unitLen = useSettingsStore((s) => qualityProfile(s.quality).unitLen);
-  const [state, setState] = useState<State>(IDLE);
+  const [state, setState] = useState<Omit<PdfTextState, 'extractor'>>(IDLE);
   const blocksRef = useRef<ExtractedBlock[]>([]);
   const textRef = useRef('');
   const pageCountRef = useRef(0);

@@ -6,8 +6,6 @@ export const AVAILABLE_LANGUAGES = [
   'sl', 'sv', 'tr', 'uk', 'vi', 'na',
 ] as const;
 
-export type SupportedLanguage = (typeof AVAILABLE_LANGUAGES)[number];
-
 export function isLanguageSupported(lang: string): lang is SupportedLanguage {
   return (AVAILABLE_LANGUAGES as readonly string[]).includes(lang);
 }
@@ -23,3 +21,4 @@ export const LANGUAGE_LABELS: Record<string, string> = {
 };
 
 export const languageLabel = (code: string): string => LANGUAGE_LABELS[code] ?? code.toUpperCase();
+import type { SupportedLanguage } from './languageTypes';

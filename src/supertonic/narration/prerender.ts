@@ -1,23 +1,11 @@
 // Renders every chunk's audio, then stitches the book into one .m4a and drops the
-// per-chunk clips (we always favour the single file). Idempotent — returns early
+// per-chunk clips. Idempotent — returns early
 // if the stitched file already exists; a cancelled run keeps its per-chunk clips.
 import type { Chunk } from '../../types';
 import { concatM4a } from '../../../modules/aac-codec';
 import { audiobookFile, chunkAudioFile, isAudiobookCached, isChunkCached, writeAudiobookIndex } from './audioCache';
 import type { NarrationSettings } from './narrationTypes';
-
-export type PrerenderProgress = { done: number; total: number };
-
-export type PrerenderResult = { completed: boolean; done: number };
-
-export type PrerenderOptions = {
-  docHash: string;
-  chunks: Chunk[];
-  settings: NarrationSettings;
-  ensureAudio: (chunk: Chunk) => Promise<void>;
-  onProgress?: (p: PrerenderProgress) => void;
-  shouldCancel?: () => boolean;
-};
+import type { PrerenderOptions, PrerenderResult } from './prerenderTypes';
 
 export async function prerenderDocument({
   docHash,

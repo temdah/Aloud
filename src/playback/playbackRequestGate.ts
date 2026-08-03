@@ -1,4 +1,4 @@
-export type PlaybackRequestId = number;
+import type { PlaybackRequestId } from './playbackRequestGateTypes';
 
 // Synthesis itself cannot be interrupted safely, but stale async completions
 // must never replace or start the player. Every foreground intent owns one ID;

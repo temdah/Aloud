@@ -1,21 +1,19 @@
 import { Directory, File, Paths } from 'expo-file-system';
-import type { NarrationTone, SentenceAnchor } from '../../types';
+import type { SentenceAnchor } from '../../types';
+import type { AudiobookIndex, CachedProfile, ChunkTiming, ProfileMeta } from './audioCacheTypes';
 import { sentenceCacheBaseName, sentenceSettingsHash, settingsHash } from './cacheIdentity';
 import type { NarrationSettings } from './narrationTypes';
 
 export { settingsHash } from './cacheIdentity';
 
-// Per-document TTS cache (documentDirectory/tts/<docHash>/). Files are keyed on
-// (charStart, settingsHash), NOT array index, so re-chunking doesn't invalidate
-// them. speed is deliberately excluded from the key (applied live at playback).
+// Audio keys use canonical offsets and synthesis settings; playback speed is applied live.
 
 const ROOT = 'tts';
 export const MIN_CACHED_BYTES = 256; // smaller than this = a failed/empty write
 const directoryCache = new Map<string, Directory>();
 const profileRegistryCache = new Map<string, Record<string, ProfileMeta>>();
 
-// Cache hashes are one-way, so this registry maps them back to readable profiles
-// for the "manage cached audio" UI.
+// The registry maps one-way cache hashes back to labels for cache management.
 const PROFILES_FILE = 'profiles.json';
 
 export function documentCacheDir(docHash: string): Directory {
@@ -39,10 +37,7 @@ export function chunkTimingFile(docHash: string, charStart: number, s: Narration
   return new File(documentCacheDir(docHash), `${baseName(charStart, s)}.timing.json`);
 }
 
-// Neutral-rate clip length (s), written alongside each cached chunk at synth time.
-// Lets the document timeline rebuild from cached audio with no engine pass.
-type ChunkTiming = { seconds: number };
-
+// Timing sidecars let the document timeline rebuild without loading the engine.
 function readTiming(file: File): number | null {
   if (!file.exists) return null;
   try {
@@ -59,7 +54,6 @@ function writeTiming(file: File, seconds: number): void {
     file.create();
     file.write(JSON.stringify({ seconds } satisfies ChunkTiming));
   } catch {
-    // Non-fatal: callers can fall back to the duration predictor.
   }
 }
 
@@ -84,7 +78,6 @@ function deleteFile(file: File): void {
   try {
     if (file.exists) file.delete();
   } catch {
-    // Best effort: a following synthesis can still overwrite a readable path.
   }
 }
 
@@ -128,9 +121,6 @@ export function deleteSentenceCache(docHash: string, anchor: SentenceAnchor, s: 
   deleteFile(sentenceTimingFile(docHash, anchor, s));
 }
 
-// A fully-rendered book is stitched into one `book-<hash>.m4a`. `book-` can't
-// collide with a chunk name (chunks start with a numeric charStart), and
-// hashFromFileName still recovers the profile, so manage-cache groups it normally.
 export function audiobookFile(docHash: string, s: NarrationSettings): File {
   return new File(documentCacheDir(docHash), `book-${settingsHash(s)}.m4a`);
 }
@@ -149,11 +139,8 @@ export function deleteAudiobookCache(docHash: string, s: NarrationSettings): voi
   deleteFile(audiobookIndexFile(docHash, s));
 }
 
-// Real per-chunk start offsets in the stitched file (the muxer's clock, which
-// drifts from predicted durations). `.index.json` name groups it with its profile.
+// Store muxer offsets because they can drift from predicted durations.
 const AUDIOBOOK_INDEX_VERSION = 1;
-type AudiobookIndex = { version: number; startsSec: number[] };
-
 export function audiobookIndexFile(docHash: string, s: NarrationSettings): File {
   return new File(documentCacheDir(docHash), `book-${settingsHash(s)}.index.json`);
 }
@@ -177,14 +164,10 @@ export function writeAudiobookIndex(docHash: string, s: NarrationSettings, start
     file.create();
     file.write(JSON.stringify({ version: AUDIOBOOK_INDEX_VERSION, startsSec } satisfies AudiobookIndex));
   } catch {
-    // Non-fatal: playback falls back to predicted starts.
   }
 }
 
-// Fast-lead clips: a partial "start here" clip covering a chunk's first sentence.
-// Durable (in the doc cache, `lead-` prefixed so it can't collide with a chunk's
-// numeric name) and keyed by length, so re-tapping a section replays from cache
-// instead of re-synthesizing.
+// Fast leads are length-keyed so repeated mid-chunk starts reuse the same clip.
 export function leadAudioFile(docHash: string, charStart: number, len: number, s: NarrationSettings): File {
   return new File(documentCacheDir(docHash), `lead-${charStart}-${len}-${settingsHash(s)}.m4a`);
 }
@@ -205,8 +188,7 @@ export function clearDocumentCache(docHash: string): void {
   profileRegistryCache.delete(docHash);
 }
 
-// Clear chunk/lead clips, their timing sidecars, and the duration table. Stable
-// sentence audio survives re-chunking, alongside full audiobooks and profiles.
+// Preserve stable sentence audio and full audiobooks while removing fragmented caches.
 export function clearFragmentedCache(docHash: string): void {
   const dir = new Directory(Paths.document, ROOT, docHash);
   if (!dir.exists) return;
@@ -219,10 +201,6 @@ export function clearFragmentedCache(docHash: string): void {
     } catch {}
   }
 }
-
-// meta is null when the profile predates the registry (couldn't be labelled).
-export type ProfileMeta = { modelId: string; voiceId: string; steps: number; lang: string; tone: NarrationTone };
-export type CachedProfile = { hash: string; meta: ProfileMeta | null; count: number; bytes: number };
 
 function profilesRegistryFile(docHash: string): File {
   return new File(documentCacheDir(docHash), PROFILES_FILE);

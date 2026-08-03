@@ -81,9 +81,7 @@ const TEST_ITINERARY = [
   ['Copy results', 'Export the complete log for comparison with the previous build.'],
 ] as const;
 
-// Voice engine performance lab (Developer tool): "Run benchmark" reports the
-// cold-start latency breakdown + time-to-first-audio + a throughput pass;
-// "Smoke test" is a quick single-sentence synth+play liveness check.
+// Developer lab for cold-load, first-audio, throughput, and playback diagnostics.
 export default function TextToSpeechDemoScreen() {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
@@ -124,14 +122,12 @@ export default function TextToSpeechDemoScreen() {
     try {
       await ensureLoaded();
 
-      // Build-chunks: on a large PDF this happens before any audio can play.
       const bcStart = Date.now();
       const chunks = buildChunks(SAMPLE_DOC, 300);
       append(`Built ${chunks.length} chunks from ${SAMPLE_DOC.length} chars in ${Date.now() - bcStart} ms.`);
       const firstChunk = requireValue(chunks[0], 'Sample produced no chunks.');
       append(row('configuration', `${modelId} · voice ${voiceId || DEFAULT_VOICE} · lang ${lang} · steps ${steps} · ${quality}`));
 
-      // First chunk = time-to-first-audio. The headline number.
       append(`\n── First chunk (time-to-first-audio) · ${firstChunk.text.length} chars · steps=${steps} ──`);
       const r = await benchChunk(firstChunk.text);
       const stageMs = (s: SynthesisStage) => r.stages[s] ?? 0;
@@ -168,8 +164,7 @@ export default function TextToSpeechDemoScreen() {
         append(row('synth → playing', `${ms(tapToPlaying)} · RTF ${standardRtf(tapToPlaying, r.audioSec).toFixed(3)}`));
       }
 
-      // Sustained throughput: do the next few chunks back-to-back. RTF < 1 means
-      // synthesis beats realtime, so generate-ahead prefetch can keep up.
+      // RTF below one means generate-ahead synthesis can keep up with playback.
       const n = Math.min(SUSTAINED_CHUNKS, chunks.length);
       if (n > 1) {
         append(`\n── Sustained throughput · chunks 2–${n} ──`);
@@ -193,8 +188,6 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
-  // Repeat one identical warm synthesis so scheduler noise and thermal drift are
-  // visible. Uses the analyzed document's first chunk when available.
   const repeatBenchmark = async () => {
     setBusy(true);
     try {
@@ -263,8 +256,6 @@ export default function TextToSpeechDemoScreen() {
     }
   };
 
-  // Release the resident sessions and reload them, tracing each session's load
-  // time — the genuine cold-start cost broken down per ONNX model.
   const coldLoad = async () => {
     setBusy(true);
     try {
@@ -294,8 +285,6 @@ export default function TextToSpeechDemoScreen() {
     analyzeDocumentForBenchmark(doc, quality).forEach(append);
   };
 
-  // Synthesize chunk 0 of the analyzed doc through the real production path
-  // (ensureChunkAudio → AAC), traced end to end. Only traces a fresh synth.
   const traceRealSynth = async () => {
     if (!analyzedDoc) {
       append('\nAnalyze a document first.');
@@ -303,8 +292,7 @@ export default function TextToSpeechDemoScreen() {
     }
     setBusy(true);
     try {
-      // Quiesce the app's background warmer (the reader's active doc persists into
-      // dev mode) so its synthesis doesn't pollute the trace, then let it drain.
+      // Drain the reader's background warmer so it cannot pollute this trace.
       clearActiveDoc();
       await sleep(700);
       await ensureLoaded();
@@ -313,7 +301,6 @@ export default function TextToSpeechDemoScreen() {
       const firstChunk = requireValue(chunks[0], 'no chunks');
       const selectedModelId = requireValue(modelId, 'No voice model selected.');
       const settings: NarrationSettings = { modelId: selectedModelId, voiceId: voiceId || DEFAULT_VOICE, speed: 1, steps, lang, quality, tone };
-      // Force a fresh synth so there's something to trace (not a cache hit).
       try {
         const f = new File(chunkAudioUri(analyzedDoc.docHash, firstChunk.charStart, settings));
         if (f.exists) f.delete();

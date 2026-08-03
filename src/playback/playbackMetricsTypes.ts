@@ -50,3 +50,8 @@ export type PlaybackDiagnosticsSnapshot = {
   boundaryGaps: BoundaryGap[];
   prefetch: PrefetchSample[];
 };
+
+export type MutablePlaybackTrace = PlaybackTrace & {
+  cacheDecisionAtMs: number | null;
+  playerRequestedAtMs: number | null;
+};

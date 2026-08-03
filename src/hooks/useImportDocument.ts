@@ -5,6 +5,7 @@ import { extensionForKind, kindForName } from '../extractors';
 import { useDocumentsStore } from '../stores';
 import type { ImportedDocument } from '../types';
 import { stableHash } from '../utils';
+import type { ImportDocumentState } from './useImportDocumentTypes';
 
 // Imports a document: pick → copy into the document directory under a
 // content-hashed name → register in the store. The copied file is what every
@@ -32,12 +33,6 @@ function stripExtension(name: string): string {
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(0, dot) : name;
 }
-
-export type ImportDocumentState = {
-  importing: boolean;
-  error?: string;
-  importDocument: () => Promise<ImportedDocument | null>;
-};
 
 export function useImportDocument(): ImportDocumentState {
   const addDocument = useDocumentsStore((s) => s.addDocument);

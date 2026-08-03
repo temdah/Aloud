@@ -1,12 +1,6 @@
+import type { TermsSection } from './termsTypes';
+
 // Mirrors TERMS.md so the terms are readable in-app. Keep the two in sync.
-
-export type TermsSection = {
-  title: string;
-  paragraphs?: string[];
-  bullets?: string[];
-  footer?: string;
-};
-
 export const TERMS_UPDATED = '2026-07-31';
 
 export const TERMS_INTRO =

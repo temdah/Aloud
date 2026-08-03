@@ -1,6 +1,6 @@
 import type { NarrationSynthesisMetrics } from '../supertonic';
 import type { Span } from '../utils';
-import type { VoiceChunkBenchmark } from './voiceBenchmarkService';
+import type { VoiceChunkBenchmark } from './voiceBenchmarkTypes';
 
 export const sleep = (value: number) => new Promise<void>((resolve) => setTimeout(resolve, value));
 export const milliseconds = (value: number) => `${Math.round(value)} ms`;

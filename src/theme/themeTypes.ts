@@ -4,6 +4,14 @@ import type { TextStyle } from 'react-native';
 
 export type Mode = 'light' | 'dark';
 
+export type ElevationLevel = 0 | 1 | 2 | 3 | 4;
+
+export type CoverHue = {
+  bg: string;
+  stripe: string;
+  accent: string;
+};
+
 export type Palette = {
   background: string; surface: string; surfaceAlt: string; surfaceSunk: string;
   text: string; textMuted: string; textDim: string;

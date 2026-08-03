@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { AppBar, SettingsSection } from '../../components';
 import { ty, TYPE, useTheme } from '../../theme';
-import type { AppNavigation } from '../../navigation/navigationTypes';
+import type { AppNavigation } from '../../navigation';
 import { LICENSE_SECTIONS } from './licenseData';
 import { makeStyles } from './LicensesScreen.styles';
 

@@ -1,20 +1,14 @@
 import type { ExtractedBlock, ExtractedDocument, ExtractedSentence } from '../pdf';
 import { sentenceSpans } from '../supertonic';
+import type { SourceBlock } from './documentBuilderTypes';
 
 // Assembles format-agnostic blocks (from the markdown/docx extractors) into the
 // canonical ExtractedDocument the reader + chunker consume, with exact char
 // offsets, sentence-split paragraphs, and synthetic pagination.
 
-export type SourceBlock =
-  | { kind: 'h2'; text: string }
-  | { kind: 'p'; text: string };
-
-// Formats without real pages still need pages for the reader's virtualization and
-// PageScrubber, so we break every ~this-many chars.
+// Synthetic pages keep non-PDF documents compatible with reader virtualization.
 const PAGE_CHAR_BUDGET = 1800;
 
-// Use the narration segmenter so every tappable reader sentence starts at the
-// same stable offset as its reusable audio anchor.
 function splitSentences(text: string, base: number): ExtractedSentence[] {
   return sentenceSpans(text).map(({ charStart, charEnd }) => ({
     text: text.slice(charStart, charEnd),
@@ -33,7 +27,6 @@ export function buildDocument(source: SourceBlock[]): ExtractedDocument {
     const body = sb.text.trim();
     if (!body) continue;
 
-    // A heading with content already above it rolls to the next page.
     if (sb.kind === 'h2' && pageChars > 0 && pageChars >= PAGE_CHAR_BUDGET * 0.6) {
       page += 1;
       pageChars = 0;
@@ -63,7 +56,6 @@ export function buildDocument(source: SourceBlock[]): ExtractedDocument {
     }
   }
 
-  // page may have advanced past the last real content — clamp to the highest used.
   const pageCount = blocks.length > 0 ? blocks[blocks.length - 1].page : 0;
   return { text, blocks, pageCount };
 }

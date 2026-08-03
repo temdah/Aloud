@@ -56,10 +56,9 @@ export function ManageCacheSheet({ open, onClose, docHash, title }: ManageCacheS
 
   useEffect(() => {
     if (open) {
-      refresh();
+      setProfiles(docHash ? listCachedProfiles(docHash) : []);
       setConfirmClear(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, docHash]);
 
   const isActive = !!docHash && activeDoc?.doc.docHash === docHash;

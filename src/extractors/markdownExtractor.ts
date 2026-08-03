@@ -1,4 +1,5 @@
-import { buildDocument, type SourceBlock } from './documentBuilder';
+import { buildDocument } from './documentBuilder';
+import type { SourceBlock } from './documentBuilderTypes';
 import type { ExtractedDocument } from '../pdf';
 
 // Lightweight markdown → logical blocks (no full parser): headings become h2,
@@ -70,13 +71,11 @@ export function extractMarkdown(raw: string): ExtractedDocument {
       }
     }
 
-    // Horizontal rule → paragraph break.
     if (/^([-*_])\1{2,}$/.test(trimmed)) {
       flush();
       continue;
     }
 
-    // List item or blockquote → its own paragraph.
     const listItem = /^(?:[-*+]\s+|\d+\.\s+|>\s?)(.*)$/.exec(trimmed);
     if (listItem) {
       flush();

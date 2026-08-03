@@ -1,10 +1,10 @@
 export { useModelDownload } from './useModelDownload';
-export type { ModelDownloadState, ModelDownloadStatus } from './useModelDownload';
+export type { ModelDownloadState, ModelDownloadStatus } from './useModelDownloadTypes';
 export { useImportDocument } from './useImportDocument';
-export type { ImportDocumentState } from './useImportDocument';
+export type { ImportDocumentState } from './useImportDocumentTypes';
 export { usePdfText } from './usePdfText';
-export type { PdfTextState, PdfTextStatus } from './usePdfText';
+export type { PdfTextState, PdfTextStatus } from './usePdfTextTypes';
 export { usePageGeometry } from './usePageGeometry';
-export type { PageGeometry } from './usePageGeometry';
+export type { PageGeometry } from './usePageGeometryTypes';
 export { usePrerender } from './usePrerender';
-export type { PrerenderState, PrerenderStatus } from './usePrerender';
+export type { PrerenderState, PrerenderStatus } from './usePrerenderTypes';

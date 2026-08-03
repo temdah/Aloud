@@ -1,6 +1,6 @@
 import type { NarrationPlan, Quality } from '../supertonic';
 import type { ImportedDocument, NarrationTone } from '../types';
-import type { SleepTimer } from './useSleepTimer';
+import type { SleepTimer } from './sleepTimerTypes';
 import type { Playback } from './playbackTypes';
 
 export type ActiveDoc = {

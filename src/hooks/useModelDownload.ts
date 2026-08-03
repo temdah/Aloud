@@ -1,31 +1,13 @@
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import { areModelsDownloaded, deleteModel, ensureModelsDownloaded } from '../supertonic';
+import type { ModelDownloadEntry, ModelDownloadState } from './useModelDownloadTypes';
 
 // Controller for one model build's download — wraps ensureModelsDownloaded with
 // reactive progress. In-flight state lives in a module-level registry (not local
 // state) so it survives leaving and re-entering the model screen: the download
 // keeps running and the progress bar reappears on return.
 
-export type ModelDownloadStatus = 'idle' | 'downloading' | 'ready' | 'error';
-
-export type ModelDownloadState = {
-  status: ModelDownloadStatus;
-  progress: number;
-  files: { name: string; fraction: number }[];
-  error?: string;
-  start: () => void;
-  remove: () => void;
-};
-
-type Entry = {
-  status: ModelDownloadStatus;
-  progress: number;
-  files: { name: string; fraction: number }[];
-  error?: string;
-  running: boolean;
-};
-
-const registry = new Map<string, Entry>();
+const registry = new Map<string, ModelDownloadEntry>();
 const listeners = new Set<() => void>();
 
 const keyOf = (modelId: string, voiceId: string) => `${modelId}|${voiceId}`;
@@ -74,7 +56,7 @@ export function useModelDownload(modelId: string, voiceId: string): ModelDownloa
 
   // Disk-derived fallback when no download has been touched this session. Checked
   // once per mount (an in-flight/finished registry entry always wins over this).
-  const [disk] = useState<Entry>(() =>
+  const [disk] = useState<ModelDownloadEntry>(() =>
     areModelsDownloaded(modelId, voiceId)
       ? { status: 'ready', progress: 1, files: [], running: false }
       : { status: 'idle', progress: 0, files: [], running: false },

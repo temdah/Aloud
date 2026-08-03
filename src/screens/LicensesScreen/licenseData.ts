@@ -1,13 +1,4 @@
-export type LicenseEntry = {
-  name: string;
-  license: string;
-  note?: string;
-};
-
-export type LicenseSection = {
-  title: string;
-  entries: LicenseEntry[];
-};
+import type { LicenseSection } from './licenseTypes';
 
 // Third-party components shipped in the app and their licenses. Keep accurate —
 // this screen is the app's open-source attribution / compliance surface.

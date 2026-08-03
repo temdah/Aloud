@@ -1,4 +1,4 @@
-import type { Quality } from '../qualityProfile';
+import type { Quality } from '../qualityProfileTypes';
 import type { SynthesisDiagnostics } from '../synthesis/synthesisTypes';
 import type { NarrationTone, ResolvedNarrationTone } from '../../types';
 import type { ProsodyBoundary } from './prosodyTypes';

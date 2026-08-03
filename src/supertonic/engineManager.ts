@@ -1,6 +1,7 @@
 import { EngineLifecycle } from './engineLifecycle';
 import type { Engine } from './engineManagerTypes';
-import { InferenceQueue, type InferencePriority, type InferenceQueueSnapshot } from './inferenceQueue';
+import { InferenceQueue } from './inferenceQueue';
+import type { InferencePriority, InferenceQueueSnapshot } from './inferenceQueueTypes';
 import { ensureModelsDownloaded } from './models/modelDownloader';
 import type { TextToSpeech } from './synthesis/textToSpeech';
 import type { VoiceStyle } from './synthesis/voiceStyle';

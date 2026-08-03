@@ -47,8 +47,7 @@ export function firstSentenceEnd(text: string, start: number, end: number, minLe
   return end;
 }
 
-// Sentence ranges preserve canonical source offsets while trimming only the
-// whitespace between spoken units. This is the timing-anchor input for Phase 3.
+// Sentence ranges preserve canonical offsets while trimming inter-sentence whitespace.
 export function sentenceSpans(text: string): SentenceSpan[] {
   const spans: SentenceSpan[] = [];
   let start = nextNonSpace(text, 0);

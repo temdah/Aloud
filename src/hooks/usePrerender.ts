@@ -3,21 +3,10 @@ import { usePrerenderContext } from '../prerender';
 import { useDocumentsStore } from '../stores';
 import type { NarrationSettings } from '../supertonic';
 import type { Chunk } from '../types';
+import type { PrerenderState, PrerenderStatus } from './usePrerenderTypes';
 
 // Per-document view over the global PrerenderProvider (the render loop lives there
 // so it survives leaving the screen) plus the persisted store.
-
-export type PrerenderStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error';
-
-export type PrerenderState = {
-  status: PrerenderStatus;
-  done: number;
-  total: number;
-  progress: number;
-  error?: string;
-  start: (settings: NarrationSettings) => void;
-  cancel: () => void;
-};
 
 export function usePrerender(docHash: string, documentText: string, chunks: Chunk[]): PrerenderState {
   const { activeDocHash, start: ctxStart, cancel: ctxCancel } = usePrerenderContext();
