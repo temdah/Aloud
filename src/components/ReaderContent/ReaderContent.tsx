@@ -4,6 +4,7 @@ import type { PageGeometry, PdfTextStatus } from '../../hooks';
 import type { ExtractedBlock } from '../../pdf';
 import { elevation, ty, TYPE, useTheme } from '../../theme';
 import type { Chunk, ImportedDocument } from '../../types';
+import { rangesOverlap } from '../../utils';
 import { Chip } from '../Chip';
 import { Icon } from '../Icon';
 import { IconButton } from '../IconButton';
@@ -36,6 +37,15 @@ type ReaderContentProps = {
   getItemLayout: PageGeometry['getItemLayout'];
   onPageLayout: PageGeometry['onPageLayout'];
   onPageChanged: (page: number) => void;
+  onUserScroll: () => void;
+  onBlockLayout: (
+    globalIndex: number,
+    page: number,
+    charStart: number,
+    charEnd: number,
+    y: number,
+    height: number,
+  ) => void;
   onScrollToIndexFailed: (info: { index: number; averageItemLength: number }) => void;
   onJumpToPage: (page: number, animated?: boolean) => void;
   onToggleFollow: () => void;
@@ -74,6 +84,8 @@ export function ReaderContent({
   getItemLayout,
   onPageLayout,
   onPageChanged,
+  onUserScroll,
+  onBlockLayout,
   onScrollToIndexFailed,
   onJumpToPage,
   onToggleFollow,
@@ -100,7 +112,12 @@ export function ReaderContent({
   };
   const viewableHandler = useRef(onViewableItemsChanged);
 
-  const renderBlock = (block: ExtractedBlock, globalIndex: number) => {
+  const overlapsActiveChunk = (charStart: number, charEnd: number) =>
+    !!activeChunk && rangesOverlap(charStart, charEnd, activeChunk.charStart, activeChunk.charEnd);
+  const overlapsPendingChunk = (charStart: number, charEnd: number) =>
+    !!pendingChunk && rangesOverlap(charStart, charEnd, pendingChunk.charStart, pendingChunk.charEnd);
+
+  const renderBlock = (block: ExtractedBlock, globalIndex: number, page: number) => {
     const padding = { paddingLeft: block.indent * INDENT_STEP };
     if (block.kind === 'pageHeader') {
       return (
@@ -115,7 +132,26 @@ export function ReaderContent({
       return <Image key={globalIndex} source={{ uri: block.uri }} style={[styles.image, { aspectRatio }]} resizeMode="contain" />;
     }
     if (block.kind === 'h2') {
-      return <Text key={globalIndex} style={[ty(TYPE.titleSerif, palette.text), styles.heading, padding]}>{block.text}</Text>;
+      const isCurrent = overlapsActiveChunk(block.charStart, block.charEnd);
+      const isRead = !!activeChunk && block.charEnd <= activeChunk.charStart;
+      return (
+        <Text
+          key={globalIndex}
+          onLayout={(event) => {
+            const { y, height } = event.nativeEvent.layout;
+            onBlockLayout(globalIndex, page, block.charStart, block.charEnd, y, height);
+          }}
+          onPress={() => onSentencePress(block.charStart)}
+          style={[
+            ty(TYPE.titleSerif, isCurrent ? palette.highlightInk : isRead ? palette.textMuted : palette.text),
+            styles.heading,
+            padding,
+            isCurrent ? { backgroundColor: palette.highlight } : null,
+          ]}
+        >
+          {block.text}
+        </Text>
+      );
     }
     if (block.kind === 'toc') {
       const target = block.target ? parseInt(block.target, 10) : NaN;
@@ -128,12 +164,20 @@ export function ReaderContent({
       );
     }
     return (
-      <Pressable key={globalIndex} onPress={() => onSentencePress(block.sentences[0]?.charStart ?? block.charStart)} style={padding}>
+      <Pressable
+        key={globalIndex}
+        onLayout={(event) => {
+          const { y, height } = event.nativeEvent.layout;
+          onBlockLayout(globalIndex, page, block.charStart, block.charEnd, y, height);
+        }}
+        onPress={() => onSentencePress(block.sentences[0]?.charStart ?? block.charStart)}
+        style={[padding, styles.paragraph]}
+      >
         <Text style={ty(TYPE.reader, palette.text)}>
           {block.sentences.map((sentence, index) => {
-            const isCurrent = !!activeChunk && sentence.charStart >= activeChunk.charStart && sentence.charStart < activeChunk.charEnd;
-            const isPending = !!pendingChunk && sentence.charStart >= pendingChunk.charStart && sentence.charStart < pendingChunk.charEnd;
-            const isRead = !!activeChunk && sentence.charStart < activeChunk.charStart;
+            const isCurrent = overlapsActiveChunk(sentence.charStart, sentence.charEnd);
+            const isPending = overlapsPendingChunk(sentence.charStart, sentence.charEnd);
+            const isRead = !!activeChunk && sentence.charEnd <= activeChunk.charStart;
             const color = isCurrent ? palette.highlightInk : isRead ? palette.textMuted : palette.text;
             const backgroundColor = isCurrent ? palette.highlight : isPending ? palette.surfaceAlt : 'transparent';
             return (
@@ -158,7 +202,7 @@ export function ReaderContent({
       >
         <Text style={[ty(TYPE.caption, palette.textDim), styles.pageDivider]}>Page {page}</Text>
         {items?.length ? (
-          <View style={[styles.card, elevation(1)]}>{items.map(({ block, gbi }) => renderBlock(block, gbi))}</View>
+          <View style={[styles.card, elevation(1)]}>{items.map(({ block, gbi }) => renderBlock(block, gbi, page))}</View>
         ) : page <= loadedPages ? (
           <View style={[styles.card, styles.emptyPage]}>
             <Text style={ty(TYPE.caption, palette.textDim)}>No text on this page</Text>
@@ -201,7 +245,7 @@ export function ReaderContent({
             <FlatList
               ref={listRef}
               data={data}
-              extraData={`${loadedPages}:${geometryVersion}:${activeChunk?.charStart ?? -1}:${pendingChunk?.charStart ?? -1}`}
+              extraData={`${loadedPages}:${geometryVersion}:${activeChunk?.charStart ?? -1}:${activeChunk?.charEnd ?? -1}:${pendingChunk?.charStart ?? -1}:${pendingChunk?.charEnd ?? -1}`}
               keyExtractor={(page) => String(page)}
               renderItem={({ item }) => renderPage(item)}
               getItemLayout={getItemLayout}
@@ -211,6 +255,7 @@ export function ReaderContent({
               removeClippedSubviews
               onViewableItemsChanged={viewableHandler.current}
               viewabilityConfig={viewConfig.current}
+              onScrollBeginDrag={onUserScroll}
               onScrollToIndexFailed={onScrollToIndexFailed}
               contentContainerStyle={styles.scrollContent}
             />

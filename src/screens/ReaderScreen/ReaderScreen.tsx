@@ -9,6 +9,7 @@ import { deleteDocument as deleteDocumentData } from '../../services';
 import { useDocumentsStore, useSettingsStore } from '../../stores';
 import { deleteModel, EMPTY_NARRATION_PLAN, isChunkCached, languageLabel, loadNarrationPlan, qualityProfile } from '../../supertonic';
 import { useTheme } from '../../theme';
+import { findBlockForOffset, type IndexedOffsetRange } from '../../utils';
 import type { AppNavigation, ReaderRoute } from '../../navigation';
 import { makeStyles } from './ReaderScreen.styles';
 
@@ -138,6 +139,13 @@ export default function ReaderScreen() {
   const [showHint, setShowHint] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [followMode, setFollowMode] = useState(true);
+  const blockLayouts = useRef(new Map<number, {
+    page: number;
+    charStart: number;
+    charEnd: number;
+    y: number;
+    height: number;
+  }>());
   const [pendingOffset, setPendingOffset] = useState<number | null>(null);
   const [playPrompt, setPlayPrompt] = useState(false);
 
@@ -203,30 +211,46 @@ export default function ReaderScreen() {
     }, 60);
   }, []);
 
-  const pageForOffset = useCallback(
-    (offset: number) => blocks.find((b) => offset >= b.charStart && offset < b.charEnd)?.page,
+  useEffect(() => {
+    blockLayouts.current.clear();
+  }, [doc?.docHash]);
+
+  const readableBlocks = useMemo<IndexedOffsetRange<Extract<ExtractedBlock, { kind: 'h2' | 'p' }>>[]>(
+    () => blocks.flatMap((block, globalIndex) =>
+      block.kind === 'h2' || block.kind === 'p' ? [{ block, globalIndex }] : []),
     [blocks],
+  );
+
+  const blockForOffset = useCallback(
+    (offset: number) => findBlockForOffset(readableBlocks, offset),
+    [readableBlocks],
   );
 
   // Scroll to a char offset's approximate spot within its page (not the page
   // top), interpolating its fractional position among that page's blocks.
   const scrollToReadingOffset = useCallback(
     (charOffset: number, animated = true) => {
-      const page = pageForOffset(charOffset);
-      if (!page || pageCount <= 0) return;
+      const match = blockForOffset(charOffset);
+      if (!match || pageCount <= 0) return;
+      const page = match.block.page;
       const layout = getItemLayout(data, page - 1);
       if (!layout) return;
-      const items = blocksByPage.get(page);
-      let frac = 0;
-      if (items && items.length) {
-        const cs = items[0].block.charStart;
-        const ce = items[items.length - 1].block.charEnd;
-        if (ce > cs) frac = Math.max(0, Math.min(1, (charOffset - cs) / (ce - cs)));
+      const measured = blockLayouts.current.get(match.globalIndex);
+      if (measured) {
+        const length = Math.max(1, measured.charEnd - measured.charStart);
+        const fraction = Math.max(0, Math.min(1, (charOffset - measured.charStart) / length));
+        const target = Math.max(0, layout.offset + measured.y + fraction * measured.height - 100);
+        listRef.current?.scrollToOffset({ offset: target, animated });
+        return;
       }
-      const target = Math.max(0, layout.offset + frac * layout.length - 100);
+      const items = blocksByPage.get(page);
+      const first = items?.[0]?.block.charStart ?? match.block.charStart;
+      const last = items?.[items.length - 1]?.block.charEnd ?? match.block.charEnd;
+      const fraction = last > first ? Math.max(0, Math.min(1, (charOffset - first) / (last - first))) : 0;
+      const target = Math.max(0, layout.offset + fraction * layout.length - 100);
       listRef.current?.scrollToOffset({ offset: target, animated });
     },
-    [pageForOffset, pageCount, getItemLayout, data, blocksByPage],
+    [blockForOffset, pageCount, getItemLayout, data, blocksByPage],
   );
 
   const toggleFollow = useCallback(() => {
@@ -236,6 +260,19 @@ export default function ReaderScreen() {
       return next;
     });
   }, [activeChunk, scrollToReadingOffset]);
+
+  const disableFollow = useCallback(() => setFollowMode(false), []);
+
+  const recordBlockLayout = useCallback((
+    globalIndex: number,
+    page: number,
+    charStart: number,
+    charEnd: number,
+    y: number,
+    height: number,
+  ) => {
+    blockLayouts.current.set(globalIndex, { page, charStart, charEnd, y, height });
+  }, []);
 
   const isFavourite = doc ? favourites.includes(doc.docHash) : false;
 
@@ -399,6 +436,8 @@ export default function ReaderScreen() {
         getItemLayout={getItemLayout}
         onPageLayout={onPageLayout}
         onPageChanged={setCurrentPage}
+        onUserScroll={disableFollow}
+        onBlockLayout={recordBlockLayout}
         onScrollToIndexFailed={onScrollToIndexFailed}
         onJumpToPage={scrollToPage}
         onToggleFollow={toggleFollow}

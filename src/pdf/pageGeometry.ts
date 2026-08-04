@@ -9,8 +9,8 @@ import type { PageGeometryFile } from './pageGeometryTypes';
 const READER_LINE = 28;
 const HEADING_LINE = 26;
 const TOC_LINE = 30;
-const PARA_MARGIN = 14;
-const HEADING_MARGIN = 18;
+const PARA_MARGIN = 16;
+const HEADING_MARGIN = 32;
 const READER_CPL = 34; // approx chars per line at the reader font + card width
 const HEADING_CPL = 26;
 const PAGE_CHROME = 120; // "Page N" divider + card padding + section margins
@@ -52,7 +52,7 @@ export function estimatePageHeights(blocks: ExtractedBlock[], pageCount: number)
 }
 
 const GEOM_DIR = 'geometry';
-const GEOM_VERSION = 1;
+const GEOM_VERSION = 2;
 
 function geometryFile(docHash: string): File {
   const dir = new Directory(Paths.document, GEOM_DIR);

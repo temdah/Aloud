@@ -1,12 +1,16 @@
 import { useFonts } from 'expo-font';
-import { StatusBar } from 'expo-status-bar';
-import { View } from 'react-native';
+import { StatusBar, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation';
 import { Spinner } from './src/components';
 import { PlaybackProvider } from './src/playback';
 import { PrerenderProvider } from './src/prerender';
-import { fontsToLoad, LIGHT, ThemeProvider } from './src/theme';
+import { fontsToLoad, LIGHT, ThemeProvider, useTheme } from './src/theme';
+
+function AppStatusBar() {
+  const { mode, palette } = useTheme();
+  return <StatusBar barStyle={mode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={palette.background} translucent={false} />;
+}
 
 export default function App() {
   const [fontsLoaded] = useFonts(fontsToLoad);
@@ -25,7 +29,7 @@ export default function App() {
             <Spinner size={28} color={LIGHT.primary} />
           </View>
         )}
-        <StatusBar style="auto" />
+        <AppStatusBar />
       </SafeAreaProvider>
     </ThemeProvider>
   );

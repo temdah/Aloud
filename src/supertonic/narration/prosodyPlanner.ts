@@ -2,14 +2,14 @@ import type { ProsodyBoundary, ProsodyPlan } from './prosodyTypes';
 
 const PAUSE_MS: Record<ProsodyBoundary, number> = {
   none: 0,
-  continuation: 80,
-  comma: 110,
-  clause: 180,
-  sentence: 240,
-  question: 300,
-  exclamation: 280,
-  ellipsis: 360,
-  paragraph: 420,
+  continuation: 65,
+  comma: 90,
+  clause: 150,
+  sentence: 200,
+  question: 250,
+  exclamation: 230,
+  ellipsis: 300,
+  paragraph: 350,
 };
 
 const CLOSING_MARKS = new Set(['"', "'", '\u201d', '\u2019', ')', ']', '}', '\uff09', '\u3011', '\u300b', '\u300d', '\u300f']);

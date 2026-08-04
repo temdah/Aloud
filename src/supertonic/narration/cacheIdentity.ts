@@ -6,8 +6,9 @@ import type { NarrationSettings } from './narrationTypes';
 
 // Bump when synthesis changes the audio produced for otherwise-identical input.
 // v3 removed speed from synthesis; v4 moved output from WAV to AAC; v5 adds
-// punctuation-aware cadence cues and deterministic trailing pauses.
-const SYNTH_VERSION = 6;
+// punctuation-aware cadence cues and deterministic trailing pauses; v7 shortens
+// those pauses after device listening tests.
+const SYNTH_VERSION = 7;
 
 export function settingsHash(settings: NarrationSettings): string {
   return stableHash(
@@ -20,7 +21,7 @@ export function settingsHash(settings: NarrationSettings): string {
 // remain included and still separate genuinely different audio.
 export function sentenceSettingsHash(settings: NarrationSettings): string {
   return stableHash(
-    `sentence-v3|${settings.modelId}|${settings.voiceId}|${normalizeSynthesisSteps(settings.steps)}|${settings.lang}|${normalizeNarrationTone(settings.tone)}`,
+    `sentence-v4|${settings.modelId}|${settings.voiceId}|${normalizeSynthesisSteps(settings.steps)}|${settings.lang}|${normalizeNarrationTone(settings.tone)}`,
   );
 }
 

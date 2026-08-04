@@ -5,3 +5,6 @@ export { isTracing, traceStart, traceStop, traceMark, traceOpen, traceSpan } fro
 export type { Span } from './traceTypes';
 export { stageTimer } from './perf';
 export type { StageTimer } from './perfTypes';
+export { rangesOverlap } from './range';
+export { findBlockForOffset } from './blockLookup';
+export type { IndexedOffsetRange, OffsetRange } from './blockLookupTypes';

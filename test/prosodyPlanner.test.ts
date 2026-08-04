@@ -8,12 +8,12 @@ test('planProsody gives questions and ellipses expressive sentence pauses', () =
 
   assert.deepEqual(planProsody(question, 0, 20), {
     synthesisText: 'Are you still there?',
-    trailingPauseMs: 300,
+    trailingPauseMs: 250,
     boundary: 'question',
   });
   assert.deepEqual(planProsody(ellipsis, 0, 24), {
     synthesisText: 'The footsteps stopped...',
-    trailingPauseMs: 360,
+    trailingPauseMs: 300,
     boundary: 'ellipsis',
   });
 });
@@ -22,7 +22,7 @@ test('planProsody uses a longer pause between paragraphs and cues unpunctuated h
   const text = 'The First Chapter\n\nIt began at midnight.';
   assert.deepEqual(planProsody(text, 0, 17), {
     synthesisText: 'The First Chapter.',
-    trailingPauseMs: 420,
+    trailingPauseMs: 350,
     boundary: 'paragraph',
   });
 
@@ -34,7 +34,7 @@ test('planProsody gives oversized sentence continuations a non-final cadence', (
   const text = 'This sentence needs to continue across another stable unit.';
   assert.deepEqual(planProsody(text, 0, 22), {
     synthesisText: 'This sentence needs to,',
-    trailingPauseMs: 80,
+    trailingPauseMs: 65,
     boundary: 'continuation',
   });
 });

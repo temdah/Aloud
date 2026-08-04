@@ -56,7 +56,11 @@ export const makeStyles = (palette: Palette) =>
       paddingTop: SPACE[7],
       paddingBottom: SPACE[8],
     },
-    heading: { marginBottom: SPACE[5] },
+    heading: {
+      marginTop: SPACE[4],
+      marginBottom: SPACE[4],
+    },
+    paragraph: { marginBottom: SPACE[4] },
     image: {
       width: '100%',
       borderRadius: RADIUS.sm,
